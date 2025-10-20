@@ -1,0 +1,10 @@
+# Changes here will be overwritten by Copier. Do not edit manually.
+_commit: v0.2.18
+_src_path: gh:jlevy/simple-modern-uv
+package_author_email: wg@walnutgeek.com
+package_author_name: Walnut Geek
+package_description: 'Light-weight pythonic db integration - powered by the best of
+    all time: sqlite and pydantic'
+package_github_org: walnutgeek
+package_module: lythonic
+package_name: lythonic
