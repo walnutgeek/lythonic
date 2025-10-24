@@ -38,6 +38,7 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
+    "pydantic"
 ]
 
 
@@ -47,11 +48,15 @@ dependencies = [
 dev = [
     "pytest>=8.3.5",
     "pytest-sugar>=1.0.0",
-    "ruff>=0.11.9",
+    "ruff>=0.14.2",
     "codespell>=2.4.1",
     "rich>=14.0.0",
-    "basedpyright>=1.29.1",
+    "basedpyright>=1.32.1",
     "funlog>=0.2.1",
+    "coverage>=7.6.7",
+    "pytest-cov>=7.0.0",
+    "pytest-asyncio>=1.2.0",
+
 ]
 
 [project.scripts]
@@ -160,6 +165,7 @@ reportUnreachable = false
 # ignore-words-list = "foo,bar"
 # skip = "foo.py,bar.py"
 
+
 [tool.pytest.ini_options]
 python_files = ["*.py"]
 python_classes = ["Test*"]
@@ -170,3 +176,15 @@ testpaths = [
 ]
 norecursedirs = []
 filterwarnings = []
+addopts = ["--doctest-modules", "--cov=src", "--cov-report=term-missing", "--cov-report=xml:cov.xml"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "debug: marks tests for debugging (select with '-m debug')",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.report]
+exclude_lines = [
+    "raise NotImplementedError",
+]
