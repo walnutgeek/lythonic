@@ -176,7 +176,8 @@ testpaths = [
 ]
 norecursedirs = []
 filterwarnings = []
-addopts = ["--doctest-modules", "--cov=src", "--cov-report=term-missing", "--cov-report=xml:cov.xml"]
+
+addopts = ["--import-mode=importlib", "--doctest-modules", "--cov=src", "--cov-report=term-missing", "--cov-report=xml:cov.xml"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "debug: marks tests for debugging (select with '-m debug')",

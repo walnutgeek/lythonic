@@ -154,8 +154,9 @@ class Result(Generic[TOk, TErr]):
     __slots__ = ("_ok", "_err")
 
     def __init__(self, ok: TOk | None = None, err: TErr | None = None) -> None:
-        if (ok is not None) and (err is not None):
-            raise ValueError("Result can only have one of ok or err set.")
+        assert (ok is None and err is not None) or (ok is not None and err is None), (
+            "Result can only have one of ok or err set."
+        )
         self._ok = ok
         self._err = err
 
