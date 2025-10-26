@@ -1,16 +1,21 @@
+import shutil
 from pathlib import Path
 
 
-def ensure_dir(dir: Path) -> Path:
+def ensure_dir(dir: Path | str) -> Path:
+    dir = Path(dir)
     dir.mkdir(parents=True, exist_ok=True)
     return dir
 
 
-def ensure_file_deleted_but_parent_exists(test_db_path: Path | str) -> Path:
-    """make sure that db does not exist, but parent dir does"""
-    test_db_path = Path(test_db_path)
-    if test_db_path.exists():
-        test_db_path.unlink()
-    if not test_db_path.parent.is_dir():
-        ensure_dir(test_db_path.parent)
-    return test_db_path
+def tabula_rasa_path(p: Path | str) -> Path:
+    """Make sure that path does not exists, but parent dir does"""
+    p = Path(p)
+    if p.exists():
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+    if not p.parent.is_dir():
+        ensure_dir(p.parent)
+    return p

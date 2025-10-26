@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from lythonic.misc import ensure_file_deleted_but_parent_exists
+from lythonic.misc import tabula_rasa_path
 from lythonic.state import (
     FieldInfo,
     open_sqlite_db,
@@ -47,7 +47,7 @@ def test_dll():
 
 
 # test db cleanup
-test_db_path = ensure_file_deleted_but_parent_exists(Path("build/tests/test.db"))
+test_db_path = tabula_rasa_path(Path("build/tests/test.db"))
 
 
 def search_caplog(
