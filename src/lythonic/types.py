@@ -127,7 +127,7 @@ def is_primitive(type_: type) -> bool:
     return type_ in (int, float, bool, str)
 
 
-class SQLiteTypes(Enum):
+class DbTypeInfo(Enum):
     def __init__(self, input_types: tuple[type, ...], target_type: type):
         assert isinstance(input_types, tuple), f"input_types must be tuple, not {type(input_types)}"
         cls = self.__class__
@@ -146,9 +146,9 @@ class SQLiteTypes(Enum):
     BLOB = ((bytes,), bytes)
 
     @classmethod
-    def from_type(cls, t: type) -> "SQLiteTypes":
+    def from_type(cls, t: type) -> "DbTypeInfo":
         return cast(
-            SQLiteTypes,
+            DbTypeInfo,
             cls._value2member_map_[t],
         )
 
@@ -172,7 +172,7 @@ class KnownType:
     db: MapPair[Any]
 
     @classmethod
-    def ensure(cls, type_: Any) -> "KnownType":
+    def ensure(cls, type_: "type | str | KnownType") -> "KnownType":
         if isinstance(type_, KnownType):
             return type_
         return KNOWN_TYPES.resolve_type(type_)
@@ -209,7 +209,7 @@ class KnownType:
                 map_from_db = passthru_none(map_from_string, if_none=map_from_db)
                 map_to_db = passthru_none(map_to_string, if_none=map_to_db)
             else:
-                if db_type is None and SQLiteTypes.is_db_type(concrete_type):
+                if db_type is None and DbTypeInfo.is_db_type(concrete_type):
                     db_type = concrete_type
                 if db_type is not None:
                     map_from_db = passthru_none(db_type, concrete_type, if_none=map_from_db)
@@ -292,7 +292,6 @@ class KnownType:
         self.string = MapPair(map_from_string, map_to_string, str)
         self.json = MapPair(map_from_json, map_to_json, json_type)
         self.db = MapPair(map_from_db, map_to_db, db_type)
-
         self.name = (name if name is not None else self.type_.__name__).lower()
         self.aliases = set()
         self.aliases.add(self.name)
@@ -301,8 +300,8 @@ class KnownType:
                 self.aliases.add(alias.lower())
 
     @property
-    def sqlite_type(self) -> SQLiteTypes:
-        return SQLiteTypes.from_type(self.db.target_type)
+    def db_type_info(self) -> DbTypeInfo:
+        return DbTypeInfo.from_type(self.db.target_type)
 
     @override
     def __repr__(self) -> str:
@@ -442,7 +441,7 @@ KNOWN_TYPES = KnownTypesMap()
 KNOWN_TYPES.register(
     KnownType(concrete_type=int),
     KnownType(concrete_type=float),
-    KnownType(concrete_type=str),
+    KnownType(concrete_type=str, aliases=["literal"]),
     KnownType(concrete_type=bool),
     KnownType(concrete_type=bytes),
     KnownType(

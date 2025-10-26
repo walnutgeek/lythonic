@@ -8,9 +8,9 @@ import pytest
 from lythonic.misc import ensure_file_deleted_but_parent_exists
 from lythonic.state import (
     FieldInfo,
-    TypeInfo,
     open_sqlite_db,
 )
+from lythonic.types import KnownType
 from tests.rag_schema import (
     RagAction,
     RagActionCollection,
@@ -23,7 +23,7 @@ from tests.rag_schema import (
 def test_type_info():
     assert FieldInfo.build("timestamp", RagAction.model_fields["timestamp"]) == (
         "timestamp",
-        TypeInfo.get("datetime"),
+        KnownType.ensure("datetime"),
         "When the attempt was made",
         False,
         False,
@@ -39,6 +39,10 @@ def test_dll():
     assert (
         RagSource.create_ddl()
         == "CREATE TABLE RagSource (source_id INTEGER PRIMARY KEY, absolute_path TEXT)"
+    )
+    assert (
+        RagActionCollection.create_ddl()
+        == "CREATE TABLE RagActionCollection (action_id INTEGER REFERENCES RagAction(action_id), action TEXT, collection TEXT, timestamp TEXT)"
     )
 
 

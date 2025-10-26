@@ -8,6 +8,8 @@ from typing import Any, Generic, NamedTuple, TypeVar, cast
 
 from pydantic import BaseModel
 
+from lythonic.types import KnownType
+
 logger = logging.getLogger("llore.state")
 
 
@@ -22,23 +24,12 @@ def query_db(conn: sqlite3.Connection, sql: str, *args: Any) -> list[tuple[Any, 
     return cursor.fetchall()
 
 
-class TypeInfo(NamedTuple):
-    sql_type: str
-    to_sql_fn: Callable[[Any], Any]
-    from_sql_fn: Callable[[Any], Any]
-    to_str_fn: Callable[[Any], str]
-
-    @classmethod
-    def get(cls, field_name: str) -> "TypeInfo":
-        return _type_info_values[field_name]
-
-
 T = TypeVar("T", bound="DbModel")  # pyright: ignore [reportMissingTypeArgument]
 
 
 class FieldInfo(NamedTuple):
     name: str
-    type_info: TypeInfo
+    ktype: KnownType
     description: str
     nullable: bool
     primary_key: bool
@@ -69,9 +60,10 @@ class FieldInfo(NamedTuple):
             foreign_key = table_name, field_name
         else:
             foreign_key = None
+
         return cls(
             name=name,
-            type_info=TypeInfo.get(type_name),
+            ktype=KnownType.ensure(type_name),
             description=description,
             nullable=is_nullable,
             primary_key=is_primary_key,
@@ -80,10 +72,10 @@ class FieldInfo(NamedTuple):
 
     def to_sql_value(self, o: "DbModel[T]") -> Any:
         v = getattr(o, self.name)
-        return None if v is None else self.type_info.to_sql_fn(v)
+        return self.ktype.db.map_to(v)
 
     def from_sql_value(self, v: Any) -> Any:
-        return None if v is None else self.type_info.from_sql_fn(v)
+        return self.ktype.db.map_from(v)
 
     def set_value(self, o: "DbModel[T]", v: Any):
         setattr(o, self.name, self.from_sql_value(v))
@@ -117,7 +109,7 @@ class DbModel(BaseModel, Generic[T]):
         fields: list[str] = []
         for fi in cls.get_field_infos():
             type_name = (
-                f"{fi.type_info.sql_type}{' NULL' if fi.nullable else ''}"
+                f"{fi.ktype.db_type_info.name}{' NULL' if fi.nullable else ''}"
                 + f"{' PRIMARY KEY' if fi.primary_key else ''}"
                 + (
                     f" REFERENCES {fi.foreign_key[0]}({fi.foreign_key[1]})"
@@ -210,7 +202,7 @@ class DbModel(BaseModel, Generic[T]):
             cursor,
             f"SELECT {', '.join([fi.name for fi in fields])} FROM {cls.get_table_name()} "
             + f"WHERE {' AND '.join([f'{k} = ?' for k in filters])}",
-            [field_map[k].type_info.to_sql_fn(filters[k]) for k in filters],
+            [field_map[k].ktype.db.map_to(filters[k]) for k in filters],
         )
         return [cls._from_row(row, fields) for row in cursor.fetchall()]
 
@@ -237,15 +229,6 @@ def from_multi_model_row(
 
 def to_sql_datetime(dt: datetime) -> str:
     return dt.isoformat()
-
-
-_type_info_values = {
-    "int": TypeInfo("INTEGER", int, int, str),
-    "str": TypeInfo("TEXT", str, str, str),
-    "Path": TypeInfo("TEXT", str, Path, str),
-    "datetime": TypeInfo("TEXT", to_sql_datetime, datetime.fromisoformat, str),
-    "Literal": TypeInfo("TEXT", str, str, str),
-}
 
 
 @contextmanager
