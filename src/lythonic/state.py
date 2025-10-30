@@ -247,3 +247,26 @@ def open_sqlite_db(db_name: str | Path):
         yield conn
     finally:
         conn.close()
+
+
+class Schema:
+    tables: list[type[DbModel[Any]]]
+
+    def __init__(self, tables: list[type[DbModel[Any]]]):
+        self.tables = tables
+
+    def check_all_tables_exist(self, conn: sqlite3.Connection):
+        cursor = conn.cursor()
+        execute_sql(cursor, "SELECT name FROM sqlite_master WHERE type='table' ")
+        all_tables = set(r[0] for r in cursor.fetchall())
+        return all(t.get_table_name() in all_tables for t in self.tables)
+
+    def create_tables(self, conn: sqlite3.Connection):
+        cursor = conn.cursor()
+        for table in self.tables:
+            execute_sql(cursor, table.create_ddl())
+        conn.commit()
+
+    def create_schema(self, path: Path):
+        with open_sqlite_db(path) as conn:
+            self.create_tables(conn)

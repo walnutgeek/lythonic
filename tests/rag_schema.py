@@ -6,7 +6,7 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
-from lythonic.state import DbModel, execute_sql, from_multi_model_row, open_sqlite_db
+from lythonic.state import DbModel, Schema, execute_sql, from_multi_model_row
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +72,7 @@ class ConvoSession(DbModel["ConvoSession"]):
     session_type: Literal["active", "completed", "failed", "archived"] = "active"
 
 
-tables = [RagSource, RagAction, RagActionCollection, ConvoMessage, ConvoSession]
-
-
-def check_all_tables_exist(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    execute_sql(cursor, "SELECT name FROM sqlite_master WHERE type='table' ")
-    all_tables = set(r[0] for r in cursor.fetchall())
-    return all(t.get_table_name() in all_tables for t in tables)
-
-
-def create_tables(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    for table in tables:
-        execute_sql(cursor, table.create_ddl())
-    conn.commit()
-
-
-def create_schema(path: Path):
-    with open_sqlite_db(path) as conn:
-        create_tables(conn)
+SCHEMA = Schema([RagSource, RagAction, RagActionCollection, ConvoMessage, ConvoSession])
 
 
 def select_all_active_sources(

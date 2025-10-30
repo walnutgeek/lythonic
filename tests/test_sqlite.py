@@ -12,10 +12,12 @@ from lythonic.state import (
 )
 from lythonic.types import KnownType
 from tests.rag_schema import (
+    SCHEMA as RAG_SCHEMA,
+)
+from tests.rag_schema import (
     RagAction,
     RagActionCollection,
     RagSource,
-    create_schema,
     select_all_active_sources,
 )
 
@@ -62,7 +64,7 @@ def search_caplog(
 
 def test_sqlite_db(caplog: pytest.LogCaptureFixture):
     caplog.set_level(logging.DEBUG)
-    create_schema(test_db_path)
+    RAG_SCHEMA.create_schema(test_db_path)
     extract = tuple(search_caplog(caplog, "execute: ", category="llore.state"))
     print(extract)
     assert extract == (

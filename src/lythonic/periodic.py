@@ -29,9 +29,9 @@ def total_microseconds(d: timedelta) -> int:
     return (d.days * SECONDS_IN_DAY + d.seconds) * 1_000_000 + d.microseconds
 
 
-def stamp_time() -> datetime:
+def utc_now() -> datetime:
     """return the current time in UTC
-    >>> stamp_time().tzinfo
+    >>> utc_now().tzinfo
     datetime.timezone.utc
     """
     return datetime.now(UTC)
@@ -61,7 +61,7 @@ def dt_from_bytes(b: bytes) -> datetime:
     return EPOCH_ZERO + timedelta(microseconds=mics)
 
 
-DT_BYTES_LENGTH = len(dt_to_bytes(stamp_time()))
+DT_BYTES_LENGTH = len(dt_to_bytes(utc_now()))
 
 
 class SimulatedTime:
@@ -69,7 +69,7 @@ class SimulatedTime:
     >>> st = SimulatedTime()
     >>> st.get_datetime().tzinfo
     datetime.timezone.utc
-    >>> cmp = lambda ss: abs((st.get_datetime()-stamp_time()).total_seconds()-ss) < 1e-3
+    >>> cmp = lambda ss: abs((st.get_datetime()-utc_now()).total_seconds()-ss) < 1e-3
     >>> cmp(0)
     True
     >>> st.set_offset(timedelta(days=1))
@@ -78,10 +78,10 @@ class SimulatedTime:
     >>> st.set_offset(timedelta(days=1).total_seconds())
     >>> cmp(86400)
     True
-    >>> st.set_now(stamp_time() + timedelta(days=1))
+    >>> st.set_now(utc_now() + timedelta(days=1))
     >>> cmp(86400)
     True
-    >>> st.set_now( (stamp_time() - timedelta(days=1)).timestamp() )
+    >>> st.set_now( (utc_now() - timedelta(days=1)).timestamp() )
     >>> cmp(-86400)
     True
     >>> st.is_real_time()
