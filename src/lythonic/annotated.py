@@ -67,7 +67,7 @@ class Method:
     _o: Callable[..., Any] | None
     _args: list[ArgInfo] | None
     _args_by_name: dict[str, ArgInfo] | None
-    _returns: Any | None
+    _return_annotation: Any | None
 
     def __init__(self, o: Callable[..., Any] | GlobalRef):
         if isinstance(o, GlobalRef):
@@ -79,14 +79,14 @@ class Method:
             self._o = o
         self._args = None
         self._args_by_name = None
-        self._returns = None
+        self._return_annotation = None
 
     def _update_from_signature(self):
         o = self.o
         sig = inspect.signature(o)
         self._args = [ArgInfo.from_param(param, origin=o) for param in sig.parameters.values()]
         self._args_by_name = {arg.name: arg for arg in self._args}
-        self._returns = sig.return_annotation
+        self._return_annotation = sig.return_annotation
 
     @property
     def o(self) -> Callable[..., Any]:
@@ -110,10 +110,10 @@ class Method:
         return self._args_by_name
 
     @property
-    def returns(self) -> Any | None:
+    def return_annotation(self) -> Any | None:
         if self._args is None:
             self._update_from_signature()
-        return self._returns
+        return self._return_annotation
 
     @property
     def name(self):
