@@ -1,20 +1,17 @@
 import logging
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
+from lythonic import utc_now
 from lythonic.state import DbModel, Schema, execute_sql, from_multi_model_row
 
 logger = logging.getLogger(__name__)
 
 ActionType = Literal["new", "update", "delete"]
-
-
-def utc_now():
-    return datetime.now(UTC)
 
 
 class RagSource(DbModel["RagSource"]):

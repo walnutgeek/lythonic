@@ -18,6 +18,7 @@ from lythonic.periodic import (
 )
 
 
+# TODO: this test is slow and fails sometimes. See file: tests/test_periodic_ocasional_fail.txt
 @pytest.mark.slow
 def test_periodic():
     results: list[tuple[float, ...]] = []

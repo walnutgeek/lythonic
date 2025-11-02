@@ -1,0 +1,323 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-8.4.2, pluggy-1.6.0
+rootdir: D:\a\lythonic\lythonic
+configfile: pyproject.toml
+testpaths: src, tests
+plugins: asyncio-1.2.0, cov-7.0.0, sugar-1.1.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 31 items
+
+src\lythonic\__init__.py ..                                              [  6%]
+src\lythonic\annotated.py .                                              [  9%]
+src\lythonic\periodic.py .........                                       [ 38%]
+src\lythonic\types.py ..                                                 [ 45%]
+tests\test_annotated.py ...                                              [ 54%]
+tests\test_gref.py ..                                                    [ 61%]
+tests\test_kit.py .                                                      [ 64%]
+tests\test_misc.py .                                                     [ 67%]
+tests\test_periodic.py F....                                             [ 83%]
+tests\test_sqlite.py ....                                                [ 96%]
+tests\test_types.py .                                                    [100%]
+
+================================== FAILURES ===================================
+________________________________ test_periodic ________________________________
+
+    @pytest.mark.slow
+    def test_periodic():
+        results: list[tuple[float, ...]] = []
+        beginning = time.time()
+    
+        def dump_results(*t: Any):
+            a = (time.time() - beginning, *t)
+            print(a)
+            results.append(a)
+    
+        async def run_all_tasks():
+            def build_fn(
+                return_value: bool,
+                async_fn: bool,
+                sleep_time: float,
+            ):
+                prefix: str = "a" if async_fn else ""
+                rx = "r" if return_value else "x"
+                n = f"{prefix}sync_fn_{rx}_{sleep_time}"
+    
+                def fn_end(start: float) -> float:
+                    t = time.time()
+                    dump_results("fn_end", n, t - start)
+                    if return_value:
+                        return sleep_time
+                    else:
+                        raise ValueError(sleep_time)
+    
+                if async_fn:
+    
+                    async def fn() -> float:  # pyright: ignore [reportRedeclaration]
+                        start = time.time()
+                        await asyncio.sleep(sleep_time)
+                        return fn_end(start)
+                else:
+    
+                    def fn() -> float:
+                        start = time.time()
+                        time.sleep(sleep_time)
+                        return fn_end(start)
+    
+                fn.__name__ = n
+                return fn
+    
+            shutdown_event = asyncio.Event()
+    
+            f_tasks = asyncio.create_task(
+                run_all(
+                    *[
+                        PeriodicTask(*v)
+                        for v in [
+                            (6, build_fn(True, True, 1)),
+                            (8, build_fn(True, False, 2)),
+                            (4, build_fn(False, True, 1)),
+                            (7, build_fn(False, False, 1)),
+                        ]
+                    ],
+                    shutdown_event=shutdown_event,
+                    collect_results=lambda n, r: dump_results("result", n, r),
+                )
+            )
+    
+            await asyncio.sleep(20)
+            shutdown_event.set()
+            await f_tasks
+            return results
+    
+        asyncio.run(run_all_tasks())
+    
+        def r2s(t: tuple[Any, ...]) -> str:
+            if t[1] == "fn_end":
+                t = (int(t[0]), t[1], t[2], int(t[3]))
+            elif t[1] == "result":
+                v = t[3]
+                if isinstance(v, tuple):
+                    v = cast(tuple[type, Any], v[:2])
+                t = (int(t[0]), t[1], t[2], v)
+            return str(t)
+    
+        str_results = tuple(map(r2s, results))
+        for s in str_results:
+            print(f"{s!r},")
+>       assert str_results == (
+            "(1, 'fn_end', 'async_fn_r_1', 1)",
+            "(1, 'result', 'async_fn_r_1', 1)",
+            "(3, 'fn_end', 'sync_fn_r_2', 2)",
+            "(3, 'result', 'sync_fn_r_2', 2)",
+            "(4, 'fn_end', 'async_fn_x_1', 1)",
+            "(4, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(5, 'fn_end', 'sync_fn_x_1', 1)",
+            "(5, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(6, 'fn_end', 'async_fn_x_1', 1)",
+            "(6, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(7, 'fn_end', 'async_fn_r_1', 1)",
+            "(7, 'result', 'async_fn_r_1', 1)",
+            "(8, 'fn_end', 'sync_fn_x_1', 1)",
+            "(8, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(10, 'fn_end', 'sync_fn_r_2', 2)",
+            "(10, 'result', 'sync_fn_r_2', 2)",
+            "(11, 'fn_end', 'async_fn_x_1', 1)",
+            "(11, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(13, 'fn_end', 'async_fn_r_1', 1)",
+            "(13, 'result', 'async_fn_r_1', 1)",
+            "(14, 'fn_end', 'async_fn_x_1', 1)",
+            "(14, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(15, 'fn_end', 'sync_fn_x_1', 1)",
+            "(15, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(18, 'fn_end', 'sync_fn_r_2', 2)",
+            "(18, 'result', 'sync_fn_r_2', 2)",
+            "(19, 'fn_end', 'async_fn_x_1', 1)",
+            "(19, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+            "(20, 'fn_end', 'sync_fn_x_1', 1)",
+            "(20, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+        )
+E       assert ("(1, 'fn_end...or(1)))", ...) == ("(1, 'fn_end...or(1)))", ...)
+E         
+E         At index 10 diff: "(7, 'fn_end', 'async_fn_r_1', 0)" != "(7, 'fn_end', 'async_fn_r_1', 1)"
+E         
+E         Full diff:
+E           (
+E               "(1, 'fn_end', 'async_fn_r_1', 1)",
+E               "(1, 'result', 'async_fn_r_1', 1)",
+E               "(3, 'fn_end', 'sync_fn_r_2', 2)",
+E               "(3, 'result', 'sync_fn_r_2', 2)",
+E               "(4, 'fn_end', 'async_fn_x_1', 1)",
+E               "(4, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E               "(5, 'fn_end', 'sync_fn_x_1', 1)",
+E               "(5, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E               "(6, 'fn_end', 'async_fn_x_1', 1)",
+E               "(6, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         -     "(7, 'fn_end', 'async_fn_r_1', 1)",
+E         ?                                    ^
+E         +     "(7, 'fn_end', 'async_fn_r_1', 0)",
+E         ?                                    ^
+E               "(7, 'result', 'async_fn_r_1', 1)",
+E               "(8, 'fn_end', 'sync_fn_x_1', 1)",
+E               "(8, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E               "(10, 'fn_end', 'sync_fn_r_2', 2)",
+E               "(10, 'result', 'sync_fn_r_2', 2)",
+E               "(11, 'fn_end', 'async_fn_x_1', 1)",
+E               "(11, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         -     "(13, 'fn_end', 'async_fn_r_1', 1)",
+E         ?                               ^
+E         +     "(13, 'fn_end', 'async_fn_x_1', 1)",
+E         ?                               ^
+E         -     "(13, 'result', 'async_fn_r_1', 1)",
+E         -     "(14, 'fn_end', 'async_fn_x_1', 1)",
+E         -     "(14, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         ?        ^
+E         +     "(13, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         ?        ^
+E         +     "(14, 'fn_end', 'async_fn_r_1', 1)",
+E         +     "(14, 'result', 'async_fn_r_1', 1)",
+E               "(15, 'fn_end', 'sync_fn_x_1', 1)",
+E               "(15, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E               "(18, 'fn_end', 'sync_fn_r_2', 2)",
+E               "(18, 'result', 'sync_fn_r_2', 2)",
+E               "(19, 'fn_end', 'async_fn_x_1', 1)",
+E               "(19, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         -     "(20, 'fn_end', 'sync_fn_x_1', 1)",
+E         ?                              ^
+E         +     "(20, 'fn_end', 'async_fn_r_1', 1)",
+E         ?                      +        ^
+E         -     "(20, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+E         +     "(20, 'result', 'async_fn_r_1', 1)",
+E           )
+
+tests\test_periodic.py:103: AssertionError
+---------------------------- Captured stdout call -----------------------------
+(1.011458158493042, 'fn_end', 'async_fn_r_1', 1.0014007091522217)
+(1.011458158493042, 'result', 'async_fn_r_1', 1)
+(3.0409510135650635, 'fn_end', 'sync_fn_r_2', 2.000640392303467)
+(3.041287660598755, 'result', 'sync_fn_r_2', 2)
+(4.051576852798462, 'fn_end', 'async_fn_x_1', 1.010289192199707)
+(4.051576852798462, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB6789BF00>))
+(5.053049802780151, 'fn_end', 'sync_fn_x_1', 1.0014729499816895)
+(5.053049802780151, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB67899DC0>))
+(6.054006814956665, 'fn_end', 'async_fn_x_1', 1.0009570121765137)
+(6.054006814956665, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB67899F40>))
+(7.041667699813843, 'fn_end', 'async_fn_r_1', 0.9876608848571777)
+(7.041667699813843, 'result', 'async_fn_r_1', 1)
+(8.042608737945557, 'fn_end', 'sync_fn_x_1', 1.0009410381317139)
+(8.042608737945557, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB67899280>))
+(10.043427467346191, 'fn_end', 'sync_fn_r_2', 2.0008187294006348)
+(10.043427467346191, 'result', 'sync_fn_r_2', 2)
+(11.046722888946533, 'fn_end', 'async_fn_x_1', 1.0032954216003418)
+(11.046722888946533, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB6789BD80>))
+(13.049639463424683, 'fn_end', 'async_fn_x_1', 1.0007872581481934)
+(13.049639463424683, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB67899CC0>))
+(14.056697130203247, 'fn_end', 'async_fn_r_1', 1.0070576667785645)
+(14.056697130203247, 'result', 'async_fn_r_1', 1)
+(15.057697772979736, 'fn_end', 'sync_fn_x_1', 1.0010006427764893)
+(15.057697772979736, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB6789AD00>))
+(18.059639930725098, 'fn_end', 'sync_fn_r_2', 2.0004522800445557)
+(18.059639930725098, 'result', 'sync_fn_r_2', 2)
+(19.060186624526978, 'fn_end', 'async_fn_x_1', 1.0005466938018799)
+(19.060186624526978, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1), <traceback object at 0x000001DB67899A80>))
+(20.070650815963745, 'fn_end', 'async_fn_r_1', 1.0104641914367676)
+(20.070650815963745, 'result', 'async_fn_r_1', 1)
+"(1, 'fn_end', 'async_fn_r_1', 1)",
+"(1, 'result', 'async_fn_r_1', 1)",
+"(3, 'fn_end', 'sync_fn_r_2', 2)",
+"(3, 'result', 'sync_fn_r_2', 2)",
+"(4, 'fn_end', 'async_fn_x_1', 1)",
+"(4, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(5, 'fn_end', 'sync_fn_x_1', 1)",
+"(5, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(6, 'fn_end', 'async_fn_x_1', 1)",
+"(6, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(7, 'fn_end', 'async_fn_r_1', 0)",
+"(7, 'result', 'async_fn_r_1', 1)",
+"(8, 'fn_end', 'sync_fn_x_1', 1)",
+"(8, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(10, 'fn_end', 'sync_fn_r_2', 2)",
+"(10, 'result', 'sync_fn_r_2', 2)",
+"(11, 'fn_end', 'async_fn_x_1', 1)",
+"(11, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(13, 'fn_end', 'async_fn_x_1', 1)",
+"(13, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(14, 'fn_end', 'async_fn_r_1', 1)",
+"(14, 'result', 'async_fn_r_1', 1)",
+"(15, 'fn_end', 'sync_fn_x_1', 1)",
+"(15, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(18, 'fn_end', 'sync_fn_r_2', 2)",
+"(18, 'result', 'sync_fn_r_2', 2)",
+"(19, 'fn_end', 'async_fn_x_1', 1)",
+"(19, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+"(20, 'fn_end', 'async_fn_r_1', 1)",
+"(20, 'result', 'async_fn_r_1', 1)",
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.12.10-final-0 _______________
+
+Name                        Stmts   Miss  Cover   Missing
+---------------------------------------------------------
+src\lythonic\__init__.py       95      0   100%
+src\lythonic\annotated.py     270     17    94%   42, 47, 56, 74-75, 94, 108, 115, 163, 206, 223, 231-234, 318, 358
+src\lythonic\kit.py            66      8    88%   22, 44, 98-101, 105, 109
+src\lythonic\logic.py           0      0   100%
+src\lythonic\misc.py           15      0   100%
+src\lythonic\periodic.py      183     12    93%   170-174, 220, 224, 271, 337, 346, 348-349
+src\lythonic\state.py         163     10    94%   22-24, 158, 212, 231, 259-262
+src\lythonic\types.py         292     51    83%   45, 49-51, 55, 76, 127, 135, 162, 177, 250-280, 327-332, 334, 346, 355, 365, 367, 379, 433-434
+---------------------------------------------------------
+TOTAL                        1084     98    91%
+Coverage XML written to file cov.xml
+=========================== short test summary info ===========================
+FAILED tests/test_periodic.py::test_periodic - assert ("(1, 'fn_end...or(1)))", ...) == ("(1, 'fn_end...or(1)))", ...)
+  
+  At index 10 diff: "(7, 'fn_end', 'async_fn_r_1', 0)" != "(7, 'fn_end', 'async_fn_r_1', 1)"
+  
+  Full diff:
+    (
+        "(1, 'fn_end', 'async_fn_r_1', 1)",
+        "(1, 'result', 'async_fn_r_1', 1)",
+        "(3, 'fn_end', 'sync_fn_r_2', 2)",
+        "(3, 'result', 'sync_fn_r_2', 2)",
+        "(4, 'fn_end', 'async_fn_x_1', 1)",
+        "(4, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+        "(5, 'fn_end', 'sync_fn_x_1', 1)",
+        "(5, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+        "(6, 'fn_end', 'async_fn_x_1', 1)",
+        "(6, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  -     "(7, 'fn_end', 'async_fn_r_1', 1)",
+  ?                                    ^
+  +     "(7, 'fn_end', 'async_fn_r_1', 0)",
+  ?                                    ^
+        "(7, 'result', 'async_fn_r_1', 1)",
+        "(8, 'fn_end', 'sync_fn_x_1', 1)",
+        "(8, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+        "(10, 'fn_end', 'sync_fn_r_2', 2)",
+        "(10, 'result', 'sync_fn_r_2', 2)",
+        "(11, 'fn_end', 'async_fn_x_1', 1)",
+        "(11, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  -     "(13, 'fn_end', 'async_fn_r_1', 1)",
+  ?                               ^
+  +     "(13, 'fn_end', 'async_fn_x_1', 1)",
+  ?                               ^
+  -     "(13, 'result', 'async_fn_r_1', 1)",
+  -     "(14, 'fn_end', 'async_fn_x_1', 1)",
+  -     "(14, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  ?        ^
+  +     "(13, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  ?        ^
+  +     "(14, 'fn_end', 'async_fn_r_1', 1)",
+  +     "(14, 'result', 'async_fn_r_1', 1)",
+        "(15, 'fn_end', 'sync_fn_x_1', 1)",
+        "(15, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+        "(18, 'fn_end', 'sync_fn_r_2', 2)",
+        "(18, 'result', 'sync_fn_r_2', 2)",
+        "(19, 'fn_end', 'async_fn_x_1', 1)",
+        "(19, 'result', 'async_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  -     "(20, 'fn_end', 'sync_fn_x_1', 1)",
+  ?                              ^
+  +     "(20, 'fn_end', 'async_fn_r_1', 1)",
+  ?                      +        ^
+  -     "(20, 'result', 'sync_fn_x_1', (<class 'ValueError'>, ValueError(1)))",
+  +     "(20, 'result', 'async_fn_r_1', 1)",
+    )
+======================== 1 failed, 30 passed in 23.65s ========================

@@ -1,5 +1,6 @@
 import logging
 import sys
+from datetime import UTC, datetime
 from inspect import isclass, iscoroutinefunction, isfunction, ismodule
 from types import ModuleType
 from typing import Annotated, Any, Generic, TypeVar, final
@@ -196,3 +197,22 @@ class Result(Generic[TOk, TErr]):
             return f"Ok({self._ok!r})"
         else:
             return f"Err({self._err!r})"
+
+
+def utc_now() -> datetime:
+    """return the current time in UTC
+    >>> utc_now().tzinfo
+    datetime.timezone.utc
+    """
+    return datetime.now(UTC)
+
+
+def str_or_none(s: Any) -> str | None:
+    """
+    >>> str_or_none(None)
+    >>> str_or_none(5)
+    '5'
+    >>> str_or_none('')
+    ''
+    """
+    return str(s) if s is not None else None

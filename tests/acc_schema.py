@@ -1,13 +1,11 @@
 import logging
-import sqlite3
 from datetime import date, datetime
-from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 
-from lythonic.periodic import utc_now
-from lythonic.state import DbModel, execute_sql, open_sqlite_db
+from lythonic import utc_now
+from lythonic.state import DbModel, Schema
 
 logger = logging.getLogger(__name__)
 
@@ -78,23 +76,4 @@ class CashEvent(DbModel["CashEvent"]):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-tables = [Organization, Account, ScheduledEvent, CashEvent]
-
-
-def check_all_tables_exist(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    execute_sql(cursor, "SELECT name FROM sqlite_master WHERE type='table' ")
-    all_tables = set(r[0] for r in cursor.fetchall())
-    return all(t.get_table_name() in all_tables for t in tables)
-
-
-def create_tables(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-    for table in tables:
-        execute_sql(cursor, table.create_ddl())
-    conn.commit()
-
-
-def create_schema(path: Path):
-    with open_sqlite_db(path) as conn:
-        create_tables(conn)
+SCHEMA = Schema(tables=[Organization, Account, ScheduledEvent, CashEvent])

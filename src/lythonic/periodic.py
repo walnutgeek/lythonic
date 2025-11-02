@@ -9,7 +9,7 @@ from typing import Annotated, Any, final
 from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
 from typing_extensions import override
 
-from lythonic.types import str_or_none
+from lythonic import str_or_none, utc_now
 
 log = logging.getLogger(__name__)
 
@@ -27,14 +27,6 @@ EPOCH_ZERO = datetime(1970, 1, 1, tzinfo=UTC)
 
 def total_microseconds(d: timedelta) -> int:
     return (d.days * SECONDS_IN_DAY + d.seconds) * 1_000_000 + d.microseconds
-
-
-def utc_now() -> datetime:
-    """return the current time in UTC
-    >>> utc_now().tzinfo
-    datetime.timezone.utc
-    """
-    return datetime.now(UTC)
 
 
 def dt_to_bytes(dt: datetime) -> bytes:

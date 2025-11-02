@@ -12,7 +12,8 @@ from pydantic import (
 )
 from typing_extensions import override
 
-from lythonic import GlobalRef, GRef
+from lythonic import GlobalRef, GRef, str_or_none
+from lythonic.periodic import Interval
 
 # using this to allow for monkeypatching for NumPy
 json_loads = _json.loads
@@ -53,17 +54,6 @@ def ensure_bytes(input: str | bytes) -> bytes:
 
 def do_identity(x: Any) -> Any:
     return x
-
-
-def str_or_none(s: Any) -> str | None:
-    """
-    >>> str_or_none(None)
-    >>> str_or_none(5)
-    '5'
-    >>> str_or_none('')
-    ''
-    """
-    return str(s) if s is not None else None
 
 
 def passthru_none(
@@ -454,8 +444,8 @@ KNOWN_TYPES.register(
         map_to_string=lambda x: x.isoformat(),
         map_from_string=datetime.fromisoformat,
     ),
+    KnownType(concrete_type=Interval, map_to_string=str),
     KnownType(abstract_type=Path, map_from_string=Path),
     # TODO: when appropriate packages are available entries below should be initialized
-    # KnownType("interval", Interval, json_type=str),
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
 )
