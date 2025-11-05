@@ -10,6 +10,7 @@ from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
 from typing_extensions import override
 
 from lythonic import str_or_none, utc_now
+from lythonic.types import KNOWN_TYPES, KnownType
 
 log = logging.getLogger(__name__)
 
@@ -222,6 +223,10 @@ IntervalSafe = Annotated[
     PlainSerializer(str_or_none, return_type=str),
     WithJsonSchema({"anyOf": [{"type": "string"}, {"type": "null"}]}),
 ]
+
+KNOWN_TYPES.register(
+    KnownType(concrete_type=Interval, map_to_string=str),
+)
 
 
 def date_from_name(s: str) -> date:

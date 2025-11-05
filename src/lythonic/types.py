@@ -13,7 +13,6 @@ from pydantic import (
 from typing_extensions import override
 
 from lythonic import GlobalRef, GRef, str_or_none
-from lythonic.periodic import Interval
 
 # using this to allow for monkeypatching for NumPy
 json_loads = _json.loads
@@ -444,7 +443,6 @@ KNOWN_TYPES.register(
         map_to_string=lambda x: x.isoformat(),
         map_from_string=datetime.fromisoformat,
     ),
-    KnownType(concrete_type=Interval, map_to_string=str),
     KnownType(abstract_type=Path, map_from_string=Path),
     # TODO: when appropriate packages are available entries below should be initialized
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
