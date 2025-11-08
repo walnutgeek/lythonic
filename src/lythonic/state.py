@@ -3,14 +3,16 @@ import sqlite3
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, NamedTuple, TypeVar, cast
+from types import NoneType, UnionType
+from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
 from lythonic.types import KnownType
 
-logger = logging.getLogger("llore.state")
+logger = logging.getLogger("lythonic.state")
 
 
 def execute_sql(cursor: sqlite3.Cursor, sql: str, *args: Any):
@@ -34,18 +36,43 @@ class FieldInfo(NamedTuple):
     nullable: bool
     primary_key: bool
     foreign_key: tuple[str, str] | None
+    fixed_choices: list[Any] | None  # For enum types and literal types
 
     @classmethod
     def build(cls, name: str, field_info: Any) -> "FieldInfo":
-        type_name = (
-            field_info.annotation.__name__
-            if hasattr(field_info.annotation, "__name__")
-            else str(field_info.annotation)
-        )
+        assert field_info.annotation is not None, f"Field {name} has no annotation"
+        ann = field_info.annotation
+        type_: type[Any]
+        fixed_choices: list[Any] | None = None
+        if isinstance(ann, type):
+            type_ = ann
+            is_nullable = False
+        else:
+            origin = get_origin(ann)
+            if origin is UnionType:
+                args = get_args(ann)
+                nones = [arg for arg in args if arg is NoneType]
+                valid_types = [arg for arg in args if arg is not NoneType]
+                assert len(valid_types) == 1 and len(nones) == 1, (
+                    f"Union {ann} must have exactly 2 types and one of them must be None"
+                )
+                type_ = valid_types[0]
+                is_nullable = True
+            elif origin is Literal:
+                args = get_args(ann)
+                nones = [arg is NoneType or arg is None for arg in args]
+                fixed_choices = [a for a, n in zip(args, nones, strict=True) if not n]
+                is_nullable = any(nones)
+                types: set[type[Any]] = {type(c) for c in fixed_choices}
+                assert len(types) == 1, f"Literal {ann} must have only one type"
+                type_ = types.pop()
+            else:
+                raise AssertionError(f"Unknown field annotation type: {ann}")
+
+        if issubclass(type_, Enum):
+            fixed_choices = list(type_)
+
         description = field_info.description or ""
-        is_nullable = type_name.endswith("| None")
-        if is_nullable:
-            type_name = type_name[:-6].strip()
         is_primary_key = description.startswith("(PK)")
         if is_primary_key:
             description = description[4:].strip()
@@ -63,11 +90,12 @@ class FieldInfo(NamedTuple):
 
         return cls(
             name=name,
-            ktype=KnownType.ensure(type_name),
+            ktype=KnownType.ensure(type_),
             description=description,
             nullable=is_nullable,
             primary_key=is_primary_key,
             foreign_key=foreign_key,
+            fixed_choices=fixed_choices,
         )
 
     def to_sql_value(self, o: "DbModel[T]") -> Any:
@@ -109,11 +137,16 @@ class DbModel(BaseModel, Generic[T]):
         fields: list[str] = []
         for fi in cls.get_field_infos():
             type_name = (
-                f"{fi.ktype.db_type_info.name}{' NULL' if fi.nullable else ''}"
+                f"{fi.ktype.db_type_info.name}{'' if fi.primary_key or fi.nullable else ' NOT NULL'}"
                 + f"{' PRIMARY KEY' if fi.primary_key else ''}"
                 + (
                     f" REFERENCES {fi.foreign_key[0]}({fi.foreign_key[1]})"
                     if fi.foreign_key
+                    else ""
+                )
+                + (
+                    f" CHECK ({fi.name} IN ({', '.join([repr(c) for c in fi.fixed_choices])}))"
+                    if fi.fixed_choices
                     else ""
                 )
             )

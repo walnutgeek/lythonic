@@ -2,7 +2,6 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 from pydantic import Field
 
 from lythonic.types import KNOWN_TYPES, JsonBase, KnownType
@@ -39,7 +38,6 @@ def test_json_base():
     # assert jb.type_gref == GlobalRef(JsonBase)
 
 
-@pytest.mark.debug
 def test_known_types():
     def do_roundtrip_by_type(raw: Any, map_to: str | None = None, fail: bool = False) -> None:
         ktype: KnownType = KNOWN_TYPES.resolve_type(type(raw))  # pyright: ignore
