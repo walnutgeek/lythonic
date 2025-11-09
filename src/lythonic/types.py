@@ -2,7 +2,7 @@ import base64
 import json as _json
 from collections.abc import Callable
 from datetime import date, datetime
-from enum import Enum
+from enum import Enum, IntEnum
 from pathlib import Path
 from typing import Any, Generic, Self, TypeVar, cast
 
@@ -147,8 +147,132 @@ class DbTypeInfo(Enum):
         return type_ in cls._value2member_map_
 
 
-def not_nones(*vals: Any) -> tuple[bool, ...]:
-    return tuple(v is not None for v in vals)
+class KnownTypeArgs(BaseModel):
+    map_from_string: Callable[[str], Any] | None = None
+    map_to_string: Callable[[Any], str] | None = None
+    map_from_json: Callable[[Any], Any] | None = None
+    map_to_json: Callable[[Any], Any] | None = None
+    map_from_db: Callable[[Any], Any] | None = None
+    map_to_db: Callable[[Any], Any] | None = None
+    db_type: type | None = None
+    json_type: type | None = None
+    concrete_type: type | None = None
+    abstract_type: type | None = None
+    is_factory: bool = False
+    name: str | None = None
+    aliases: list[str] | None = None
+
+    def get_type(self) -> type:
+        assert self.abstract_type is not None or self.concrete_type is not None
+        if self.concrete_type is not None:
+            assert self.abstract_type is None and not self.is_factory, (
+                "concrete types cannot be factories"
+            )
+            return self.concrete_type
+        assert self.abstract_type is not None, " Redundant but no other way to shut up pyright"
+        return self.abstract_type
+
+    def is_abstract(self) -> bool:
+        return self.abstract_type is self.get_type()
+
+    def build_concrete_type(self, concrete_type: type) -> Self:
+        assert self.is_factory, "only factory types can build concrete types"
+        super_type = self.get_type()
+        assert issubclass(concrete_type, super_type), (
+            f"concrete type {concrete_type} is not a subclass of abstract type {super_type}"
+        )
+        clone = self.model_copy()
+        clone.concrete_type = concrete_type
+        clone.abstract_type = None
+        clone.is_factory = False
+        if clone.map_from_string is super_type:
+            clone.map_from_string = concrete_type
+        if clone.map_from_json is super_type:
+            clone.map_from_json = concrete_type
+        if clone.map_from_db is super_type:
+            clone.map_from_db = concrete_type
+        return clone
+
+    def _set_string_defaults(self) -> None:
+        if self.db_type is None:
+            self.db_type = str
+        if self.json_type is None:
+            self.json_type = str
+        self.map_from_string = passthru_none(self.get_type(), if_none=self.map_from_string)
+        self.map_to_string = passthru_none(str, if_none=self.map_to_string)
+        self.map_from_json = passthru_none(self.map_from_string, if_none=self.map_from_json)
+        self.map_to_json = passthru_none(self.map_to_string, if_none=self.map_to_json)
+        self.map_from_db = passthru_none(self.map_from_string, if_none=self.map_from_db)
+        self.map_to_db = passthru_none(self.map_to_string, if_none=self.map_to_db)
+
+    def _set_db_defaults(self) -> None:
+        assert self.db_type is not None and self.map_from_db is not None
+        self.map_to_db = passthru_none(self.db_type, if_none=self.map_to_db)
+        if self.db_type is bytes:
+            if self.json_type is None:
+                self.json_type = str
+            self.map_from_json = passthru_none(ensure_bytes, if_none=self.map_from_json)
+            self.map_to_json = passthru_none(encode_base64, if_none=self.map_to_json)
+            self.map_from_string = passthru_none(
+                ensure_bytes, self.map_from_db, if_none=self.map_from_string
+            )
+            self.map_to_string = passthru_none(
+                self.map_to_db, encode_base64, if_none=self.map_to_string
+            )
+        else:
+            if self.json_type is None:
+                self.json_type = self.db_type
+            self.map_from_json = passthru_none(self.map_from_db, if_none=self.map_from_json)
+            self.map_to_json = passthru_none(self.map_to_db, if_none=self.map_to_json)
+            self.map_from_string = passthru_none(
+                self.db_type, self.map_from_db, if_none=self.map_from_string
+            )
+            self.map_to_string = passthru_none(self.map_to_db, str, if_none=self.map_to_string)
+
+    def resolve_the_rest(self) -> Self:
+        assert not self.is_factory, "factory types cannot resolve the rest"
+        if self.concrete_type is not None:
+            assert self.abstract_type is None
+            if self.map_from_string is not None or self.map_to_string is not None:
+                self._set_string_defaults()
+            if self.db_type is None and DbTypeInfo.is_db_type(self.concrete_type):  # pyright: ignore
+                self.db_type = self.concrete_type
+            if self.db_type is not None:
+                self.map_from_db = passthru_none(
+                    self.db_type, self.concrete_type, if_none=self.map_from_db
+                )
+                self._set_db_defaults()
+
+        else:
+            assert self.abstract_type is not None
+            assert (
+                self.map_from_string is not None
+                or self.map_from_json is not None
+                or self.map_from_db is not None
+            )
+            if self.map_from_string is not None:
+                self._set_string_defaults()
+            elif self.map_from_json is not None:
+                if self.db_type is None:
+                    self.db_type = str
+                if self.json_type is None:
+                    self.json_type = dict
+                self.map_from_json = passthru_none(self.map_from_json)
+                self.map_to_json = passthru_none(lambda j: j.to_json(), if_none=self.map_to_json)
+                self.map_from_string = passthru_none(
+                    json_loads, self.map_from_json, if_none=self.map_from_string
+                )
+                self.map_to_string = passthru_none(
+                    self.map_to_json, json_dumps, if_none=self.map_to_string
+                )
+                self.map_from_db = passthru_none(self.map_from_string, if_none=self.map_from_db)
+                self.map_to_db = passthru_none(self.map_to_string, if_none=self.map_to_db)
+            elif self.db_type is not None:
+                assert self.map_from_db is not None
+                self.map_from_db = passthru_none(self.map_from_db)
+                self._set_db_defaults()
+
+        return self
 
 
 class KnownType:
@@ -168,125 +292,35 @@ class KnownType:
 
     def __init__(
         self,
-        name: str | None = None,
-        aliases: list[str] | None = None,
-        map_from_string: Callable[[str], Any] | None = None,
-        map_to_string: Callable[[Any], str] | None = None,
-        concrete_type: type | None = None,
-        abstract_type: type | None = None,
-        map_from_json: Callable[[Any], Any] | None = None,
-        map_to_json: Callable[[Any], Any] | None = None,
-        json_type: type | None = None,
-        map_from_db: Callable[[Any], Any] | None = None,
-        map_to_db: Callable[[Any], Any] | None = None,
-        db_type: type | None = None,
+        args: KnownTypeArgs,
     ) -> None:
-        assert abstract_type is not None or concrete_type is not None
-        if concrete_type is not None:
-            assert abstract_type is None
-            self.type_ = concrete_type
-            self.is_abstract = False
-            if map_from_string is not None or map_to_string is not None:
-                if db_type is None:
-                    db_type = str
-                if json_type is None:
-                    json_type = str
-                map_from_string = passthru_none(concrete_type, if_none=map_from_string)
-                map_to_string = passthru_none(str, if_none=map_to_string)
-                map_from_json = passthru_none(map_from_string, if_none=map_from_json)
-                map_to_json = passthru_none(map_to_string, if_none=map_to_json)
-                map_from_db = passthru_none(map_from_string, if_none=map_from_db)
-                map_to_db = passthru_none(map_to_string, if_none=map_to_db)
-            else:
-                if db_type is None and DbTypeInfo.is_db_type(concrete_type):
-                    db_type = concrete_type
-                if db_type is not None:
-                    map_from_db = passthru_none(db_type, concrete_type, if_none=map_from_db)
-                    map_to_db = passthru_none(db_type, if_none=map_to_db)
-                    if db_type is bytes:
-                        if json_type is None:
-                            json_type = bytes
-                        map_from_json = passthru_none(ensure_bytes, if_none=map_from_json)
-                        map_to_json = passthru_none(encode_base64, if_none=map_to_json)
-                        map_from_string = passthru_none(ensure_bytes, if_none=map_from_string)
-                        map_to_string = passthru_none(encode_base64, if_none=map_to_string)
-                    else:
-                        if json_type is None:
-                            json_type = db_type
-                        map_from_json = passthru_none(map_from_db, if_none=map_from_json)
-                        map_to_json = passthru_none(map_to_db, if_none=map_to_json)
-                        map_from_string = passthru_none(concrete_type, if_none=map_from_string)
-                        map_to_string = passthru_none(str, if_none=map_to_string)
-
-        else:
-            assert abstract_type is not None
-            self.type_ = abstract_type
-            self.is_abstract = True
-            assert (
-                map_from_string is not None or map_from_json is not None or map_from_db is not None
-            )
-            if map_from_string is not None:
-                if db_type is None:
-                    db_type = str
-                if json_type is None:
-                    json_type = str
-                map_from_string = passthru_none(map_from_string)
-                map_to_string = passthru_none(str, if_none=map_to_string)
-                map_from_json = passthru_none(map_from_string, if_none=map_from_json)
-                map_to_json = passthru_none(map_to_string, if_none=map_to_json)
-                map_from_db = passthru_none(map_from_string, if_none=map_from_db)
-                map_to_db = passthru_none(map_to_string, if_none=map_to_db)
-            elif map_from_json is not None:
-                if db_type is None:
-                    db_type = str
-                if json_type is None:
-                    json_type = dict
-                map_from_json = passthru_none(map_from_json)
-                map_to_json = passthru_none(lambda j: j.to_json(), if_none=map_to_json)
-                map_from_string = passthru_none(json_loads, map_from_json, if_none=map_from_string)
-                map_to_string = passthru_none(map_to_json, json_dumps, if_none=map_to_string)
-                map_from_db = passthru_none(map_from_string, if_none=map_from_db)
-                map_to_db = passthru_none(map_to_string, if_none=map_to_db)
-            elif db_type is not None:
-                assert map_from_db is not None
-                map_from_db = passthru_none(map_from_db)
-                map_to_db = passthru_none(db_type, if_none=map_to_db)
-                if db_type is bytes:
-                    if json_type is None:
-                        json_type = str
-                    map_from_json = passthru_none(ensure_bytes, if_none=map_from_json)
-                    map_to_json = passthru_none(encode_base64, if_none=map_to_json)
-                    map_from_string = passthru_none(
-                        ensure_bytes, map_from_db, if_none=map_from_string
-                    )
-                    map_to_string = passthru_none(map_to_db, encode_base64, if_none=map_to_string)
-                else:
-                    if json_type is None:
-                        json_type = db_type
-                    map_from_json = passthru_none(map_from_db, if_none=map_from_json)
-                    map_to_json = passthru_none(map_to_db, if_none=map_to_json)
-                    map_from_string = passthru_none(db_type, map_from_db, if_none=map_from_string)
-                    map_to_string = passthru_none(map_to_db, str, if_none=map_to_string)
-
+        assert not args.is_factory, "factory types cannot be initialized directly"
+        self.type_ = args.get_type()
+        self.is_abstract = args.is_abstract()
+        args.resolve_the_rest()
         assert (
-            db_type is not None
-            and map_from_db is not None
-            and map_to_db is not None
-            and json_type is not None
-            and map_from_json is not None
-            and map_to_json is not None
-            and map_from_string is not None
-            and map_to_string is not None
-        )
-        self.string = MapPair(map_from_string, map_to_string, str)
-        self.json = MapPair(map_from_json, map_to_json, json_type)
-        self.db = MapPair(map_from_db, map_to_db, db_type)
-        self.name = (name if name is not None else self.type_.__name__).lower()
+            args.db_type is not None
+            and args.map_from_db is not None
+            and args.map_to_db is not None
+            and args.json_type is not None
+            and args.map_from_json is not None
+            and args.map_to_json is not None
+            and args.map_from_string is not None
+            and args.map_to_string is not None
+        ), f"{self.type_} has not been resolved"
+
+        self.string = MapPair(args.map_from_string, args.map_to_string, str)  # pyright: ignore
+        self.json = MapPair(args.map_from_json, args.map_to_json, args.json_type)
+        self.db = MapPair(args.map_from_db, args.map_to_db, args.db_type)
+        self.name = (args.name if args.name is not None else self.type_.__name__).lower()
         self.aliases = set()
         self.aliases.add(self.name)
-        if aliases is not None:
-            for alias in aliases:
+        if args.aliases is not None:
+            for alias in args.aliases:
                 self.aliases.add(alias.lower())
+
+    def get_type(self) -> type:
+        return self.type_
 
     @property
     def db_type_info(self) -> DbTypeInfo:
@@ -299,12 +333,15 @@ class KnownType:
 
 class AbstractTypeHeap:
     type_: type
-    ktype: KnownType | None
-    parent: "AbstractTypeHeap|None"
+    ktype: KnownType | KnownTypeArgs | None
+    parent: "AbstractTypeHeap | None"
     children: list["AbstractTypeHeap"]
 
     def __init__(
-        self, type_: type, ktype: KnownType | None = None, parent: "AbstractTypeHeap|None" = None
+        self,
+        type_: type,
+        ktype: KnownType | KnownTypeArgs | None = None,
+        parent: "AbstractTypeHeap|None" = None,
     ) -> None:
         self.type_ = type_
         self.ktype = ktype
@@ -356,12 +393,12 @@ class AbstractTypeHeap:
                 return child._find_in_children(type_in_question)
         return None, self
 
-    def add(self, t: KnownType) -> None:
-        found, found_parent = self.find(t.type_)
+    def add(self, t: KnownType | KnownTypeArgs) -> None:
+        found, found_parent = self.find(t.get_type())
         assert found is None, (
-            f"Duplicate abstract type {t.type_} but generally should not happen found= {found}, found_parent={found_parent}"
+            f"Duplicate abstract type {t.get_type} but generally should not happen found= {found}, found_parent={found_parent}"
         )
-        AbstractTypeHeap(t.type_, t, found_parent)
+        AbstractTypeHeap(t.get_type(), t, found_parent)
 
     @override
     def __repr__(self) -> str:
@@ -378,15 +415,21 @@ class KnownTypesMap:
         self.types_by_type = {}
         self.abstract_types = AbstractTypeHeap.root()
 
-    def register(self, *types: KnownType) -> None:
-        for t in types:
-            for alias in t.aliases:
-                assert alias not in self.types, f"Duplicate alias {alias} for {t}"
+    def register(self, *array_of_args: KnownTypeArgs) -> None:
+        for args in array_of_args:
+            if not args.is_factory:
+                self.register_type(KnownType(args))
+            else:
+                self.abstract_types.add(args)
+
+    def register_type(self, t: KnownType) -> None:
+        for alias in t.aliases:
+            if alias not in self.types:
                 self.types[alias] = t
-            assert t.type_ not in self.types_by_type, f"Duplicate type {t.type_} for {t}"
-            self.types_by_type[t.type_] = t
-            if t.is_abstract:
-                self.abstract_types.add(t)
+        assert t.get_type() not in self.types_by_type, f"Duplicate type {t.get_type()}"
+        self.types_by_type[t.type_] = t
+        if t.is_abstract:
+            self.abstract_types.add(t)
 
     def resolve_type(self, type_: type | str) -> KnownType:
         """
@@ -420,6 +463,12 @@ class KnownTypesMap:
             )
             if super_type is not None and not super_type.is_root():
                 assert super_type.ktype is not None
+                if isinstance(super_type.ktype, KnownTypeArgs):
+                    args: KnownTypeArgs = super_type.ktype
+                    ktype: KnownType = KnownType(args.build_concrete_type(type_))
+                    self.register_type(ktype)
+                    return ktype
+                assert super_type.ktype is KnownType
                 return super_type.ktype
         raise ValueError(f"Unknown type {type_}")
 
@@ -428,22 +477,26 @@ KNOWN_TYPES = KnownTypesMap()
 
 
 KNOWN_TYPES.register(
-    KnownType(concrete_type=int),
-    KnownType(concrete_type=float),
-    KnownType(concrete_type=str, aliases=["literal"]),
-    KnownType(concrete_type=bool),
-    KnownType(concrete_type=bytes),
-    KnownType(
+    KnownTypeArgs(concrete_type=int),
+    KnownTypeArgs(concrete_type=float),
+    KnownTypeArgs(concrete_type=str, aliases=["literal"]),
+    KnownTypeArgs(concrete_type=bool),
+    KnownTypeArgs(concrete_type=bytes),
+    KnownTypeArgs(
         concrete_type=date,
         map_to_string=lambda x: x.isoformat(),
         map_from_string=date.fromisoformat,
     ),
-    KnownType(
+    KnownTypeArgs(
         concrete_type=datetime,
         map_to_string=lambda x: x.isoformat(),
         map_from_string=datetime.fromisoformat,
     ),
-    KnownType(abstract_type=Path, map_from_string=Path),
+    KnownTypeArgs(abstract_type=Path, map_from_string=Path),
+    KnownTypeArgs(
+        abstract_type=Enum, is_factory=True, map_from_string=Enum, map_to_string=lambda x: x.value
+    ),
+    KnownTypeArgs(abstract_type=IntEnum, db_type=int, is_factory=True, map_from_db=IntEnum),
     # TODO: when appropriate packages are available entries below should be initialized
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
 )

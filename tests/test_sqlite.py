@@ -43,7 +43,6 @@ acc_ddls = (
 )
 
 
-@pytest.mark.debug
 def test_ddl():
     assert rag.RagSource.create_ddl() == rag_ddls[0]
     assert rag.RagAction.create_ddl() == rag_ddls[1]

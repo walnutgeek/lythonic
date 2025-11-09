@@ -98,6 +98,11 @@ class FieldInfo(NamedTuple):
             fixed_choices=fixed_choices,
         )
 
+    def check_constraint_ddl(self) -> str:
+        if self.fixed_choices is not None:
+            return f" CHECK ({self.name} IN ({', '.join([repr(self.ktype.db.map_to(c)) for c in self.fixed_choices])}))"
+        return ""
+
     def to_sql_value(self, o: "DbModel[T]") -> Any:
         v = getattr(o, self.name)
         return self.ktype.db.map_to(v)
@@ -144,11 +149,7 @@ class DbModel(BaseModel, Generic[T]):
                     if fi.foreign_key
                     else ""
                 )
-                + (
-                    f" CHECK ({fi.name} IN ({', '.join([repr(c) for c in fi.fixed_choices])}))"
-                    if fi.fixed_choices
-                    else ""
-                )
+                + fi.check_constraint_ddl()
             )
             fields.append(f"{fi.name} {type_name}")
 

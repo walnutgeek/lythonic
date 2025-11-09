@@ -1,10 +1,40 @@
 # Placeholder for an empty build.
 from datetime import UTC, date, datetime
+from enum import Enum, IntEnum
 from typing import Any
 
-from pydantic import Field
+import pytest
+from pydantic import Field, ValidationError
 
 from lythonic.types import KNOWN_TYPES, JsonBase, KnownType
+
+
+class FruitEnum(str, Enum):
+    pear = "pear"
+    banana = "banana"
+
+
+class ToolEnum(IntEnum):
+    spanner = 1
+    wrench = 2
+
+
+class CookingModel(JsonBase):
+    fruit: FruitEnum = FruitEnum.pear
+    tool: ToolEnum = ToolEnum.spanner
+
+
+def test_enum():
+    assert (
+        repr(CookingModel())
+        == "CookingModel(type_gref=GlobalRef('tests.test_types:CookingModel'), fruit=<FruitEnum.pear: 'pear'>, tool=<ToolEnum.spanner: 1>)"
+    )
+    assert (
+        repr(CookingModel(tool=2, fruit="banana"))  # pyright: ignore
+        == "CookingModel(type_gref=GlobalRef('tests.test_types:CookingModel'), fruit=<FruitEnum.banana: 'banana'>, tool=<ToolEnum.wrench: 2>)"
+    )
+    with pytest.raises(ValidationError):
+        CookingModel(fruit="other")  # pyright: ignore
 
 
 class A(JsonBase):
@@ -38,6 +68,7 @@ def test_json_base():
     # assert jb.type_gref == GlobalRef(JsonBase)
 
 
+@pytest.mark.debug
 def test_known_types():
     def do_roundtrip_by_type(raw: Any, map_to: str | None = None, fail: bool = False) -> None:
         ktype: KnownType = KNOWN_TYPES.resolve_type(type(raw))  # pyright: ignore
@@ -76,3 +107,11 @@ def test_known_types():
     do_roundtrip_by_type(
         b"hello", "mapped_str='aGVsbG8=' -> mapped_json='aGVsbG8=' -> mapped_db=b'hello'"
     )
+    assert FruitEnum not in KNOWN_TYPES.types_by_type
+    assert ToolEnum not in KNOWN_TYPES.types_by_type
+    do_roundtrip_by_type(
+        FruitEnum.pear, "mapped_str='pear' -> mapped_json='pear' -> mapped_db='pear'"
+    )
+    do_roundtrip_by_type(ToolEnum.spanner, "mapped_str='1' -> mapped_json=1 -> mapped_db=1")
+    assert FruitEnum in KNOWN_TYPES.types_by_type
+    assert ToolEnum in KNOWN_TYPES.types_by_type
