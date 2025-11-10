@@ -1,4 +1,5 @@
 import base64
+import inspect
 import json as _json
 from collections.abc import Callable
 from datetime import date, datetime
@@ -17,6 +18,10 @@ from lythonic import GlobalRef, GRef, str_or_none
 # using this to allow for monkeypatching for NumPy
 json_loads = _json.loads
 json_dumps = _json.dumps
+
+
+def base_model_to_json(bm: BaseModel) -> dict[str, Any]:
+    return bm.model_dump(mode="json")
 
 
 class JsonBase(BaseModel):
@@ -38,7 +43,7 @@ class JsonBase(BaseModel):
         return cls.model_validate(json)
 
     def to_json(self) -> dict[str, Any]:
-        return self.model_dump(mode="json")
+        return base_model_to_json(self)
 
 
 def encode_base64(bb: bytes) -> str:
@@ -185,12 +190,27 @@ class KnownTypeArgs(BaseModel):
         clone.concrete_type = concrete_type
         clone.abstract_type = None
         clone.is_factory = False
-        if clone.map_from_string is super_type:
-            clone.map_from_string = concrete_type
-        if clone.map_from_json is super_type:
-            clone.map_from_json = concrete_type
-        if clone.map_from_db is super_type:
-            clone.map_from_db = concrete_type
+
+        def remap_constructor_from_super_type_to_concrete_type(
+            x: Callable[[Any], Any] | None,
+        ) -> Callable[[Any], Any] | None:
+            if x is None:
+                return None
+            if x is super_type:  # switch to constructor of concrete type
+                return concrete_type
+            if (
+                inspect.ismethod(x) and x.__self__ is super_type
+            ):  # switch to class  method of concrete type
+                return getattr(concrete_type, x.__name__)
+            return x  # leave as is
+
+        clone.map_from_string = remap_constructor_from_super_type_to_concrete_type(
+            clone.map_from_string
+        )
+        clone.map_from_json = remap_constructor_from_super_type_to_concrete_type(
+            clone.map_from_json
+        )
+        clone.map_from_db = remap_constructor_from_super_type_to_concrete_type(clone.map_from_db)
         return clone
 
     def _set_string_defaults(self) -> None:
@@ -229,19 +249,41 @@ class KnownTypeArgs(BaseModel):
             )
             self.map_to_string = passthru_none(self.map_to_db, str, if_none=self.map_to_string)
 
+    def _set_json_defaults(self) -> bool:
+        if self.map_from_json is not None and self.map_to_json is not None:
+            if self.db_type is None:
+                self.db_type = str
+            if self.json_type is None:
+                self.json_type = dict
+            self.map_from_json = passthru_none(self.map_from_json)
+            self.map_to_json = passthru_none(self.map_to_json)
+            self.map_from_string = passthru_none(
+                json_loads, self.map_from_json, if_none=self.map_from_string
+            )
+            self.map_to_string = passthru_none(
+                self.map_to_json, json_dumps, if_none=self.map_to_string
+            )
+            self.map_from_db = passthru_none(self.map_from_string, if_none=self.map_from_db)
+            self.map_to_db = passthru_none(self.map_to_string, if_none=self.map_to_db)
+            return True
+        return False
+
     def resolve_the_rest(self) -> Self:
         assert not self.is_factory, "factory types cannot resolve the rest"
         if self.concrete_type is not None:
             assert self.abstract_type is None
             if self.map_from_string is not None or self.map_to_string is not None:
                 self._set_string_defaults()
-            if self.db_type is None and DbTypeInfo.is_db_type(self.concrete_type):  # pyright: ignore
-                self.db_type = self.concrete_type
-            if self.db_type is not None:
-                self.map_from_db = passthru_none(
-                    self.db_type, self.concrete_type, if_none=self.map_from_db
-                )
-                self._set_db_defaults()
+            else:
+                if self.db_type is None and DbTypeInfo.is_db_type(self.concrete_type):  # pyright: ignore
+                    self.db_type = self.concrete_type
+                if self.db_type is not None:
+                    self.map_from_db = passthru_none(
+                        self.db_type, self.concrete_type, if_none=self.map_from_db
+                    )
+                    self._set_db_defaults()
+                else:
+                    self._set_json_defaults()
 
         else:
             assert self.abstract_type is not None
@@ -252,21 +294,8 @@ class KnownTypeArgs(BaseModel):
             )
             if self.map_from_string is not None:
                 self._set_string_defaults()
-            elif self.map_from_json is not None:
-                if self.db_type is None:
-                    self.db_type = str
-                if self.json_type is None:
-                    self.json_type = dict
-                self.map_from_json = passthru_none(self.map_from_json)
-                self.map_to_json = passthru_none(lambda j: j.to_json(), if_none=self.map_to_json)
-                self.map_from_string = passthru_none(
-                    json_loads, self.map_from_json, if_none=self.map_from_string
-                )
-                self.map_to_string = passthru_none(
-                    self.map_to_json, json_dumps, if_none=self.map_to_string
-                )
-                self.map_from_db = passthru_none(self.map_from_string, if_none=self.map_from_db)
-                self.map_to_db = passthru_none(self.map_to_string, if_none=self.map_to_db)
+            elif self._set_json_defaults():
+                pass
             elif self.db_type is not None:
                 assert self.map_from_db is not None
                 self.map_from_db = passthru_none(self.map_from_db)
@@ -468,7 +497,9 @@ class KnownTypesMap:
                     ktype: KnownType = KnownType(args.build_concrete_type(type_))
                     self.register_type(ktype)
                     return ktype
-                assert super_type.ktype is KnownType
+                assert isinstance(super_type.ktype, KnownType), (
+                    f"super_type.ktype is not a KnownType: {super_type.ktype}"
+                )
                 return super_type.ktype
         raise ValueError(f"Unknown type {type_}")
 
@@ -497,6 +528,19 @@ KNOWN_TYPES.register(
         abstract_type=Enum, is_factory=True, map_from_string=Enum, map_to_string=lambda x: x.value
     ),
     KnownTypeArgs(abstract_type=IntEnum, db_type=int, is_factory=True, map_from_db=IntEnum),
+    KnownTypeArgs(
+        abstract_type=BaseModel,
+        json_type=dict,
+        is_factory=True,
+        map_from_json=BaseModel.model_validate,
+        map_to_json=base_model_to_json,
+    ),
+    KnownTypeArgs(
+        abstract_type=JsonBase,
+        json_type=dict,
+        map_from_json=JsonBase.from_json,
+        map_to_json=base_model_to_json,
+    ),
     # TODO: when appropriate packages are available entries below should be initialized
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
 )

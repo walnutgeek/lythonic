@@ -86,6 +86,18 @@ class GlobalRef:
     def __repr__(self):
         return f"{self.__class__.__name__}({repr(str(self))})"
 
+    @override
+    def __eq__(self, other: Any) -> bool:
+        return str(self) == str(other)
+
+    @override
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    @override
+    def __ne__(self, other: Any) -> bool:
+        return not self == other
+
     def get_module(self) -> ModuleType:
         return __import__(self.module, fromlist=[""])
 

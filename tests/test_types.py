@@ -4,7 +4,7 @@ from enum import Enum, IntEnum
 from typing import Any
 
 import pytest
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from lythonic.types import KNOWN_TYPES, JsonBase, KnownType
 
@@ -20,6 +20,11 @@ class ToolEnum(IntEnum):
 
 
 class CookingModel(JsonBase):
+    fruit: FruitEnum = FruitEnum.pear
+    tool: ToolEnum = ToolEnum.spanner
+
+
+class CookingBase(BaseModel):
     fruit: FruitEnum = FruitEnum.pear
     tool: ToolEnum = ToolEnum.spanner
 
@@ -115,3 +120,18 @@ def test_known_types():
     do_roundtrip_by_type(ToolEnum.spanner, "mapped_str='1' -> mapped_json=1 -> mapped_db=1")
     assert FruitEnum in KNOWN_TYPES.types_by_type
     assert ToolEnum in KNOWN_TYPES.types_by_type
+
+    assert CookingBase not in KNOWN_TYPES.types_by_type
+    assert CookingModel not in KNOWN_TYPES.types_by_type
+
+    do_roundtrip_by_type(
+        CookingModel(fruit="banana"),  # pyright: ignore
+        """mapped_str='{"type_gref": "tests.test_types:CookingModel", "fruit": "banana", "tool": 1}' -> mapped_json={'type_gref': 'tests.test_types:CookingModel', 'fruit': 'banana', 'tool': 1} -> mapped_db='{"type_gref": "tests.test_types:CookingModel", "fruit": "banana", "tool": 1}'""",
+    )
+    do_roundtrip_by_type(
+        CookingBase(fruit="banana"),  # pyright: ignore
+        """mapped_str='{"fruit": "banana", "tool": 1}' -> mapped_json={'fruit': 'banana', 'tool': 1} -> mapped_db='{"fruit": "banana", "tool": 1}'""",
+    )
+
+    assert CookingBase in KNOWN_TYPES.types_by_type
+    assert CookingModel not in KNOWN_TYPES.types_by_type
