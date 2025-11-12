@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 from datetime import date, datetime
 from typing import Literal
 
@@ -45,7 +46,6 @@ class Account(DbModel["Account"]):
 
 class ScheduledEvent(DbModel["ScheduledEvent"]):
     sch_id: int = Field(default=-1, description="(PK) Unique identifier for the scheduled event")
-    is_active: bool = Field(default=False, description="Whether the event is active")
     acc_id: int = Field(description="(FK:Account.acc_id) Reference to the account")
     description_template: str = Field(description="Description template for the event")
     event_type: EventType = Field(description="Type of event")
@@ -55,10 +55,58 @@ class ScheduledEvent(DbModel["ScheduledEvent"]):
     day_in_the_cycle: int = Field(
         description="Day of the cycle (day of week 0-6/month 1-31/year 0-365)"
     )
+    reminder_days: int | None = Field(default=None, description="Days before due to remind user")
+
+    # versioning fields
+    root_version_id: int | None = Field(
+        default=None,
+        description="(FK:RootVersionScheduledEvent.sch_id) Reference to the root version",
+    )
+    is_active: bool = Field(default=True, description="Whether the event is active")
     start_date: date = Field(description="Start date of the event")
     end_date: date | None = Field(default=None, description="End date of the event")
-    reminder_days: int | None = Field(default=None, description="Days before due to remind user")
-    created_at: datetime = Field(default_factory=utc_now)
+    modified_at: datetime = Field(default_factory=utc_now)
+
+    def save_versioned(self, conn: sqlite3.Connection, as_of: date | None = None) -> None:
+        if as_of is None:
+            as_of = date.today()
+        assert self.end_date is None, (
+            f"use enddate_record() explicitly if you want logicali remove this record: {self}"
+        )
+        assert self.root_version_id is None and self.start_date <= as_of and self.is_active, (
+            f"sainity check failed: {self}"
+        )
+        if self.sch_id == -1:  # new record
+            self.root_version_id = None
+            self.start_date = as_of
+            self.end_date = None
+        else:
+            rr = self.select(conn, sch_id=self.sch_id)
+            assert len(rr) == 1
+            # save previous version
+            prev = rr[0]
+            assert prev.end_date is None, f"cannot modify enddated record: {prev}"
+            assert prev.start_date <= as_of, f"sainity check failed: {prev}"
+            if prev.start_date != as_of:  # save previous version
+                prev.root_version_id = prev.sch_id
+                prev.sch_id = -1
+                prev.is_active = False
+                prev.end_date = as_of
+                prev.save(conn)
+        self.start_date = as_of
+        self.is_active = True
+        self.root_version_id = None
+        self.modified_at = utc_now()
+        self.save(conn)
+
+    def enddate_record(self, conn: sqlite3.Connection, as_of: date) -> None:
+        assert self.end_date is None, f"already ended: {self}"
+        assert self.start_date <= as_of and self.is_active, f"sainity check failed: {self}"
+        self.end_date = as_of
+        self.is_active = False
+        self.root_version_id = None
+        self.modified_at = utc_now()
+        self.save(conn)
 
 
 class CashEvent(DbModel["CashEvent"]):
@@ -70,10 +118,18 @@ class CashEvent(DbModel["CashEvent"]):
     sch_id: int | None = Field(
         default=None, description="(FK:ScheduledEvent.sch_id) Reference to scheduled event"
     )
+    event_type: EventType = Field(description="Type of event")
     event_date: date = Field(description="Date of the event")
     amount: float = Field(description="Amount of the event")
     description: str | None = Field(default=None, description="Description of the event")
     created_at: datetime = Field(default_factory=utc_now)
 
 
-SCHEMA = Schema(tables=[Organization, Account, ScheduledEvent, CashEvent])
+class CashAccountBalance(DbModel["CashAccountBalance"]):
+    cash_acc_id: int = Field(description="(FK:Account.acc_id) Reference to cash account")
+    balance: float = Field(description="Predicted balance")
+    as_of: date = Field(description="Date of the balance")
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+SCHEMA = Schema(tables=[Organization, Account, ScheduledEvent, CashEvent, CashAccountBalance])
