@@ -1,5 +1,9 @@
 # lythonic
 
+[![PyPI version](https://img.shields.io/pypi/v/lythonic.svg?label=lythonic&color=blue)](https://pypi.org/project/lythonic/)
+
+
+
 **Lythonic**  
 _Lightweight, reliable tools for database management and job scheduling in Python — built atop powerful industry standards: SQLite and Pydantic._
 
