@@ -38,10 +38,12 @@ rag_ddls = (
 acc_ddls = (
     "CREATE TABLE Organization (org_id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL, is_hidden INTEGER NOT NULL)",
     "CREATE TABLE Account (acc_id INTEGER PRIMARY KEY, org_id INTEGER NOT NULL REFERENCES Organization(org_id), name TEXT NOT NULL, account_type TEXT NOT NULL CHECK (account_type IN ('cash', 'credit_card')), account_kind TEXT, start_date TEXT NOT NULL, end_date TEXT, linked_cash_acc_id INTEGER REFERENCES Account(acc_id), scheduled_activity_id INTEGER REFERENCES ScheduledEvent(sch_id), created_at TEXT NOT NULL)",
-    "CREATE TABLE ScheduledEvent (sch_id INTEGER PRIMARY KEY, acc_id INTEGER NOT NULL REFERENCES Account(acc_id), description_template TEXT NOT NULL, event_type TEXT NOT NULL CHECK (event_type IN ('deposit', 'payment', 'set_balance')), amount_type TEXT NOT NULL CHECK (amount_type IN ('fixed', 'variable')), amount REAL, frequency TEXT NOT NULL CHECK (frequency IN ('weekly', 'monthly', 'quarterly', 'annually')), day_in_the_cycle INTEGER NOT NULL, reminder_days INTEGER, root_version_id INTEGER REFERENCES RootVersionScheduledEvent(sch_id), is_active INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT, modified_at TEXT NOT NULL)",
-    "CREATE TABLE CashEvent (cash_id INTEGER PRIMARY KEY, cash_acc_id INTEGER NOT NULL REFERENCES Account(acc_id), cc_acc_id INTEGER REFERENCES Account(acc_id), sch_id INTEGER REFERENCES ScheduledEvent(sch_id), event_type TEXT NOT NULL CHECK (event_type IN ('deposit', 'payment', 'set_balance')), event_date TEXT NOT NULL, amount REAL NOT NULL, description TEXT, created_at TEXT NOT NULL)",
-    "CREATE TABLE CashAccountBalance (cash_acc_id INTEGER NOT NULL REFERENCES Account(acc_id), balance REAL NOT NULL, as_of TEXT NOT NULL, created_at TEXT NOT NULL)",
+    "CREATE TABLE ScheduledEvent (sch_id INTEGER PRIMARY KEY, acc_id INTEGER NOT NULL REFERENCES Account(acc_id), description_template TEXT NOT NULL, event_type TEXT NOT NULL CHECK (event_type IN ('deposit', 'payment', 'set_balance')), amount_type TEXT NOT NULL CHECK (amount_type IN ('fixed', 'variable')), amount REAL, frequency TEXT NOT NULL CHECK (frequency IN ('weekly', 'monthly', 'quarterly', 'annually')), day_in_the_cycle INTEGER NOT NULL, reminder_days INTEGER, root_version_id INTEGER REFERENCES ScheduledEvent(sch_id), is_active INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT, modified_at TEXT NOT NULL)",
+    "CREATE TABLE CashEvent (cash_id INTEGER PRIMARY KEY, cash_acc_id INTEGER NOT NULL REFERENCES Account(acc_id), cc_acc_id INTEGER REFERENCES Account(acc_id), sch_id INTEGER REFERENCES ScheduledEvent(sch_id), event_type TEXT NOT NULL CHECK (event_type IN ('deposit', 'payment', 'set_balance')), event_date TEXT NOT NULL, amount REAL NOT NULL, description TEXT, modified_at TEXT NOT NULL)",
+    "CREATE TABLE CashEventNotification (note_id INTEGER PRIMARY KEY, sch_id INTEGER NOT NULL REFERENCES ScheduledEvent(sch_id), note_date TEXT NOT NULL, event_date TEXT NOT NULL)",
+    "CREATE TABLE CashAccountProjection (cash_acc_id INTEGER NOT NULL REFERENCES Account(acc_id), projection TEXT, as_of TEXT NOT NULL, modified_at TEXT NOT NULL)",
 )
+
 
 
 def test_ddl():

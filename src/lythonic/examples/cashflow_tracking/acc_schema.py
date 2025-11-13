@@ -3,10 +3,11 @@ import sqlite3
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from lythonic import utc_now
 from lythonic.state import DbModel, Schema
+from lythonic.types import JsonBase
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class ScheduledEvent(DbModel["ScheduledEvent"]):
     # versioning fields
     root_version_id: int | None = Field(
         default=None,
-        description="(FK:RootVersionScheduledEvent.sch_id) Reference to the root version",
+        description="(FK:ScheduledEvent.sch_id) Reference to the root version",
     )
     is_active: bool = Field(default=True, description="Whether the event is active")
     start_date: date = Field(description="Start date of the event")
@@ -122,14 +123,55 @@ class CashEvent(DbModel["CashEvent"]):
     event_date: date = Field(description="Date of the event")
     amount: float = Field(description="Amount of the event")
     description: str | None = Field(default=None, description="Description of the event")
-    created_at: datetime = Field(default_factory=utc_now)
+    modified_at: datetime = Field(default_factory=utc_now)
 
 
-class CashAccountBalance(DbModel["CashAccountBalance"]):
+class CashEventNotification(DbModel["CashEventNotification"]):
+    """
+    Represents a notification that a cash event needs to be created but requires user input.
+    """
+
+    note_id: int = Field(default=-1, description="(PK) Unique identifier for the notification")
+    sch_id: int = Field(description="(FK:ScheduledEvent.sch_id) Reference to scheduled event")
+    note_date: date = Field(description="Date of the notification")
+    event_date: date = Field(description="Date of the event")
+
+
+class FlowItem(BaseModel):
+    EventType: EventType
+    Amount: float
+    Description: str | None
+    cash_id: int | None = Field(
+        default=None,
+        description="Indicate if this event is already materialized as CashEvent or it is future event",
+    )
+    note_id: int | None = Field(
+        default=None, description="Indicate if this event has associated CashEventNotification"
+    )
+    balance: float = Field(description="Balance after this event")
+
+
+class FlowProjection(JsonBase):
+    as_of: date = Field(description="Date of the projection typically today")
+    events: list[FlowItem] = Field(description="List of events materialized and projected")
+    alert: bool = Field(
+        description="Indicate if if balance is negative or close to zero at any point in the projected future"
+    )
+
+
+class CashAccountProjection(DbModel["CashAccountProjection"]):
+    """
+    Cash account projection for a given date and extending for month in future. All scheduled events
+    that triggered prior to this date are materilaized as CashEvent and CashEventNotification to calculate the projection.
+    """
+
     cash_acc_id: int = Field(description="(FK:Account.acc_id) Reference to cash account")
-    balance: float = Field(description="Predicted balance")
-    as_of: date = Field(description="Date of the balance")
-    created_at: datetime = Field(default_factory=utc_now)
+    projection: FlowProjection | None = Field(
+        default=None,
+        description="Projection for next month starting from last known balance (set_balance event)",
+    )
+    as_of: date = Field(description="Date of projection typically today")
+    modified_at: datetime = Field(default_factory=utc_now)
 
 
-SCHEMA = Schema(tables=[Organization, Account, ScheduledEvent, CashEvent, CashAccountBalance])
+SCHEMA = Schema(tables=[Organization, Account, ScheduledEvent, CashEvent, CashEventNotification, CashAccountProjection])
