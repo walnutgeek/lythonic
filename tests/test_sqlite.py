@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import lythonic.examples.cashflow_tracking.acc_schema as acc
 import tests.rag_schema as rag
+from lythonic.examples.cashflow_tracking import SCHEMA as acc
 from lythonic.misc import tabula_rasa_path
 from lythonic.state import (
     FieldInfo,
@@ -45,7 +45,6 @@ acc_ddls = (
 )
 
 
-
 def test_ddl():
     assert rag.RagSource.create_ddl() == rag_ddls[0]
     assert rag.RagAction.create_ddl() == rag_ddls[1]
@@ -53,7 +52,7 @@ def test_ddl():
     assert rag.ConvoMessage.create_ddl() == rag_ddls[3]
     assert rag.ConvoSession.create_ddl() == rag_ddls[4]
 
-    assert acc_ddls == tuple(t.create_ddl() for t in acc.SCHEMA.tables)
+    assert acc_ddls == tuple(t.create_ddl() for t in acc.tables)
 
 
 # test db cleanup
@@ -81,7 +80,7 @@ def test_rag_db(caplog: pytest.LogCaptureFixture):
 
 def test_acc_db(caplog: pytest.LogCaptureFixture):
     caplog.set_level(logging.DEBUG)
-    acc.SCHEMA.create_schema(acc_db_path)
+    acc.create_schema(acc_db_path)
     extract = tuple(search_caplog(caplog, "execute: ", category="lythonic.state"))
     print(extract)
     assert extract == acc_ddls

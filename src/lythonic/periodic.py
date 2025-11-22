@@ -1,10 +1,11 @@
 import asyncio
+import calendar
 import inspect
 import logging
 import sys
 import time as tt
 from collections.abc import Callable
-from typing import Annotated, Any, final
+from typing import Annotated, Any, Literal, final
 
 from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
 from typing_extensions import override
@@ -117,6 +118,138 @@ class SimulatedTime:
 
 stime: SimulatedTime = SimulatedTime()
 
+FrequencyType = Literal["weekly", "monthly", "quarterly", "annually"]
+
+
+class Frequency:
+    """People friendly interval
+    
+    >>> Frequency("weekly").first_day(date(2025, 11, 21))
+    datetime.date(2025, 11, 17)
+    >>> Frequency("weekly").last_day(date(2025, 11, 21))
+    datetime.date(2025, 11, 23)
+    >>> Frequency("monthly").first_day(date(2025, 11, 21))
+    datetime.date(2025, 11, 1)
+    >>> Frequency("monthly").last_day(date(2025, 11, 21))
+    datetime.date(2025, 11, 30)
+    >>> Frequency("quarterly").first_day(date(2025, 11, 21))
+    datetime.date(2025, 10, 1)
+    >>> Frequency("quarterly").last_day(date(2025, 11, 21))
+    datetime.date(2025, 12, 31)
+    >>> Frequency("quarterly").first_day(date(2025, 2, 21))
+    datetime.date(2025, 1, 1)
+    >>> Frequency("quarterly").last_day(date(2025, 2, 21))
+    datetime.date(2025, 3, 31)
+    >>> Frequency("quarterly").last_day(date(2025, 5, 21))
+    datetime.date(2025, 6, 30)
+    >>> Frequency("annually").first_day(date(2025, 11, 21))
+    datetime.date(2025, 1, 1)
+    >>> Frequency("annually").last_day(date(2025, 11, 21))
+    datetime.date(2025, 12, 31)
+    """
+
+    frequency: FrequencyType
+
+    def __init__(self, frequency: FrequencyType) -> None:
+        self.frequency = frequency
+
+    @classmethod
+    def ensure(cls, frequency: "Frequency|FrequencyType") -> "Frequency":
+        if isinstance(frequency, Frequency):
+            return frequency
+        return cls(frequency)
+
+    def first_day(self, as_of: date) -> date:
+        if self.frequency == "weekly":
+            return as_of - timedelta(days=as_of.weekday())
+        elif self.frequency == "monthly":
+            return as_of.replace(day=1)
+        elif self.frequency == "quarterly":
+            return as_of.replace(day=1, month=((as_of.month - 1) // 3) * 3 + 1)
+        elif self.frequency == "annually":
+            return as_of.replace(day=1, month=1)
+        else:
+            raise AssertionError(f"Invalid frequency: {self.frequency}")
+
+    def last_day(self, as_of: date) -> date:
+        if self.frequency == "weekly":
+            return as_of + timedelta(days=6 - as_of.weekday())
+        elif self.frequency == "monthly":
+            return as_of.replace(day=calendar.monthrange(as_of.year, as_of.month)[1])
+        elif self.frequency == "quarterly":
+            month = ((as_of.month - 1) // 3) * 3 + 3
+            return as_of.replace(day=calendar.monthrange(as_of.year, month)[1], month=month)
+        elif self.frequency == "annually":
+            return as_of.replace(day=31, month=12)
+        else:
+            raise AssertionError(f"Invalid frequency: {self.frequency}")
+
+    def min_max_offset(
+        self,
+    ) -> tuple[int, int]:
+        if self.frequency == "weekly":
+            return (-7, 7)
+        elif self.frequency == "monthly":
+            return (-31, 31)
+        elif self.frequency == "quarterly":
+            return (-92, 92)
+        elif self.frequency == "annually":
+            return (-366, 366)
+        else:
+            raise AssertionError(f"Invalid frequency: {self.frequency}")
+
+    def assert_offset(self, offset: int) -> None:
+        min_offset, max_offset = self.min_max_offset()
+        assert min_offset <= offset < max_offset, (
+            f"Invalid offset: {offset} for frequency: {self.frequency} expected between {min_offset} and {max_offset}"
+        )
+
+
+class FrequencyOffset:
+    """
+    >>> FrequencyOffset(Frequency("weekly"), 0).boundaries(date(2025, 11, 21))
+    (datetime.date(2025, 11, 17), datetime.date(2025, 11, 23))
+    >>> FrequencyOffset(Frequency("weekly"), 1).boundaries(date(2025, 11, 21))
+    (datetime.date(2025, 11, 18), datetime.date(2025, 11, 24))
+    >>> FrequencyOffset(Frequency("weekly"), -1).boundaries(date(2025, 11, 21))
+    (datetime.date(2025, 11, 16), datetime.date(2025, 11, 22))
+    """
+    frequency: Frequency
+    offset: int
+
+    def __init__(self, frequency: Frequency | FrequencyType, offset: int) -> None:
+        self.frequency = Frequency.ensure(frequency)
+        self.frequency.assert_offset(offset)
+        self.offset = offset
+
+    def boundaries(self, as_of: date) -> tuple[date, date]:
+        """
+        Return the boundaries around the given date (inclusive).
+        """
+        if self.offset >= 0:
+            d = self.frequency.first_day(as_of)
+            dd = (
+                self.frequency.first_day(d - timedelta(days=1)),
+                d,
+                self.frequency.last_day(as_of) + timedelta(days=1),
+            )
+            with_delta = [t + timedelta(days=self.offset) for t in dd]
+        else:
+            d = self.frequency.last_day(as_of)
+            dd = (
+                self.frequency.first_day(as_of) - timedelta(days=1),
+                d,
+                self.frequency.last_day(d + timedelta(days=1)),
+            )
+            with_delta = [t + timedelta(days=1 + self.offset) for t in dd]
+
+        assert with_delta[0] <= as_of
+        if as_of < with_delta[1]:
+            return with_delta[0], with_delta[1] - timedelta(days=1)
+        else:
+            assert with_delta[1] <= as_of < with_delta[2]
+            return with_delta[1], with_delta[2] - timedelta(days=1)
+
 
 class IntervalUnit(Enum):
     """
@@ -148,6 +281,20 @@ class IntervalUnit(Enum):
 
 @final
 class Interval:
+    """Mapping years, month, and quarter to real numbers of approximate days. Weeks and days mapped to integer. "
+
+    >>> Interval(1, IntervalUnit.D).timedelta()
+    datetime.timedelta(days=1)
+    >>> Interval(1, IntervalUnit.W).timedelta()
+    datetime.timedelta(days=7)
+    >>> Interval(1, IntervalUnit.M).timedelta()
+    datetime.timedelta(days=30, seconds=37843, microseconds=200000)
+    >>> Interval(1, IntervalUnit.Q).timedelta()
+    datetime.timedelta(days=91, seconds=27129, microseconds=600000)
+    >>> Interval(1, IntervalUnit.Y).timedelta()
+    datetime.timedelta(days=365, seconds=22118, microseconds=400000)
+    """
+
     _P = "".join(p.name for p in IntervalUnit)
     FREQ_RE = re.compile(r"(\d+)([" + _P + _P.lower() + "])")
 

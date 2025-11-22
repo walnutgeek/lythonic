@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin
+from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin, override
 
 from pydantic import BaseModel
 
@@ -27,6 +27,39 @@ def query_db(conn: sqlite3.Connection, sql: str, *args: Any) -> list[tuple[Any, 
 
 
 T = TypeVar("T", bound="DbModel")  # pyright: ignore [reportMissingTypeArgument]
+
+FilterOperator = Literal["eq", "ne", "gt", "lt", "gte", "lte"]
+FILTER_OPERATOR_SQL: dict[FilterOperator, str] = {
+    "eq": "=",
+    "ne": "!=",
+    "gt": ">",
+    "lt": "<",
+    "gte": ">=",
+    "lte": "<=",
+}
+
+
+class FilterOp(NamedTuple):
+    operator: FilterOperator
+    name: str
+
+    @classmethod
+    def parse(cls, filter_key: str) -> "FilterOp":
+        if "__" in filter_key:
+            operator, name = filter_key.split("__", 1)
+        else:
+            operator = "eq"
+            name = filter_key
+        assert operator in FILTER_OPERATOR_SQL, f"Unknown filter operator: {operator}"
+        return cls(operator=operator, name=name)
+
+    @override
+    def __str__(self) -> str:
+        return self.name if self.operator == "eq" else f"{self.name}__{self.operator}"
+
+    @override
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 class FieldInfo(NamedTuple):
@@ -138,6 +171,10 @@ class DbModel(BaseModel, Generic[T]):
                 yield fi
 
     @classmethod
+    def get_field_map(cls) -> dict[str, FieldInfo]:
+        return {fi.name: fi for fi in cls.get_field_infos()}
+
+    @classmethod
     def create_ddl(cls) -> str:
         fields: list[str] = []
         for fi in cls.get_field_infos():
@@ -225,20 +262,36 @@ class DbModel(BaseModel, Generic[T]):
         Filters are given as keyword arguments, the keys are the field names
         and the values are the values to filter by.
         """
-        fields = list(cls.get_field_infos())
-        field_map = {fi.name: fi for fi in fields}
-        unknown_filters = {k: filters[k] for k in filters if k not in field_map}
+        field_map: dict[str, FieldInfo] = cls.get_field_map()
+        filter_ops: dict[FilterOp, Any] = {FilterOp.parse(k): v for k, v in filters.items()}
+        unknown_filters = {k: filter_ops[k] for k in filter_ops if k.name not in field_map}
         assert len(unknown_filters) == 0, (
-            f"Known fields: {field_map.keys()}, but unknown filters: {unknown_filters.keys()}"
+            f"Known fields: {field_map.keys()}, but unknown filters: {unknown_filters}"
         )
         cursor = conn.cursor()
+        args: list[Any] = []
+        where_clauses: list[str] = []
+        for f_op, v in filter_ops.items():
+            fi = field_map[f_op.name]
+            if f_op.operator == "eq":
+                if isinstance(v, list):
+                    v_list: list[Any] = [fi.ktype.db.map_to(val) for val in cast(list[Any], v)]
+                    where_clauses.append(f"{f_op.name} IN ({', '.join('?' * len(v_list))})")
+                    args.extend(v_list)
+                else:
+                    where_clauses.append(f"{f_op.name} = ?")
+                    args.append(fi.ktype.db.map_to(v))
+            else:
+                op_resolved = FILTER_OPERATOR_SQL[f_op.operator]
+                where_clauses.append(f"{f_op.name} {op_resolved} ?")
+                args.append(fi.ktype.db.map_to(v))
         execute_sql(
             cursor,
-            f"SELECT {', '.join([fi.name for fi in fields])} FROM {cls.get_table_name()} "
-            + f"WHERE {' AND '.join([f'{k} = ?' for k in filters])}",
-            [field_map[k].ktype.db.map_to(filters[k]) for k in filters],
+            f"SELECT {', '.join([fi.name for fi in field_map.values()])} FROM {cls.get_table_name()} "
+            + f"WHERE {' AND '.join(where_clauses)}",
+            args,
         )
-        return [cls._from_row(row, fields) for row in cursor.fetchall()]
+        return [cls._from_row(row, list(field_map.values())) for row in cursor.fetchall()]
 
     @classmethod
     def _from_row(cls, row: tuple[Any, ...], fields: list[FieldInfo] | None = None) -> T:
@@ -304,3 +357,36 @@ class Schema:
     def create_schema(self, path: Path):
         with open_sqlite_db(path) as conn:
             self.create_tables(conn)
+
+
+class DbFile:
+    path: Path
+    schema: Schema
+
+    def __init__(self, db_path: Path | str, schema: Schema) -> None:
+        self.path = Path(db_path)
+        self.schema = schema
+
+    def check(self, ensure: bool = False) -> bool:
+        if not self.path.exists():
+            if ensure:
+                with self.open() as conn:
+                    self.schema.create_tables(conn)
+                return True
+            return False
+        else:
+            # TODO : migrate db if necessary
+            with self.open() as conn:
+                if not self.schema.check_all_tables_exist(conn):
+                    if not ensure:
+                        return False
+                    self.schema.create_tables(conn)
+            return True
+        return False
+
+    def open(self):
+        return open_sqlite_db(self.path)
+
+
+class DbConfig(BaseModel):
+    db_path: Path
