@@ -209,10 +209,24 @@ class FrequencyOffset:
     """
     >>> FrequencyOffset(Frequency("weekly"), 0).boundaries(date(2025, 11, 21))
     (datetime.date(2025, 11, 17), datetime.date(2025, 11, 23))
-    >>> FrequencyOffset(Frequency("weekly"), 1).boundaries(date(2025, 11, 21))
+    >>> FrequencyOffset("weekly", 1).boundaries(date(2025, 11, 21))
     (datetime.date(2025, 11, 18), datetime.date(2025, 11, 24))
     >>> FrequencyOffset(Frequency("weekly"), -1).boundaries(date(2025, 11, 21))
     (datetime.date(2025, 11, 16), datetime.date(2025, 11, 22))
+    >>> on20thOfMonth = FrequencyOffset(Frequency("monthly"), 19)
+    >>> on20thOfMonth.boundaries(date(2025, 11, 21))
+    (datetime.date(2025, 11, 20), datetime.date(2025, 12, 19))
+    >>> on20thOfMonth.boundaries(on20thOfMonth.boundaries(date(2025, 11, 21))[1]+timedelta(days=1))
+    (datetime.date(2025, 12, 20), datetime.date(2026, 1, 19))
+    >>> on3rdBeforeEndOfMonth = FrequencyOffset("monthly", -3)
+    >>> b1 = on3rdBeforeEndOfMonth.boundaries(date(2025, 11, 21)); b1
+    (datetime.date(2025, 10, 29), datetime.date(2025, 11, 27))
+    >>> b2 = on3rdBeforeEndOfMonth.boundaries(b1[1]+timedelta(days=1)); b2
+    (datetime.date(2025, 11, 28), datetime.date(2025, 12, 28))
+    >>> b3 = on3rdBeforeEndOfMonth.boundaries(b2[1]+timedelta(days=1)); b3
+    (datetime.date(2025, 12, 29), datetime.date(2026, 1, 28))
+    >>> b4 = on3rdBeforeEndOfMonth.boundaries(b3[1]+timedelta(days=1)); b4
+    (datetime.date(2026, 1, 29), datetime.date(2026, 2, 25))
     """
 
     frequency: Frequency
