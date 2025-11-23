@@ -123,7 +123,7 @@ FrequencyType = Literal["weekly", "monthly", "quarterly", "annually"]
 
 class Frequency:
     """People friendly interval
-    
+
     >>> Frequency("weekly").first_day(date(2025, 11, 21))
     datetime.date(2025, 11, 17)
     >>> Frequency("weekly").last_day(date(2025, 11, 21))
@@ -214,6 +214,7 @@ class FrequencyOffset:
     >>> FrequencyOffset(Frequency("weekly"), -1).boundaries(date(2025, 11, 21))
     (datetime.date(2025, 11, 16), datetime.date(2025, 11, 22))
     """
+
     frequency: Frequency
     offset: int
 

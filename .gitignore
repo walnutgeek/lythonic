@@ -10,7 +10,8 @@ trash/
 attic/
 .kash/
 
-# Byte-compiled / optimized / DLL files
+# Python stuff
+.python-version
 __pycache__/
 *.py[cod]
 *$py.class

@@ -6,9 +6,10 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin, override
+from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin
 
 from pydantic import BaseModel
+from typing_extensions import override
 
 from lythonic.types import KnownType
 
