@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date, timedelta
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +11,8 @@ from lythonic.examples.cashflow_tracking import (
     CashAccountProjection,
     CashEvent,
     CashEventNotification,
+    FlowItem,
+    FlowProjection,
     Organization,
     ScheduledEvent,
 )
@@ -24,13 +27,13 @@ class ApiContext(JsonBase):
     as_of: date = Field(description="Date of the projection typically today")
 
 
+EventAction = Literal["create_event", "imagine_event", "create_notification", "do_nothing"]
+
+
 class CashAccountProjectionCalculator(BaseModel):
     cash_account: Account = Field(description="Cash account to calculate the projection for")
-    current_projection: CashAccountProjection | None = Field(
+    cash_projection: CashAccountProjection | None = Field(
         default=None, description="Current projection for the cash account"
-    )
-    new_projection: CashAccountProjection | None = Field(
-        default=None, description="New projection for the cash account"
     )
     new_events: list[CashEvent] = Field(
         default_factory=list,
@@ -43,9 +46,9 @@ class CashAccountProjectionCalculator(BaseModel):
 
     def calculate_projection(
         self, conn: sqlite3.Connection, as_of: date, force: bool = False
-    ) -> bool:
+    ) -> tuple[bool, CashAccountProjection]:
         need_recalculate = (
-            force or self.current_projection is None or self.current_projection.as_of < as_of
+            force or self.cash_projection is None or self.cash_projection.as_of < as_of
         )
         if need_recalculate:
             # Look for the latest 'set_balance' CashEvent, and keep only the events after it to be considered for projection
@@ -76,12 +79,17 @@ class CashAccountProjectionCalculator(BaseModel):
             class EventProjection:
                 event_date: date
                 schedule: ScheduledEvent
+                account: Account
                 matched_cash_event: CashEvent | None = None
                 matched_notification: CashEventNotification | None = None
+                action: EventAction = "do_nothing"
+                new_cash_event: CashEvent | None = None
+                new_notification: CashEventNotification | None = None
 
-                def __init__(self, event_date: date, schedule: ScheduledEvent):
+                def __init__(self, event_date: date, schedule: ScheduledEvent, account: Account):
                     self.event_date = event_date
                     self.schedule = schedule
+                    self.account = account
                     self.matched_cash_event = next(
                         (
                             e
@@ -98,6 +106,35 @@ class CashAccountProjectionCalculator(BaseModel):
                         ),
                         None,
                     )
+                    if self.schedule.amount_type == "fixed" and self.matched_cash_event is None:
+                        if self.event_date <= as_of:
+                            self.action = "create_event"
+                        else:
+                            self.action = "imagine_event"
+                        self.new_cash_event = CashEvent.from_scheduled_event(
+                            self.schedule, self.event_date, self.account
+                        )
+                    elif (
+                        self.schedule.amount_type == "variable"
+                        and self.matched_cash_event is None
+                        and self.matched_notification is None
+                        and self.event_date
+                        <= as_of + timedelta(days=self.schedule.reminder_days or 1)
+                    ):
+                        self.action = "create_notification"
+                        self.new_notification = CashEventNotification.from_scheduled_event(
+                            self.schedule, self.event_date
+                        )
+                    else:
+                        self.action = "do_nothing"
+
+                def flow_item(self) -> FlowItem | None:
+                    if self.matched_cash_event is not None:
+                        return FlowItem.from_cash_event(self.matched_cash_event)
+                    elif self.new_cash_event is not None:
+                        return FlowItem.from_cash_event(self.new_cash_event)
+                    else:
+                        return None
 
             scheduled_events = ScheduledEvent.select(
                 conn, is_active=True, account_id=self.cash_account.acc_id
@@ -105,13 +142,63 @@ class CashAccountProjectionCalculator(BaseModel):
 
             event_projections: list[EventProjection] = []
 
+            accounts = {
+                a.acc_id: a
+                for a in Account.select(
+                    conn, acc_id=[scheduled_event.acc_id for scheduled_event in scheduled_events]
+                )
+            }
+
             for scheduled_event in scheduled_events:
+                account = accounts[scheduled_event.acc_id]
                 for event_date in scheduled_event.get_event_dates_for_range(
                     start_projection_date, end_projection_date
                 ):
-                    event_projections.append(EventProjection(event_date, scheduled_event))
+                    event_projections.append(EventProjection(event_date, scheduled_event, account))
 
-        return need_recalculate
+            left_over_events = {e.cash_id: e for e in relevant_cash_events}
+            for event_projection in event_projections:
+                if event_projection.matched_cash_event is not None:
+                    left_over_events.pop(event_projection.matched_cash_event.cash_id)
+
+            flow_items: list[FlowItem] = []
+            for event_projection in event_projections:
+                if (
+                    event_projection.action == "create_event"
+                    and event_projection.new_cash_event is not None
+                ):
+                    event_projection.new_cash_event.save(conn)
+                elif (
+                    event_projection.action == "create_notification"
+                    and event_projection.new_notification is not None
+                ):
+                    event_projection.new_notification.save(conn)
+
+                flow_item = event_projection.flow_item()
+                if flow_item is not None:
+                    flow_items.append(flow_item)
+            flow_items.extend(FlowItem.from_cash_event(e) for e in left_over_events.values())
+            flow_items.sort(key=lambda x: (x.event_date, x.event_type != "set_balance", -x.amount))
+            assert flow_items[0].event_type == "set_balance", (
+                "First flow item must be the set_balance event"
+            )
+            balance = flow_items[0].amount
+            alert = False
+            for flow_item in flow_items:
+                flow_item.balance = balance
+                if flow_item.balance < 0:
+                    alert = True
+                balance += flow_item.amount
+
+            projection = FlowProjection(as_of=as_of, events=flow_items, alert=alert)
+
+            self.cash_projection = CashAccountProjection(
+                cash_acc_id=self.cash_account.acc_id, projection=projection, as_of=as_of
+            )
+            self.cash_projection.save(conn)
+        assert self.cash_projection is not None
+
+        return need_recalculate, self.cash_projection
 
 
 class CashflowTrackingApi(Configurable[DbConfig]):
@@ -171,15 +258,18 @@ class CashflowTrackingApi(Configurable[DbConfig]):
 
     def calculate_cash_account_projections(
         self, ctx: ApiContext, force: bool = False
-    ) -> tuple[bool, dict[int, CashAccountProjectionCalculator]]:
+    ) -> tuple[bool, dict[int, CashAccountProjection]]:
         with self.db_file.open() as conn:
             calculators: dict[int, CashAccountProjectionCalculator] = {
                 ca.acc_id: CashAccountProjectionCalculator(cash_account=ca)
-                for ca in Account.select(conn, account_type="cash", org_id=ctx.org.org_id)
+                for ca in Account.filter_active(
+                    Account.select(conn, account_type="cash", org_id=ctx.org.org_id), ctx.as_of
+                )
             }
             for cap in CashAccountProjection.select(conn, cash_acc_id=list(calculators.keys())):
-                calculators[cap.cash_acc_id].current_projection = cap
-            return any(
+                calculators[cap.cash_acc_id].cash_projection = cap
+            results: list[tuple[bool, CashAccountProjection]] = [
                 calculator.calculate_projection(conn, ctx.as_of, force)
                 for calculator in calculators.values()
-            ), calculators
+            ]
+            return any(map(lambda x: x[0], results)), {r[1].cash_acc_id: r[1] for r in results}

@@ -134,8 +134,9 @@ class ScheduledEvent(DbModel["ScheduledEvent"]):
 class CashEvent(DbModel["CashEvent"]):
     cash_id: int = Field(default=-1, description="(PK) Unique identifier for the cash event")
     cash_acc_id: int = Field(description="(FK:Account.acc_id) Reference to cash account")
-    cc_acc_id: int | None = Field(
-        default=None, description="(FK:Account.acc_id) Reference to credit card account"
+    related_acc_id: int | None = Field(
+        default=None,
+        description="(FK:Account.acc_id) Reference to related account in case of credit card payment or cash transfer",
     )
     sch_id: int | None = Field(
         default=None, description="(FK:ScheduledEvent.sch_id) Reference to scheduled event"
@@ -146,6 +147,33 @@ class CashEvent(DbModel["CashEvent"]):
     description: str | None = Field(default=None, description="Description of the event")
     modified_at: datetime = Field(default_factory=utc_now)
 
+    @classmethod
+    def from_scheduled_event(
+        cls, scheduled_event: ScheduledEvent, event_date: date, account: Account
+    ) -> "CashEvent":
+        assert scheduled_event.amount is not None and scheduled_event.amount_type == "fixed", (
+            "Scheduled event amount cannot be None for fixed amount type"
+        )
+        cc_acc_id: int | None = None
+        amount = scheduled_event.amount
+        if account.account_type == "cash":
+            cash_acc_id = account.acc_id
+        else:
+            assert (
+                account.account_type == "credit_card" and account.linked_cash_acc_id is not None
+            ), "Credit card account must be linked to a cash account"
+            cash_acc_id = account.linked_cash_acc_id
+            cc_acc_id = account.acc_id
+        return cls(
+            cash_acc_id=cash_acc_id,
+            related_acc_id=cc_acc_id,
+            sch_id=scheduled_event.sch_id,
+            event_type=scheduled_event.event_type,
+            event_date=event_date,
+            amount=amount,
+            description=scheduled_event.description_template,
+        )
+
 
 class CashEventNotification(DbModel["CashEventNotification"]):
     """
@@ -155,13 +183,29 @@ class CashEventNotification(DbModel["CashEventNotification"]):
     note_id: int = Field(default=-1, description="(PK) Unique identifier for the notification")
     sch_id: int = Field(description="(FK:ScheduledEvent.sch_id) Reference to scheduled event")
     note_date: date = Field(description="Date of the notification")
+    muted: bool = Field(default=False, description="Whether the notification is muted")
     event_date: date = Field(description="Date of the event")
+
+    @classmethod
+    def from_scheduled_event(
+        cls, scheduled_event: ScheduledEvent, event_date: date
+    ) -> "CashEventNotification":
+        assert scheduled_event.amount is not None and scheduled_event.amount_type == "variable", (
+            "Scheduled event amount cannot be None for variable amount type"
+        )
+        return cls(
+            sch_id=scheduled_event.sch_id,
+            note_date=event_date + timedelta(days=scheduled_event.reminder_days or 1),
+            muted=False,
+            event_date=event_date,
+        )
 
 
 class FlowItem(BaseModel):
-    EventType: EventType
-    Amount: float
-    Description: str | None
+    event_type: EventType
+    event_date: date
+    amount: float
+    description: str | None
     cash_id: int | None = Field(
         default=None,
         description="Indicate if this event is already materialized as CashEvent or it is future event",
@@ -169,7 +213,17 @@ class FlowItem(BaseModel):
     note_id: int | None = Field(
         default=None, description="Indicate if this event has associated CashEventNotification"
     )
-    balance: float = Field(description="Balance after this event")
+    balance: float | None = Field(default=None, description="Balance after this event")
+
+    @classmethod
+    def from_cash_event(cls, cash_event: CashEvent) -> "FlowItem":
+        return cls(
+            event_date=cash_event.event_date,
+            event_type=cash_event.event_type,
+            amount=cash_event.amount if cash_event.event_type != "payment" else -cash_event.amount,
+            description=cash_event.description,
+            cash_id=cash_event.cash_id,
+        )
 
 
 class FlowProjection(JsonBase):
@@ -186,7 +240,7 @@ class CashAccountProjection(DbModel["CashAccountProjection"]):
     that triggered prior to this date are materilaized as CashEvent and CashEventNotification to calculate the projection.
     """
 
-    cash_acc_id: int = Field(description="(FK:Account.acc_id) Reference to cash account")
+    cash_acc_id: int = Field(description="(PK)(FK:Account.acc_id) Reference to cash account")
     projection: FlowProjection | None = Field(
         default=None,
         description="Projection for next month starting from last known balance (set_balance event)",
