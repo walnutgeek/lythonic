@@ -15,6 +15,7 @@ from lythonic.examples.cashflow_tracking import (
     FlowProjection,
     Organization,
     ScheduledEvent,
+    User,
 )
 from lythonic.state import DbConfig, DbFile
 from lythonic.types import JsonBase
@@ -23,7 +24,7 @@ PROJECTION_RANGE = timedelta(days=62)  # 2 months
 
 
 class ApiContext(JsonBase):
-    org: Organization = Field(description="Current organization")
+    user: User = Field(description="Current user")
     as_of: date = Field(description="Date of the projection typically today")
 
 
@@ -193,7 +194,10 @@ class CashAccountProjectionCalculator(BaseModel):
             projection = FlowProjection(as_of=as_of, events=flow_items, alert=alert)
 
             self.cash_projection = CashAccountProjection(
-                cash_acc_id=self.cash_account.acc_id, projection=projection, as_of=as_of
+                cash_acc_id=self.cash_account.acc_id,
+                user_id=self.cash_account.user_id,
+                projection=projection,
+                as_of=as_of,
             )
             self.cash_projection.save(conn)
         assert self.cash_projection is not None
@@ -225,45 +229,68 @@ class CashflowTrackingApi(Configurable[DbConfig]):
                 raise ValueError(f"Organization with id {org_id} not found in database")
             return org
 
-    def get_all_accounts(self, ctx: ApiContext) -> list[Account]:
+    def get_all_accounts(
+        self,
+        ctx: ApiContext,
+        org_id: int | None = None,
+    ) -> list[Account]:
         with self.db_file.open() as conn:
-            return Account.select(conn, org_id=ctx.org.org_id)
+            if org_id is not None:
+                return Account.select(conn, user_id=ctx.user.user_id, org_id=org_id)
+            else:
+                return Account.select(conn, user_id=ctx.user.user_id)
 
     def save_account(self, ctx: ApiContext, account: Account) -> Account:
-        assert ctx.org.org_id == account.org_id, "Organization ID mismatch"
+        account.user_id = ctx.user.user_id
         with self.db_file.open() as conn:
+            if account.acc_id != -1:
+                assert (
+                    len(account.select(conn, acc_id=account.acc_id, user_id=ctx.user.user_id)) == 1
+                ), "Account not found"
             account.save(conn)
             return account
 
     def delete_account(self, ctx: ApiContext, account: Account) -> None:
-        assert ctx.org.org_id == account.org_id, "Organization ID mismatch"
+        account.user_id = ctx.user.user_id
+        assert account.acc_id != -1, "Account ID is -1"
         with self.db_file.open() as conn:
             account.end_date = ctx.as_of
+            assert (
+                len(account.select(conn, acc_id=account.acc_id, user_id=ctx.user.user_id)) == 1
+            ), "Account not found"
             account.save(conn)
 
-    def get_scheduled_events(self, ctx: ApiContext) -> list[tuple[ScheduledEvent, Account]]:
+    def get_scheduled_events(
+        self, ctx: ApiContext, org_id: int
+    ) -> list[tuple[ScheduledEvent, Account]]:
         with self.db_file.open() as conn:
             active_accounts = {
                 a.acc_id: a
                 for a in Account.filter_active(
-                    Account.select(conn, org_id=ctx.org.org_id), ctx.as_of
+                    Account.select(conn, user_id=ctx.user.user_id, org_id=org_id), ctx.as_of
                 )
             }
             return [
                 (se, active_accounts[se.acc_id])
                 for se in ScheduledEvent.select(
-                    conn, is_active=True, account_id=list(active_accounts.keys())
+                    conn,
+                    is_active=True,
+                    user_id=ctx.user.user_id,
+                    account_id=list(active_accounts.keys()),
                 )
             ]
 
     def calculate_cash_account_projections(
-        self, ctx: ApiContext, force: bool = False
+        self, ctx: ApiContext, org_id: int, force: bool = False
     ) -> tuple[bool, dict[int, CashAccountProjection]]:
         with self.db_file.open() as conn:
             calculators: dict[int, CashAccountProjectionCalculator] = {
                 ca.acc_id: CashAccountProjectionCalculator(cash_account=ca)
                 for ca in Account.filter_active(
-                    Account.select(conn, account_type="cash", org_id=ctx.org.org_id), ctx.as_of
+                    Account.select(
+                        conn, account_type="cash", user_id=ctx.user.user_id, org_id=org_id
+                    ),
+                    ctx.as_of,
                 )
             }
             for cap in CashAccountProjection.select(conn, cash_acc_id=list(calculators.keys())):
