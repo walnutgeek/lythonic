@@ -21,12 +21,6 @@ def execute_sql(cursor: sqlite3.Cursor, sql: str, *args: Any):
     cursor.execute(sql, *args)
 
 
-def query_db(conn: sqlite3.Connection, sql: str, *args: Any) -> list[tuple[Any, ...]]:
-    cursor = conn.cursor()
-    execute_sql(cursor, sql, *args)
-    return cursor.fetchall()
-
-
 T = TypeVar("T", bound="DbModel")  # pyright: ignore [reportMissingTypeArgument]
 
 FilterOperator = Literal["eq", "ne", "gt", "lt", "gte", "lte"]
@@ -231,14 +225,7 @@ class DbModel(BaseModel, Generic[T]):
         else:
             assert n_updated == 1
 
-    def _where_clause(self, where_keys: list[FieldInfo]) -> str:
-        return (
-            f"WHERE {', '.join([f'{fi.name} = ?' for fi in where_keys])}"
-            if len(where_keys) > 0
-            else ""
-        )
-
-    class _SelectCursor(NamedTuple):
+    class _WhereBased(NamedTuple):
         cursor: sqlite3.Cursor
         table_name: str
         field_map: dict[str, FieldInfo]
@@ -264,7 +251,7 @@ class DbModel(BaseModel, Generic[T]):
             )
 
     @classmethod
-    def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> _SelectCursor:
+    def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> _WhereBased:
         """Select all rows from the database that match the filters.
 
         Filters are given as keyword arguments, the keys are the field names
@@ -296,7 +283,7 @@ class DbModel(BaseModel, Generic[T]):
                 where_clauses.append(f"{f_op.name} {op_resolved} ?")
                 args.append(fi.ktype.db.map_to(v))
 
-        return cls._SelectCursor(
+        return cls._WhereBased(
             cursor, cls.get_table_name(), field_map, where_keys, where_clauses, args
         )
 
@@ -325,9 +312,7 @@ class DbModel(BaseModel, Generic[T]):
         return [cls._from_row(row, sc.fields()) for row in sc.cursor.fetchall()]
 
     @classmethod
-    def _from_row(cls, row: tuple[Any, ...], fields: list[FieldInfo] | None = None) -> T:
-        if fields is None:
-            fields = list(cls.get_field_infos())  # pragma: no cover
+    def _from_row(cls, row: tuple[Any, ...], fields: list[FieldInfo]) -> T:
         assert len(row) == len(fields)
         return cast(
             T,

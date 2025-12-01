@@ -64,7 +64,7 @@ class UserOwned(DbModel[UO]):
 
     @override
     @classmethod
-    def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> DbModel._SelectCursor:
+    def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> DbModel._WhereBased:
         assert "user_ctx" in filters, "user_ctx is required"
         user_ctx = filters.pop("user_ctx")
         assert isinstance(user_ctx, UserContext), "user_ctx must be a UserContext"
