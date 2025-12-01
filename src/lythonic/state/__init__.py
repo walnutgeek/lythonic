@@ -196,7 +196,7 @@ class DbModel(BaseModel, Generic[T]):
     def insert(self, conn: sqlite3.Connection, auto_increment: bool = False):
         cursor = conn.cursor()
         cls = self.__class__
-        fields = list(cls.get_field_infos(lambda fi: not auto_increment or not fi.primary_key))
+        fields = self._choose_fields(lambda fi: not auto_increment or not fi.primary_key)
         execute_sql(
             cursor,
             f"INSERT INTO {cls.get_table_name()} ({', '.join(map(lambda fi: fi.name, fields))}) "
@@ -208,56 +208,63 @@ class DbModel(BaseModel, Generic[T]):
             assert len(pks) == 1
             pks[0].set_value(self, cursor.lastrowid)
 
+    @classmethod
+    def _choose_fields(cls, lambda_filter: Callable[[FieldInfo], bool]) -> list[FieldInfo]:
+        return list(cls.get_field_infos(lambda_filter))
+
+    @classmethod
+    def _ensure_pk(cls) -> FieldInfo:
+        pks = cls._choose_fields(lambda fi: fi.primary_key)
+        assert len(pks) == 1
+        return pks[0]
+
     def save(self, conn: sqlite3.Connection):
         cls = self.__class__
-        pks = list(cls.get_field_infos(lambda fi: fi.primary_key))
-        if len(pks) == 1:
-            pk = pks[0]
-            pk_val = getattr(self, pk.name)
-            if pk_val == -1:
-                self.insert(conn, auto_increment=True)
-                return
-        n_updated = self._update(conn, pks)
+        pk = cls._ensure_pk()
+        pk_val = getattr(self, pk.name)
+        if pk_val == -1:
+            self.insert(conn, auto_increment=True)
+            return
+        n_updated = self.update(conn, **{pk.name: pk_val})
         if n_updated == 0:
             self.insert(conn)
         else:
             assert n_updated == 1
 
-    def _update(self, conn: sqlite3.Connection, pks: list[FieldInfo] | None = None) -> int:
-        cursor = conn.cursor()
-        cls = self.__class__
-        if pks is None:
-            pks = list(cls.get_field_infos(lambda fi: fi.primary_key))  # pragma: no cover
-        assert len(pks) > 0, f"Cannot update. No primary key found for {cls.get_table_name()}"
-        non_pks = list(cls.get_field_infos(lambda fi: not fi.primary_key))
-        execute_sql(
-            cursor,
-            f"UPDATE {cls.get_table_name()} "
-            + f"SET {', '.join([f'{fi.name} = ?' for fi in non_pks])} "
-            + f"WHERE {', '.join([f'{fi.name} = ?' for fi in pks])}",
-            [fi.to_sql_value(self) for fi in (non_pks + pks)],
+    def _where_clause(self, where_keys: list[FieldInfo]) -> str:
+        return (
+            f"WHERE {', '.join([f'{fi.name} = ?' for fi in where_keys])}"
+            if len(where_keys) > 0
+            else ""
         )
-        return cursor.rowcount
+
+    class _SelectCursor(NamedTuple):
+        cursor: sqlite3.Cursor
+        table_name: str
+        field_map: dict[str, FieldInfo]
+        where_keys: set[str]
+        where_clauses: list[str]
+        args: list[Any]
+
+        def fields(self) -> list[FieldInfo]:
+            return list(self.field_map.values())
+
+        def where_clause(self) -> str:
+            return (
+                f"WHERE {' AND '.join(self.where_clauses)}" if len(self.where_clauses) > 0 else ""
+            )
+
+        def execute_select(self, select_vars: str | None = None):
+            if select_vars is None:
+                select_vars = ", ".join([fi.name for fi in self.fields()])
+            execute_sql(
+                self.cursor,
+                f"SELECT {select_vars} FROM {self.table_name} " + self.where_clause(),
+                self.args,
+            )
 
     @classmethod
-    def load_by_id(cls: type[T], conn: sqlite3.Connection, id: int) -> T | None:
-        pks = list(cls.get_field_infos(lambda fi: fi.primary_key))
-        fields = list(cls.get_field_infos())
-        assert len(pks) == 1
-        cursor = conn.cursor()
-        execute_sql(
-            cursor,
-            f"SELECT {', '.join([fi.name for fi in fields])} FROM {cls.get_table_name()} "
-            + f"WHERE {pks[0].name} = ?",
-            [id],
-        )
-        row = cursor.fetchone()
-        if row:
-            return cls._from_row(row, fields)
-        return None
-
-    @classmethod
-    def select(cls, conn: sqlite3.Connection, **filters: Any) -> list[T]:
+    def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> _SelectCursor:
         """Select all rows from the database that match the filters.
 
         Filters are given as keyword arguments, the keys are the field names
@@ -272,8 +279,10 @@ class DbModel(BaseModel, Generic[T]):
         cursor = conn.cursor()
         args: list[Any] = []
         where_clauses: list[str] = []
+        where_keys: set[str] = set()
         for f_op, v in filter_ops.items():
             fi = field_map[f_op.name]
+            where_keys.add(f_op.name)
             if f_op.operator == "eq":
                 if isinstance(v, list):
                     v_list: list[Any] = [fi.ktype.db.map_to(val) for val in cast(list[Any], v)]
@@ -286,13 +295,34 @@ class DbModel(BaseModel, Generic[T]):
                 op_resolved = FILTER_OPERATOR_SQL[f_op.operator]
                 where_clauses.append(f"{f_op.name} {op_resolved} ?")
                 args.append(fi.ktype.db.map_to(v))
-        execute_sql(
-            cursor,
-            f"SELECT {', '.join([fi.name for fi in field_map.values()])} FROM {cls.get_table_name()} "
-            + f"WHERE {' AND '.join(where_clauses)}",
-            args,
+
+        return cls._SelectCursor(
+            cursor, cls.get_table_name(), field_map, where_keys, where_clauses, args
         )
-        return [cls._from_row(row, list(field_map.values())) for row in cursor.fetchall()]
+
+    def update(self, conn: sqlite3.Connection, **filters: Any) -> int:
+        cls = self.__class__
+        sc = cls._prepare_where(conn, **filters)
+        rest_of_the_fields = cls._choose_fields(lambda fi: fi.name not in sc.where_keys)
+        execute_sql(
+            sc.cursor,
+            f"UPDATE {cls.get_table_name()} "
+            + f"SET {', '.join([f'{fi.name} = ?' for fi in rest_of_the_fields])} "
+            + sc.where_clause(),
+            [fi.to_sql_value(self) for fi in rest_of_the_fields] + sc.args,
+        )
+        return sc.cursor.rowcount
+
+    @classmethod
+    def select(cls, conn: sqlite3.Connection, **filters: Any) -> list[T]:
+        """Select all rows from the database that match the filters.
+
+        Filters are given as keyword arguments, the keys are the field names
+        and the values are the values to filter by.
+        """
+        sc = cls._prepare_where(conn, **filters)
+        sc.execute_select()
+        return [cls._from_row(row, sc.fields()) for row in sc.cursor.fetchall()]
 
     @classmethod
     def _from_row(cls, row: tuple[Any, ...], fields: list[FieldInfo] | None = None) -> T:
@@ -303,6 +333,22 @@ class DbModel(BaseModel, Generic[T]):
             T,
             cls.model_validate({fi.name: fi.from_sql_value(row[i]) for i, fi in enumerate(fields)}),
         )
+
+    @classmethod
+    def select_count(cls, conn: sqlite3.Connection, **filters: Any) -> int:
+        sc = cls._prepare_where(conn, **filters)
+        sc.execute_select("COUNT(*)")
+        return sc.cursor.fetchone()[0]
+
+    @classmethod
+    def exists(cls, conn: sqlite3.Connection, **filters: Any) -> bool:
+        return cls.select_count(conn, **filters) > 0
+
+    @classmethod
+    def load_by_id(cls: type[T], conn: sqlite3.Connection, id: int) -> T | None:
+        rr: list[T] = cls.select(conn, **{cls._ensure_pk().name: id})
+        assert len(rr) <= 1
+        return rr[0] if rr else None
 
 
 def from_multi_model_row(

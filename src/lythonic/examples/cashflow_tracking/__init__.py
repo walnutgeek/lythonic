@@ -2,13 +2,14 @@ import logging
 import sqlite3
 from collections.abc import Generator
 from datetime import date, datetime, timedelta
-from typing import Literal, TypeVar
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from lythonic import utc_now
 from lythonic.periodic import FrequencyOffset, FrequencyType
-from lythonic.state import DbModel, Schema
+from lythonic.state import Schema
+from lythonic.state.user import User, UserOwned
 from lythonic.types import JsonBase
 
 logger = logging.getLogger(__name__)
@@ -17,29 +18,6 @@ logger = logging.getLogger(__name__)
 AccountType = Literal["cash", "credit_card"]
 EventType = Literal["deposit", "payment", "set_balance"]
 AmountType = Literal["fixed", "variable"]
-
-
-class UserInfo(JsonBase):
-    pass
-
-
-class User(DbModel["User"]):
-    user_id: int = Field(default=-1, description="(PK) Unique identifier for the user")
-    info: UserInfo = Field(description="User information object")
-    created_at: datetime = Field(
-        default_factory=utc_now, description="Date and time when the user was created"
-    )
-
-
-class UserContext(BaseModel):
-    user: User
-
-
-UO = TypeVar("UO", bound="UserOwned")  # pyright: ignore [reportMissingTypeArgument]
-
-
-class UserOwned(DbModel[UO]):
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
 
 
 class Organization(UserOwned["Organization"]):

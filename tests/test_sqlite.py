@@ -62,13 +62,21 @@ acc_db_path = tabula_rasa_path(Path("build/tests/acc.db"))
 
 
 def search_caplog(
-    caplog: pytest.LogCaptureFixture, prefix: str, category: str | None = None
+    caplog: pytest.LogCaptureFixture,
+    prefix: str,
+    suffix: str | None = None,
+    category: str | None = None,
 ) -> Generator[str, None, None]:
     for r in caplog.records:
         m = r.getMessage()
         if category is None or r.name == category:
             if m.startswith(prefix):
-                yield m[len(prefix) :]
+                s = m[len(prefix) :]
+                if suffix is not None:
+                    idx = s.index(suffix)
+                    if idx != -1:
+                        s = s[:idx]
+                yield s
 
 
 def test_rag_db(caplog: pytest.LogCaptureFixture):

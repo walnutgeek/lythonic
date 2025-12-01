@@ -15,16 +15,14 @@ from lythonic.examples.cashflow_tracking import (
     FlowProjection,
     Organization,
     ScheduledEvent,
-    User,
 )
 from lythonic.state import DbConfig, DbFile
-from lythonic.types import JsonBase
+from lythonic.state.user import UserContext
 
 PROJECTION_RANGE = timedelta(days=62)  # 2 months
 
 
-class ApiContext(JsonBase):
-    user: User = Field(description="Current user")
+class ApiContext(UserContext):
     as_of: date = Field(description="Date of the projection typically today")
 
 
