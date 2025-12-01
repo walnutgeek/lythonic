@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from collections.abc import Generator
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -22,8 +22,6 @@ AmountType = Literal["fixed", "variable"]
 class UserInfo(JsonBase):
     pass
 
-class UserOwned(BaseModel):
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
 
 class User(DbModel["User"]):
     user_id: int = Field(default=-1, description="(PK) Unique identifier for the user")
@@ -33,17 +31,26 @@ class User(DbModel["User"]):
     )
 
 
-class Organization(DbModel["Organization"]):
-    org_id: int = Field(default=-1, description="(PK) Unique identifier for the organization")
+class UserContext(BaseModel):
+    user: User
+
+
+UO = TypeVar("UO", bound="UserOwned")  # pyright: ignore [reportMissingTypeArgument]
+
+
+class UserOwned(DbModel[UO]):
     user_id: int = Field(description="(FK:User.user_id) Reference to the user")
+
+
+class Organization(UserOwned["Organization"]):
+    org_id: int = Field(default=-1, description="(PK) Unique identifier for the organization")
     name: str = Field(description="Name of the organization")
     created_at: datetime = Field(default_factory=utc_now)
     is_hidden: bool = Field(default=False)
 
 
-class Account(DbModel["Account"]):
+class Account(UserOwned["Account"]):
     acc_id: int = Field(default=-1, description="(PK) Unique identifier for the account")
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
     org_id: int = Field(description="(FK:Organization.org_id) Reference to the organization")
     name: str = Field(description="Name of the account")
     account_type: AccountType = Field(description="Type of account")
@@ -71,9 +78,8 @@ class Account(DbModel["Account"]):
         ]
 
 
-class ScheduledEvent(DbModel["ScheduledEvent"]):
+class ScheduledEvent(UserOwned["ScheduledEvent"]):
     sch_id: int = Field(default=-1, description="(PK) Unique identifier for the scheduled event")
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
     acc_id: int = Field(description="(FK:Account.acc_id) Reference to the account")
     description_template: str = Field(description="Description template for the event")
     event_type: EventType = Field(description="Type of event")
@@ -148,9 +154,8 @@ class ScheduledEvent(DbModel["ScheduledEvent"]):
         self.save(conn)
 
 
-class CashEvent(DbModel["CashEvent"]):
+class CashEvent(UserOwned["CashEvent"]):
     cash_id: int = Field(default=-1, description="(PK) Unique identifier for the cash event")
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
     cash_acc_id: int = Field(description="(FK:Account.acc_id) Reference to cash account")
     related_acc_id: int | None = Field(
         default=None,
@@ -194,13 +199,12 @@ class CashEvent(DbModel["CashEvent"]):
         )
 
 
-class CashEventNotification(DbModel["CashEventNotification"]):
+class CashEventNotification(UserOwned["CashEventNotification"]):
     """
     Represents a notification that a cash event needs to be created but requires user input.
     """
 
     note_id: int = Field(default=-1, description="(PK) Unique identifier for the notification")
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
     sch_id: int = Field(description="(FK:ScheduledEvent.sch_id) Reference to scheduled event")
     note_date: date = Field(description="Date of the notification")
     muted: bool = Field(default=False, description="Whether the notification is muted")
@@ -255,14 +259,13 @@ class FlowProjection(JsonBase):
     )
 
 
-class CashAccountProjection(DbModel["CashAccountProjection"]):
+class CashAccountProjection(UserOwned["CashAccountProjection"]):
     """
     Cash account projection for a given date and extending for month in future. All scheduled events
     that triggered prior to this date are materilaized as CashEvent and CashEventNotification to calculate the projection.
     """
 
     cash_acc_id: int = Field(description="(PK)(FK:Account.acc_id) Reference to cash account")
-    user_id: int = Field(description="(FK:User.user_id) Reference to the user")
     projection: FlowProjection | None = Field(
         default=None,
         description="Projection for next month starting from last known balance (set_balance event)",
