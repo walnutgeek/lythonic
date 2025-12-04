@@ -212,7 +212,7 @@ class DbModel(BaseModel, Generic[T]):
         assert len(pks) == 1
         return pks[0]
 
-    def save(self, conn: sqlite3.Connection):
+    def save(self, conn: sqlite3.Connection) -> None:
         cls = self.__class__
         pk = cls._ensure_pk()
         pk_val = getattr(self, pk.name)

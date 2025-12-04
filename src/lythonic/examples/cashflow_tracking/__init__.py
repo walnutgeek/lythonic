@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from lythonic import utc_now
 from lythonic.periodic import FrequencyOffset, FrequencyType
 from lythonic.state import Schema
-from lythonic.state.user import User, UserOwned
+from lythonic.state.user import User, UserContext, UserOwned
 from lythonic.types import JsonBase
 
 logger = logging.getLogger(__name__)
@@ -40,9 +40,6 @@ class Account(UserOwned["Account"]):
     end_date: date | None = Field(default=None, description="End date of the account")
     linked_cash_acc_id: int | None = Field(
         default=None, description="(FK:Account.acc_id) Reference to linked cash account"
-    )
-    scheduled_activity_id: int | None = Field(
-        default=None, description="(FK:ScheduledEvent.sch_id) Reference to scheduled event"
     )
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -75,7 +72,9 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
         description="(FK:ScheduledEvent.sch_id) Reference to the root version",
     )
     is_active: bool = Field(default=True, description="Whether the event is active")
-    start_date: date = Field(description="Start date of the event")
+    start_date: date = Field(
+        default=date(1900, 1, 1), description="Start date of the event"
+    )  # default is not important as it is overridden by save_versioned()
     end_date: date | None = Field(default=None, description="End date of the event")
     modified_at: datetime = Field(default_factory=utc_now)
 
@@ -90,11 +89,9 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
             yield boundaries[0]
             boundaries = freq_offset.boundaries(boundaries[1] + timedelta(days=1))
 
-    def save_versioned(self, conn: sqlite3.Connection, as_of: date | None = None) -> None:
-        if as_of is None:
-            as_of = date.today()
+    def save_versioned(self, user_ctx: UserContext, conn: sqlite3.Connection, as_of: date) -> None:
         assert self.end_date is None, (
-            f"use enddate_record() explicitly if you want logicali remove this record: {self}"
+            f"use enddate_record() explicitly if you want logically remove this record: {self}"
         )
         assert self.root_version_id is None and self.start_date <= as_of and self.is_active, (
             f"sainity check failed: {self}"
@@ -104,8 +101,13 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
             self.start_date = as_of
             self.end_date = None
         else:
-            rr = self.select(conn, sch_id=self.sch_id)
-            assert len(rr) == 1
+            rr = self.select(conn, user_ctx=user_ctx, sch_id=self.sch_id)
+            if len(rr) != 1:
+                raise ValueError(
+                    "Cannot save prev version:",
+                    " Record does not exist or belong other user then the one in context:", 
+                    user_ctx.user.user_id
+                )
             # save previous version
             prev = rr[0]
             assert prev.end_date is None, f"cannot modify enddated record: {prev}"
@@ -115,21 +117,21 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
                 prev.sch_id = -1
                 prev.is_active = False
                 prev.end_date = as_of
-                prev.save(conn)
+                prev.save_with_ctx(user_ctx, conn)
         self.start_date = as_of
         self.is_active = True
         self.root_version_id = None
         self.modified_at = utc_now()
-        self.save(conn)
+        self.save_with_ctx(user_ctx, conn)
 
-    def enddate_record(self, conn: sqlite3.Connection, as_of: date) -> None:
+    def enddate_record(self, user_ctx: UserContext, conn: sqlite3.Connection, as_of: date) -> None:
         assert self.end_date is None, f"already ended: {self}"
         assert self.start_date <= as_of and self.is_active, f"sainity check failed: {self}"
         self.end_date = as_of
         self.is_active = False
         self.root_version_id = None
         self.modified_at = utc_now()
-        self.save(conn)
+        self.save_with_ctx(user_ctx, conn)
 
 
 class CashEvent(UserOwned["CashEvent"]):

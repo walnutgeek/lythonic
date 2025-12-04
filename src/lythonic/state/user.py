@@ -5,8 +5,8 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
-from lythonic import utc_now
-from lythonic.state import DbModel, FieldInfo
+from lythonic import GlobalRef, utc_now
+from lythonic.state import DbModel
 from lythonic.types import JsonBase
 
 
@@ -33,12 +33,13 @@ class UserOwned(DbModel[UO]):
     user_id: int = Field(default=-1, description="(FK:User.user_id) Reference to the user")
 
     @override
-    def save(self, conn: sqlite3.Connection):
-        raise AssertionError("Use save_with_ctx instead")
+    def save(self, conn: sqlite3.Connection) -> None:
+        raise NotImplementedError("Use save_with_ctx instead")
 
+    @override
     @classmethod
-    def _user_id_field(cls) -> FieldInfo:
-        return cls._choose_fields(lambda fi: fi.name == "user_id")[0]
+    def load_by_id(cls: type[UO], conn: sqlite3.Connection, id: int) -> UO | None:
+        raise NotImplementedError("Use load_by_id_with_ctx instead")
 
     def save_with_ctx(self, ctx: UserContext, conn: sqlite3.Connection):
         self.user_id = ctx.user.user_id
@@ -50,31 +51,26 @@ class UserOwned(DbModel[UO]):
         if pk_val == -1:
             self.insert(conn, auto_increment=True)
             return
-        n_updated = self.update(
-            conn, **{pk.name: pk_val, cls._user_id_field().name: ctx.user.user_id}
-        )
+        n_updated = self.update(conn, user_ctx=ctx, **{pk.name: pk_val})
         if n_updated == 0:
-            if cls.exists(conn, **{pk.name: pk_val}):
-                raise AssertionError(
-                    f"Record already exists but belong other user {ctx.user.user_id}"
-                )
-            self.insert(conn)
+            raise ValueError( 
+                "Posible Access violation:",
+                " Record does not exist or belong other user then the one in context:", 
+                ctx.user.user_id
+            )
         else:
             assert n_updated == 1
 
     @override
     @classmethod
     def _prepare_where(cls, conn: sqlite3.Connection, **filters: Any) -> DbModel._WhereBased:
-        assert "user_ctx" in filters, "user_ctx is required"
+        assert "user_ctx" in filters, f"user_ctx:{GlobalRef(UserContext)!s} is required"
         user_ctx = filters.pop("user_ctx")
-        assert isinstance(user_ctx, UserContext), "user_ctx must be a UserContext"
+        assert isinstance(user_ctx, UserContext), (
+            f"user_ctx:{GlobalRef(UserContext)!s} must be a UserContext"
+        )
         filters["user_id"] = user_ctx.user.user_id
         return super()._prepare_where(conn, **filters)
-
-    @override
-    @classmethod
-    def load_by_id(cls: type[UO], conn: sqlite3.Connection, id: int) -> UO | None:
-        raise AssertionError("Use load_by_id_with_ctx instead")
 
     @classmethod
     def load_by_id_with_ctx(
