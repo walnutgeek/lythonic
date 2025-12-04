@@ -101,10 +101,10 @@ def test_user_owned_objects(caplog: pytest.LogCaptureFixture):
         sch2.day_in_the_cycle = 15
         with pytest.raises(ValueError) as e:
             sch2.save_versioned(ctxs[1], conn, date(2025, 1, 2))
-        assert str(e.value.args [0]) ==  "Cannot save prev version:"
+        assert str(e.value.args[0]) == "Cannot save prev version:"
 
         with pytest.raises(ValueError) as e:
             sch2.enddate_record(ctxs[1], conn, date(2025, 1, 2))
-        assert str(e.value.args [0]) == "Posible Access violation:"
+        assert str(e.value.args[0]) == "Possible Access violation:"
 
         conn.commit()

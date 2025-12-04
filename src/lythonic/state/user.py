@@ -53,10 +53,10 @@ class UserOwned(DbModel[UO]):
             return
         n_updated = self.update(conn, user_ctx=ctx, **{pk.name: pk_val})
         if n_updated == 0:
-            raise ValueError( 
-                "Posible Access violation:",
-                " Record does not exist or belong other user then the one in context:", 
-                ctx.user.user_id
+            raise ValueError(
+                "Possible Access violation:",
+                " Record does not exist or belong other user then the one in context:",
+                ctx.user.user_id,
             )
         else:
             assert n_updated == 1

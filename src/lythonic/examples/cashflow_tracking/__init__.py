@@ -105,8 +105,8 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
             if len(rr) != 1:
                 raise ValueError(
                     "Cannot save prev version:",
-                    " Record does not exist or belong other user then the one in context:", 
-                    user_ctx.user.user_id
+                    " Record does not exist or belong other user then the one in context:",
+                    user_ctx.user.user_id,
                 )
             # save previous version
             prev = rr[0]
