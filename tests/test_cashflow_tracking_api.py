@@ -107,4 +107,12 @@ def test_user_owned_objects(caplog: pytest.LogCaptureFixture):
             sch2.enddate_record(ctxs[1], conn, date(2025, 1, 2))
         assert str(e.value.args[0]) == "Possible Access violation:"
 
+        rr = list(sch2.get_event_dates_for_range(date(2025, 1, 1), date(2025, 3, 31)))
+
+        assert rr == [date(2025, 1, 16), date(2025, 2, 16), date(2025, 3, 16)]
+
+        rr = list(sch1.get_event_dates_for_range(date(2025, 1, 1), date(2025, 3, 31)))
+
+        assert rr == [date(2025, 1, 1), date(2025, 2, 1), date(2025, 3, 1)]
+
         conn.commit()

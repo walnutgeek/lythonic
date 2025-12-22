@@ -1,3 +1,228 @@
+"""
+Lightweight SQLite ORM with Pydantic-based schema definition.
+
+This module provides a simple ORM-like interface for SQLite databases using
+Pydantic models to define the schema. It supports automatic DDL generation,
+CRUD operations, type mapping, and multi-tenant access patterns.
+
+## Quick Start
+
+Define your models by subclassing `DbModel`:
+
+```python
+from pydantic import Field
+from lythonic.state import DbModel, Schema, open_sqlite_db
+
+class Author(DbModel["Author"]):
+    author_id: int = Field(default=-1, description="(PK)")
+    name: str = Field(description="Author name")
+
+class Book(DbModel["Book"]):
+    book_id: int = Field(default=-1, description="(PK)")
+    author_id: int = Field(description="(FK:Author.author_id)")
+    title: str
+    year: int | None = None
+
+SCHEMA = Schema([Author, Book])
+```
+
+Create tables and use CRUD operations:
+
+```python
+SCHEMA.create_schema(Path("books.db"))
+
+with open_sqlite_db("books.db") as conn:
+    author = Author(name="Jane Austen")
+    author.save(conn)  # Inserts with auto-increment, sets author_id
+
+    book = Book(author_id=author.author_id, title="Pride and Prejudice", year=1813)
+    book.save(conn)
+
+    # Query
+    books = Book.select(conn, author_id=author.author_id)
+    loaded = Book.load_by_id(conn, book.book_id)
+    conn.commit()
+```
+
+## Schema Definition
+
+### Primary Keys
+
+Mark a field as primary key by adding `(PK)` at the start of the description:
+
+```python
+user_id: int = Field(default=-1, description="(PK) Unique user identifier")
+```
+
+When `save()` is called on a model with `pk_field=-1`, it auto-increments.
+
+### Foreign Keys
+
+Mark foreign keys with `(FK:Table.field)`:
+
+```python
+author_id: int = Field(description="(FK:Author.author_id) Reference to author")
+```
+
+### Nullable Fields
+
+Use `| None` union type:
+
+```python
+email: str | None = Field(default=None, description="Optional email")
+```
+
+### Enum and Literal Constraints
+
+Enum and Literal types generate CHECK constraints:
+
+```python
+from typing import Literal
+
+status: Literal["active", "inactive", "pending"]
+```
+
+Generates: `status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'pending'))`
+
+## Supported Types
+
+The following Python types are automatically mapped to SQLite:
+
+| Python Type     | SQLite Type | Notes                           |
+|-----------------|-------------|---------------------------------|
+| int, bool       | INTEGER     | bool stored as 0/1              |
+| float           | REAL        |                                 |
+| str             | TEXT        |                                 |
+| bytes           | BLOB        |                                 |
+| datetime        | TEXT        | Stored as ISO format string     |
+| date            | TEXT        | Stored as ISO format string     |
+| Path            | TEXT        | Stored as string path           |
+| Enum            | TEXT        | Stored as enum value            |
+| IntEnum         | INTEGER     |                                 |
+| BaseModel       | TEXT        | Stored as JSON string           |
+| JsonBase        | TEXT        | Stored as JSON with type info   |
+
+## CRUD Operations
+
+### Insert
+
+```python
+record = MyModel(field1="value")
+record.insert(conn, auto_increment=True)  # Sets PK from lastrowid
+```
+
+### Save (Upsert)
+
+```python
+record.save(conn)  # Inserts if pk=-1, else updates existing row
+```
+
+### Select
+
+```python
+# Select all
+all_records = MyModel.select(conn)
+
+# Filter by field value
+filtered = MyModel.select(conn, status="active")
+
+# Filter with operators: eq, ne, gt, lt, gte, lte
+recent = MyModel.select(conn, gt__year=2020)
+
+# IN clause (pass a list)
+specific = MyModel.select(conn, status=["active", "pending"])
+```
+
+### Load by ID
+
+```python
+record = MyModel.load_by_id(conn, 42)  # Returns None if not found
+```
+
+### Update
+
+```python
+record.field = "new value"
+n_updated = record.update(conn, pk_field=record.pk_field)
+```
+
+### Count and Exists
+
+```python
+count = MyModel.select_count(conn, status="active")
+exists = MyModel.exists(conn, email="user@example.com")
+```
+
+## Multi-Model Queries
+
+For joins, use `from_multi_model_row()`:
+
+```python
+from lythonic.state import execute_sql, from_multi_model_row
+
+cursor = conn.cursor()
+execute_sql(
+    cursor,
+    f"SELECT {Author.columns('a')}, {Book.columns('b')} "
+    f"FROM {Author.alias('a')}, {Book.alias('b')} "
+    "WHERE a.author_id = b.author_id"
+)
+for row in cursor.fetchall():
+    author, book = from_multi_model_row(row, [Author, Book])
+```
+
+## Multi-Tenant Support (UserOwned)
+
+For multi-tenant applications, use `UserOwned` base class (from `lythonic.state.user`):
+
+```python
+from lythonic.state.user import User, UserOwned, UserContext
+
+class Task(UserOwned["Task"]):
+    task_id: int = Field(default=-1, description="(PK)")
+    title: str
+
+# All operations require a UserContext
+user_ctx = UserContext(user=current_user)
+task = Task(title="My Task")
+task.save_with_ctx(user_ctx, conn)  # Automatically sets user_id
+
+# Queries are automatically scoped to user
+tasks = Task.select(conn, user_ctx=user_ctx)
+task = Task.load_by_id_with_ctx(conn, user_ctx, task_id=42)
+```
+
+## Schema Management
+
+```python
+from lythonic.state import Schema, DbFile
+
+SCHEMA = Schema([User, Task, Event])
+
+# Create tables directly
+SCHEMA.create_schema(Path("app.db"))
+
+# Or use DbFile for lifecycle management
+db = DbFile("app.db", SCHEMA)
+db.check(ensure=True)  # Creates tables if missing
+
+with db.open() as conn:
+    # Use connection
+    pass
+```
+
+## Exports
+
+- `DbModel`: Base class for database models
+- `Schema`: Collection of DbModel classes
+- `DbFile`: Database file manager
+- `FieldInfo`: Field metadata extraction
+- `open_sqlite_db`: Context manager for SQLite connections
+- `execute_sql`: Execute SQL with logging
+- `from_multi_model_row`: Parse multi-model query results
+- `to_sql_datetime`: Convert datetime to SQL string
+"""
+
 import logging
 import sqlite3
 from collections.abc import Callable, Generator

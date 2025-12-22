@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := default
 
-.PHONY: default install lint test upgrade build clean agent-rules
+.PHONY: default install lint test upgrade build clean agent-rules docs docs-serve docs-deploy
 
 default: agent-rules install lint test 
 
@@ -40,4 +40,15 @@ clean:
 	-rm -rf .mypy_cache/
 	-rm -rf .venv/
 	-rm -rf CLAUDE.md AGENTS.md
+	-rm -rf site/
 	-find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# Documentation
+docs:
+	uv run --group docs mkdocs build
+
+docs-serve:
+	uv run --group docs mkdocs serve
+
+docs-deploy:
+	uv run --group docs mkdocs gh-deploy

@@ -56,7 +56,11 @@ dev = [
     "coverage>=7.6.7",
     "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.2.0",
-
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
 ]
 
 [project.scripts]
