@@ -1,6 +1,7 @@
 # lythonic
 
 [![PyPI version](https://img.shields.io/pypi/v/lythonic.svg?label=lythonic&color=blue)](https://pypi.org/project/lythonic/)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://walnutgeek.github.io/lythonic/)
 
 
 
@@ -11,7 +12,7 @@ Lythonic helps you easily manage persistent data and scheduled tasks in your Pyt
 
 **Why use lythonic?**
 - **Zero setup:** No need to run a database server or learn new dialects. SQLite is embedded and self-contained.
-- **Reliable models:** Defines your data models with clear type-checking, validation, and conversion using Pydantic.
+- **Reliable models:** Define your data models with clear type-checking, validation, and conversion using Pydantic.
 - **Easy scheduling:** Integrates simple, robust job/task scheduling primitives (coming soon) for recurring or deferred operations.
 - **Pythonic APIs:** Focus on productivity, safety, and clarity, following modern Python best practices throughout.
 
@@ -77,6 +78,8 @@ For how to install uv and Python, see [installation.md](installation.md).
 For development workflows, see [development.md](development.md).
 
 For instructions on publishing to PyPI, see [publishing.md](publishing.md).
+
+For documentation strategy and MkDocs setup, see [documenting.md](documenting.md).
 
 * * *
 
