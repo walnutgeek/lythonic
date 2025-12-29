@@ -1,3 +1,64 @@
+"""
+Annotated CLI: Build hierarchical command-line interfaces from type-annotated functions.
+
+This module provides a declarative way to build CLI applications where commands
+are organized in a tree structure. Arguments and options are automatically derived
+from function signatures and Pydantic models.
+
+## Quick Start
+
+```python
+from pydantic import BaseModel, Field
+from lythonic.annotated import ActionTree, Main, RunContext
+
+# 1. Create the root action tree
+main = ActionTree(Main)
+
+# 2. Define a subcommand group using a BaseModel
+class Server(BaseModel):
+    '''Server management commands'''
+    port: int = Field(default=8080, description="Port to listen on")
+
+server = main.actions.add(Server)
+
+# 3. Add actions to the group using the @wrap decorator
+@server.actions.wrap
+def start(ctx: RunContext):
+    '''Start the server'''
+    config = ctx.path.get('/server')  # Access parent action's parsed values
+    ctx.print(f"Starting on port {config.port}")
+
+@server.actions.wrap
+def stop():
+    '''Stop the server'''
+    print("Stopping server")
+
+# 4. Run the CLI
+if __name__ == "__main__":
+    import sys
+    result = main.run_args(sys.argv)
+    sys.exit(0 if result.success else 1)
+```
+
+Usage: `mycli server start` or `mycli server --port=9000 start`
+
+## Key Concepts
+
+- **ActionTree**: A node in the command tree. Can have child actions and arguments.
+- **Main**: Default root model with `--help` flag. Use as the root ActionTree argument.
+- **RunContext**: Passed to actions that need it (declare `ctx: RunContext` as first param).
+  Provides access to parent values via `ctx.path.get('/path')`.
+- **Arguments**: Required params become positional args; optional params become `--flags`.
+- **Pydantic integration**: BaseModel fields provide descriptions and defaults automatically.
+
+## Argument Parsing Rules
+
+- Required function params → positional arguments: `<arg>`
+- Optional function params → options: `--name=value` or `--name value`
+- Boolean params with `default=False` → flags: `--verbose` (no value needed)
+- Pydantic models can be passed as JSON: `mycli config set '{"name":"test"}'`
+"""
+
 import inspect
 import sys
 from collections.abc import Callable
@@ -11,6 +72,12 @@ from lythonic import GlobalRef
 
 
 class ArgInfo(NamedTuple):
+    """
+    Metadata about a function argument, extracted from signature and Pydantic fields.
+
+    Used to generate CLI argument/option parsing and help text.
+    """
+
     name: str
     annotation: Any | None
     default: Any | None
@@ -63,6 +130,14 @@ class ArgInfo(NamedTuple):
 
 
 class Method:
+    """
+    Wrapper around a callable that provides introspection of its arguments.
+
+    Lazily loads the callable via GlobalRef and extracts argument metadata
+    from the function signature. Supports both regular functions and Pydantic
+    BaseModel classes (using their `__init__` signature).
+    """
+
     gref: GlobalRef
     _o: Callable[..., Any] | None
     _args: list[ArgInfo] | None
@@ -131,6 +206,12 @@ T = TypeVar("T", bound=Method)
 
 
 class MethodDict(Generic[T], dict[str, T]):
+    """
+    Dictionary mapping lowercased method names to Method instances.
+
+    Use `add()` to register a callable, or `wrap()` as a decorator.
+    """
+
     method_type: type[T]
 
     def __init__(self, method_type: type[T]):
@@ -147,6 +228,8 @@ class MethodDict(Generic[T], dict[str, T]):
 
 
 class RunResult:
+    """Result of running a CLI command, with success status and collected messages."""
+
     success: bool
     msgs: list[str]
     print_func: Callable[[str], None] | None
@@ -164,6 +247,13 @@ class RunResult:
 
 
 class ActionTree(Method):
+    """
+    A node in the command tree that can have child actions.
+
+    Extends Method with the ability to register subcommands via the `actions`
+    MethodDict. Call `run_args(sys.argv)` on the root to parse and execute.
+    """
+
     actions: MethodDict["ActionTree"]
 
     def __init__(self, o: Callable[..., Any] | GlobalRef):
@@ -260,6 +350,8 @@ class ActionTree(Method):
 
 
 class Main(BaseModel):
+    """Default root action model. Provides the `--help` flag."""
+
     help: bool = Field(default=False, description="Show help")
 
 
@@ -335,6 +427,14 @@ class PathValue:
 
 
 class RunContext:
+    """
+    Context passed to action functions during CLI execution.
+
+    Declare `ctx: RunContext` as the first parameter of an action to receive it.
+    Use `ctx.path.get('/action_name')` to access parsed values from parent actions.
+    Use `ctx.print()` for output that gets captured in `RunResult.msgs`.
+    """
+
     path: PathValue
     main_at: ActionTree
     run_result: RunResult

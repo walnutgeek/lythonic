@@ -66,6 +66,10 @@ nav:
       - Define a Schema: how-to/define-schema.md
       - Multi-Tenant Apps: how-to/multi-tenant.md
   - API Reference:
+      - lythonic: reference/core.md
+      - lythonic.annotated: reference/annotated.md
+      - lythonic.misc: reference/misc.md
+      - lythonic.periodic: reference/periodic.md
       - lythonic.state: reference/state.md
       - lythonic.state.user: reference/user.md
       - lythonic.types: reference/types.md

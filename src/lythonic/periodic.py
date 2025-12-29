@@ -1,3 +1,66 @@
+"""
+Time and scheduling utilities.
+
+This module provides tools for working with time intervals, frequencies, and periodic tasks:
+
+## Time Simulation
+
+`SimulatedTime` allows testing time-dependent code by offsetting the clock:
+
+```python
+from lythonic.periodic import stime
+from datetime import timedelta
+
+stime.set_offset(timedelta(days=1))  # Pretend it's tomorrow
+print(stime.get_datetime())
+stime.reset()  # Back to real time
+```
+
+## Frequencies and Intervals
+
+- `Frequency`: Human-friendly periods (weekly, monthly, quarterly, annually)
+- `FrequencyOffset`: Frequency with day offset (e.g., "20th of each month")
+- `Interval`: Precise duration with multiplier (e.g., "3M" for 3 months, "2W" for 2 weeks)
+
+```python
+from lythonic.periodic import Frequency, Interval
+from datetime import date
+
+freq = Frequency("monthly")
+print(freq.first_day(date(2025, 11, 15)))  # 2025-11-01
+print(freq.last_day(date(2025, 11, 15)))   # 2025-11-30
+
+interval = Interval.from_string("2W")
+print(interval.timedelta())  # 14 days
+```
+
+## Periodic Tasks
+
+Run async tasks at specified intervals:
+
+```python
+from lythonic.periodic import PeriodicTask, run_all
+
+task = PeriodicTask(freq=60, logic=my_function)  # Run every 60 seconds
+await run_all(task)
+```
+
+## Timing with Moment
+
+Track elapsed time between checkpoints:
+
+```python
+from lythonic.periodic import Moment
+
+m = Moment.start()
+# ... do work ...
+m = m.capture("step1")
+# ... more work ...
+m = m.capture("done")
+print(m.chain())  # [start] 0.5s-> [step1] 1.2s-> [done]
+```
+"""
+
 import asyncio
 import calendar
 import inspect
@@ -441,6 +504,12 @@ class Moment:
 
 
 class PeriodicTask:
+    """
+    A task that runs at a specified frequency in seconds.
+
+    Use with `run_all()` to execute multiple tasks in an async event loop.
+    """
+
     freq: int
     logic: Callable[[], Any]
     last_run: float | None = None
@@ -501,6 +570,13 @@ async def run_all(
     shutdown_event: asyncio.Event | None = None,
     collect_results: Callable[[str, Any], None] = _collect_nothing,
 ):
+    """
+    Run multiple periodic tasks in an async loop.
+
+    Tasks are scheduled based on their `freq` (in seconds). The loop tick interval
+    is the GCD of all task frequencies for efficiency. Set `shutdown_event` to
+    signal graceful termination.
+    """
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
     if len(tasks) == 0:

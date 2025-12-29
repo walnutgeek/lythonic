@@ -1,3 +1,44 @@
+"""
+Core utilities for the Lythonic library.
+
+This module provides foundational types and utilities used throughout Lythonic:
+
+- `GlobalRef` / `GRef`: Reference any Python object by its module path (e.g., `"mymodule:MyClass"`).
+  Useful for configuration files and lazy loading.
+- `Result[TOk, TErr]`: A Rust-inspired Result type for explicit error handling without exceptions.
+- `utc_now()`: Get the current UTC datetime.
+- `get_module()`: Import a module by name.
+
+## GlobalRef Usage
+
+```python
+from lythonic import GlobalRef
+
+# Reference a class by string
+ref = GlobalRef("json:dumps")
+dumps_func = ref.get_instance()
+
+# Reference from an object
+ref = GlobalRef(MyClass)
+print(ref)  # "mymodule:MyClass"
+```
+
+## Result Usage
+
+```python
+from lythonic import Result
+
+def divide(a: int, b: int) -> Result[float, str]:
+    if b == 0:
+        return Result.Err("division by zero")
+    return Result.Ok(a / b)
+
+result = divide(10, 2)
+if result.is_ok():
+    print(result.unwrap())  # 5.0
+```
+"""
+
 import logging
 import sys
 from datetime import UTC, datetime
