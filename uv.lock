@@ -334,6 +334,7 @@ dev = [
     { name = "ruff" },
 ]
 docs = [
+    { name = "markdown-pycon" },
     { name = "mkdocs" },
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
@@ -356,6 +357,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.2" },
 ]
 docs = [
+    { name = "markdown-pycon", specifier = ">=1.0.1" },
     { name = "mkdocs", specifier = ">=1.6" },
     { name = "mkdocs-material", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27" },
@@ -380,6 +382,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5b/f5/4ec618ed16cc4f8fb3b701563655a69816155e79e24a17b651541804721d/markdown_it_py-4.0.0.tar.gz", hash = "sha256:cb0a2b4aa34f932c007117b194e945bd74e0ec24133ceb5bac59009cda1cb9f3", size = 73070, upload_time = "2025-08-11T12:57:52.854Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/94/54/e7d793b573f298e1c9013b8c4dade17d481164aa517d1d7148619c2cedbf/markdown_it_py-4.0.0-py3-none-any.whl", hash = "sha256:87327c59b172c5011896038353a81343b6754500a08cd7a4973bb48c6d578147", size = 87321, upload_time = "2025-08-11T12:57:51.923Z" },
+]
+
+[[package]]
+name = "markdown-pycon"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/44/bc5b35c24a475b46eb64ca0da6d482bda073cb0a4f189a05d637663c9bde/markdown_pycon-1.0.1.tar.gz", hash = "sha256:02089b53b2056fd844e90e0c0ecd5c5b6f28d24daf313ddbea736fb90e066c32", size = 33394, upload_time = "2025-01-10T01:05:22.144Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/cb/105897f8a5ad9b0d1b41b2175b350f8476c400f65ed232da80879516dadb/markdown_pycon-1.0.1-py3-none-any.whl", hash = "sha256:938ac2595c0056c10f497c2bde3e5add06797e485fc83b187b0eacc29a9ef7b2", size = 6608, upload_time = "2025-01-10T01:05:20.761Z" },
 ]
 
 [[package]]

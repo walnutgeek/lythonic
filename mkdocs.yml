@@ -45,6 +45,7 @@ plugins:
             docstring_style: google
 
 markdown_extensions:
+  - pycon
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.superfences
