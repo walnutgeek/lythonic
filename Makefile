@@ -23,15 +23,6 @@ upgrade:
 build:
 	uv build
 
-agent-rules: CLAUDE.md AGENTS.md
-
-# Use .cursor/rules for sources of rules.
-# Create Claude and Codex rules from these.
-CLAUDE.md: .cursor/rules/general.mdc .cursor/rules/python.mdc
-	cat .cursor/rules/general.mdc .cursor/rules/python.mdc > CLAUDE.md
-
-AGENTS.md: .cursor/rules/general.mdc .cursor/rules/python.mdc
-	cat .cursor/rules/general.mdc .cursor/rules/python.mdc > AGENTS.md
 
 clean:
 	-rm -rf dist/
@@ -39,7 +30,6 @@ clean:
 	-rm -rf .pytest_cache/
 	-rm -rf .mypy_cache/
 	-rm -rf .venv/
-	-rm -rf CLAUDE.md AGENTS.md
 	-rm -rf site/
 	-find . -type d -name "__pycache__" -exec rm -rf {} +
 
