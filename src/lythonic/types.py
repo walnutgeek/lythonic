@@ -1,3 +1,86 @@
+"""
+Types: Type mapping system for converting between Python, JSON, and SQLite types.
+
+This module provides a registry of known types and their conversion functions
+for seamless data transformation between different representations.
+
+## Core Concepts
+
+- `KnownType`: A registered type with bidirectional mappings (string, JSON, DB)
+- `KnownTypesMap`: Registry of all known types, accessed via `KNOWN_TYPES`
+- `JsonBase`: Pydantic BaseModel with type discrimination via `type_gref`
+
+## Type Mappings
+
+Each `KnownType` provides three `MapPair`s for converting to/from:
+- **string**: For CLI arguments, environment variables, config files
+- **json**: For JSON serialization (API responses, storage)
+- **db**: For SQLite storage (maps to INTEGER, REAL, TEXT, or BLOB)
+
+## Built-in Types
+
+Primitives: `int`, `float`, `str`, `bool`, `bytes`
+Dates: `date`, `datetime` (ISO format strings)
+Enums: `Enum` (string values), `IntEnum` (integer values)
+Pydantic: `BaseModel`, `JsonBase` (JSON dicts)
+Paths: `Path` (string representation)
+
+## Usage
+
+```python
+from lythonic.types import KNOWN_TYPES, KnownType
+
+# Resolve a type
+kt = KNOWN_TYPES.resolve_type(datetime)
+
+# Convert from string
+dt = kt.string.map_from("2024-01-15T10:30:00")
+
+# Convert to JSON
+json_val = kt.json.map_to(dt)  # "2024-01-15T10:30:00"
+
+# Convert to DB
+db_val = kt.db.map_to(dt)  # "2024-01-15T10:30:00"
+```
+
+## Registering Custom Types
+
+```python
+from lythonic.types import KNOWN_TYPES, KnownTypeArgs
+
+KNOWN_TYPES.register(
+    KnownTypeArgs(
+        concrete_type=MyType,
+        map_from_string=MyType.parse,
+        map_to_string=str,
+    )
+)
+```
+
+## JsonBase
+
+`JsonBase` extends Pydantic's `BaseModel` with automatic type discrimination:
+
+```python
+from lythonic.types import JsonBase
+
+class Dog(JsonBase):
+    name: str
+
+class Cat(JsonBase):
+    name: str
+
+# Serialize includes type reference
+dog = Dog(name="Rex")
+data = dog.to_json()  # {"type_gref": "mymodule:Dog", "name": "Rex"}
+
+# Deserialize resolves correct type
+animal = JsonBase.from_json(data)  # Returns Dog instance
+```
+"""
+
+from __future__ import annotations
+
 import base64
 import inspect
 import json as _json
@@ -140,7 +223,7 @@ class DbTypeInfo(Enum):
     BLOB = ((bytes,), bytes)
 
     @classmethod
-    def from_type(cls, t: type) -> "DbTypeInfo":
+    def from_type(cls, t: type) -> DbTypeInfo:
         return cast(
             DbTypeInfo,
             cls._value2member_map_[t],
@@ -314,7 +397,7 @@ class KnownType:
     db: MapPair[Any]
 
     @classmethod
-    def ensure(cls, type_: "type | str | KnownType") -> "KnownType":
+    def ensure(cls, type_: type | str | KnownType) -> KnownType:
         if isinstance(type_, KnownType):
             return type_
         return KNOWN_TYPES.resolve_type(type_)
@@ -363,14 +446,14 @@ class KnownType:
 class AbstractTypeHeap:
     type_: type
     ktype: KnownType | KnownTypeArgs | None
-    parent: "AbstractTypeHeap | None"
-    children: list["AbstractTypeHeap"]
+    parent: AbstractTypeHeap | None
+    children: list[AbstractTypeHeap]
 
     def __init__(
         self,
         type_: type,
         ktype: KnownType | KnownTypeArgs | None = None,
-        parent: "AbstractTypeHeap|None" = None,
+        parent: AbstractTypeHeap | None = None,
     ) -> None:
         self.type_ = type_
         self.ktype = ktype
@@ -393,7 +476,7 @@ class AbstractTypeHeap:
         return self.parent is None and self.type_ is object
 
     @staticmethod
-    def root() -> "AbstractTypeHeap":
+    def root() -> AbstractTypeHeap:
         return AbstractTypeHeap(object)
 
     def matches_exactly(self, type_in_question: type) -> bool | None:
@@ -403,7 +486,9 @@ class AbstractTypeHeap:
             return False
         return None
 
-    def find(self, type_in_question: type) -> "tuple[AbstractTypeHeap|None, AbstractTypeHeap|None]":
+    def find(
+        self, type_in_question: type
+    ) -> tuple[AbstractTypeHeap | None, AbstractTypeHeap | None]:
         assert self.is_root(), "it has to be called on root of the heap"
         m = self.matches_exactly(type_in_question)
         if m is True:
@@ -413,7 +498,7 @@ class AbstractTypeHeap:
 
     def _find_in_children(
         self, type_in_question: type
-    ) -> "tuple[AbstractTypeHeap|None, AbstractTypeHeap|None]":
+    ) -> tuple[AbstractTypeHeap | None, AbstractTypeHeap | None]:
         for child in self.children:
             m = child.matches_exactly(type_in_question)
             if m:

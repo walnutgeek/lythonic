@@ -1,3 +1,47 @@
+"""
+User: Multi-tenant user ownership patterns for database models.
+
+This module provides base classes for building multi-tenant applications where
+records are owned by users and access is controlled accordingly.
+
+## Core Classes
+
+- `User`: Base user model with `user_id`, `info`, and `created_at`
+- `UserContext`: Context object passed to operations requiring user scope
+- `UserOwned`: Base class for models that belong to a user
+
+## Usage
+
+```python
+from lythonic.state.user import User, UserContext, UserOwned, UserInfo
+from pydantic import Field
+
+class MyUserInfo(UserInfo):
+    name: str
+    email: str
+
+class Document(UserOwned["Document"]):
+    doc_id: int = Field(default=-1, description="(PK)")
+    title: str
+
+# Create user context
+user = User(user_id=1, info=MyUserInfo(name="Alice", email="alice@example.com"))
+ctx = UserContext(user=user)
+
+# Save with user context (enforces ownership)
+doc = Document(title="My Doc")
+doc.save_with_ctx(ctx, conn)
+
+# Load with user context (only returns user's records)
+doc = Document.load_by_id_with_ctx(conn, ctx, doc_id=1)
+```
+
+The `UserOwned` class overrides `save()` and `load_by_id()` to require
+`UserContext`, ensuring all database operations are scoped to the current user.
+"""
+
+from __future__ import annotations
+
 import sqlite3
 from datetime import datetime
 from typing import Any, TypeVar
