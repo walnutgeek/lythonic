@@ -68,7 +68,9 @@ nav:
       - Multi-Tenant Apps: how-to/multi-tenant.md
   - API Reference:
       - lythonic: reference/core.md
-      - lythonic.annotated: reference/annotated.md
+      - lythonic.compose: reference/compose.md
+      - lythonic.compose.cli: reference/compose-cli.md
+      - lythonic.compose.logic: reference/compose-logic.md
       - lythonic.misc: reference/misc.md
       - lythonic.periodic: reference/periodic.md
       - lythonic.state: reference/state.md

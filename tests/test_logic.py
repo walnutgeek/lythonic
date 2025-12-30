@@ -3,7 +3,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from lythonic import Result
-from lythonic.logic import LogicNode
+from lythonic.compose.logic import LogicNode
 
 
 def test_logic_node():

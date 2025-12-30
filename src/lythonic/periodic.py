@@ -97,7 +97,7 @@ def total_microseconds(d: timedelta) -> int:
 def dt_to_bytes(dt: datetime) -> bytes:
     """
     Convert datetime to bytes
-    
+
     >>> dt_to_bytes(datetime( 1900,1,1,0,0,0))
     b'\\xff\\xf8&\\xef\\xb7C`\\x00'
     >>> dt_to_bytes(datetime( 2000,1,1,0,0,0))

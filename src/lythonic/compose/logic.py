@@ -1,3 +1,49 @@
+"""
+Logic: Build typed logic graphs from annotated functions.
+
+This module provides primitives for composing typed functions into logic graphs
+where nodes are functions that accept and return Pydantic BaseModels.
+
+## Core Concepts
+
+- `LogicNode`: Wrapper around a function with typed BaseModel inputs/outputs
+- `LogicGraph`: A graph of LogicNodes (start/end nodes + named nodes)
+- `PossibleTypes`: Union type tracking for error types
+
+## Usage
+
+```python
+from pydantic import BaseModel
+from lythonic.compose.logic import LogicNode
+
+class Input(BaseModel):
+    value: int
+
+class Output(BaseModel):
+    result: int
+
+def double(input: Input) -> Output:
+    return Output(result=input.value * 2)
+
+node = LogicNode(double)
+# node.input_types == [Input]
+# node.ok_output_types == [Output]
+```
+
+Functions can also return `Result[T, E]` for explicit error handling:
+
+```python
+from lythonic import Result
+
+def safe_divide(input: Input) -> Result[Output, ZeroDivisionError]:
+    if input.value == 0:
+        return Result.Err(ZeroDivisionError())
+    return Result.Ok(Output(result=100 // input.value))
+```
+"""
+
+from __future__ import annotations
+
 from collections.abc import Callable
 from types import UnionType
 from typing import Any, get_args, get_origin
@@ -6,7 +52,7 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from lythonic import Result
-from lythonic.annotated import Method
+from lythonic.compose import Method
 
 
 def _append_base_model(_type: Any, base_models: list[type[BaseModel]]) -> None:
@@ -34,7 +80,9 @@ def _unpack_base_model_tuple(_type: Any) -> list[type[BaseModel]]:
 
 class PossibleTypes:
     """
-    A union type for errors including BaseModel's and exceptions
+    Represents a union of types, tracking which are BaseModels vs exceptions.
+
+    Used to analyze error return types in `Result[T, E]` signatures.
 
     >>> x = PossibleTypes(BaseModel|BaseException)
     >>> x.which_are_base_models()
@@ -79,10 +127,15 @@ class PossibleTypes:
 
 class LogicNode:
     """
-    A LogicNode is a wrapper around a function that is called when  is triggered,
-    function  accepts zero or more BaseModel as input and
-    returns a BaseModel or Tuple[BaseModel, ...] or Result[BaseModel, Any] as output
+    Wrapper around a typed function for use in logic graphs.
 
+    Analyzes the function signature to extract:
+    - `input_types`: List of BaseModel types accepted as arguments
+    - `ok_output_types`: List of BaseModel types returned on success
+    - `err_output_type`: PossibleTypes for error cases (if using Result)
+
+    The function must accept zero or more BaseModel arguments and return
+    either a BaseModel, tuple of BaseModels, or Result[BaseModel, E].
     """
 
     logic: Callable[[Any], Any]
@@ -121,6 +174,12 @@ class LogicNode:
 
 
 class LogicGraph:
+    """
+    A directed graph of LogicNodes representing a workflow.
+
+    Currently a placeholder for future workflow composition features.
+    """
+
     start_node: LogicNode | None
     end_node: LogicNode | None
     nodes: dict[str, LogicNode]
@@ -129,27 +188,3 @@ class LogicGraph:
         self.start_node = None
         self.end_node = None
         self.nodes = {}
-
-
-# @final
-# class Logic:
-#     def __init__(self, config: dict[str, Any], default_ref: str | GlobalRef | None = None) -> None:
-#         config = dict(config)
-#         try:
-#             if default_ref is not None:
-#                 ref = GlobalRef(config.pop("ref$", default_ref))
-#             else:
-#                 ref = GlobalRef(config.pop("ref$"))
-#             self.async_call = ref.is_async()
-#             if ref.is_function():
-#                 self.instance = None
-#                 self.call = ref.get_instance()
-#                 assert config == {}, f"Unexpected entries {config}"
-#             elif ref.is_class():
-#                 cls = ref.get_instance()
-#                 self.call = self.instance = cls(config)
-#             else:
-#                 raise AssertionError(f"Invalid logic {ref} in config {config}")  # pragma: no cover
-#         except BaseException:
-#             log.error(f"Error in {config}")
-#             raise

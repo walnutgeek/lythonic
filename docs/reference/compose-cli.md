@@ -1,8 +1,8 @@
-# lythonic.annotated
+# lythonic.compose.cli
 
 Build hierarchical command-line interfaces from type-annotated functions.
 
-::: lythonic.annotated
+::: lythonic.compose.cli
     options:
       show_root_heading: false
       members:
@@ -10,7 +10,4 @@ Build hierarchical command-line interfaces from type-annotated functions.
         - Main
         - RunContext
         - RunResult
-        - Method
-        - MethodDict
-        - ArgInfo
         - PathValue

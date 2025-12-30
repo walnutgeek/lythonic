@@ -4,7 +4,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from lythonic.annotated import ActionTree, Main, Method, RunContext
+from lythonic.compose import Method
+from lythonic.compose.cli import ActionTree, Main, RunContext
 
 
 def my_func(x, y: bool, z=None, a: int | float = 42, b: str = "foo"):  # pyright: ignore
