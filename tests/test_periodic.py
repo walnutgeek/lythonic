@@ -187,9 +187,11 @@ def test_max_values_for_datetime_serialized():
 
 
 def test_period():
-    assert IntervalUnit.D == IntervalUnit.from_string("d")
-    assert IntervalUnit.W == IntervalUnit.from_string("w")
+    assert IntervalUnit.D == IntervalUnit.from_string("D")
+    assert IntervalUnit.W == IntervalUnit.from_string("W")
     assert IntervalUnit.M == IntervalUnit.from_string("M")
+    assert IntervalUnit.Y == IntervalUnit.from_string("years")
+    assert IntervalUnit.s == IntervalUnit.from_string("seconds")
 
     dates = [
         date(1999, 1, 1),
@@ -211,7 +213,7 @@ def test_freq():
         Interval.from_string("1z")
         raise AssertionError
     except ValueError as e:
-        assert str(e) == "('Invalid frequency string', '1z')"
+        assert str(e) == "('Invalid interval string', '1z')"
 
 
 def test_find_file():

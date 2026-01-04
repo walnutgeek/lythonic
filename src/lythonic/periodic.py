@@ -68,6 +68,7 @@ import logging
 import sys
 import time as tt
 from collections.abc import Callable
+from functools import total_ordering
 from typing import Annotated, Any, Literal, final
 
 from pydantic import BeforeValidator, PlainSerializer, WithJsonSchema
@@ -335,19 +336,44 @@ class FrequencyOffset:
 
 class IntervalUnit(Enum):
     """
-    >>> IntervalUnit.D
-    IntervalUnit.D
+    Approximate time interval units expressed in days.
+
+    >>> for n in "usmhDWMQY": print(f"{n} = {IntervalUnit.from_string(n).timedelta()}")
+    u = 0:00:00.000001
+    s = 0:00:01
+    m = 0:01:00
+    h = 1:00:00
+    D = 1 day, 0:00:00
+    W = 7 days, 0:00:00
+    M = 30 days, 10:30:43.200000
+    Q = 91 days, 7:32:09.600000
+    Y = 365 days, 6:08:38.400000
+    >>> [i.name for i in IntervalUnit]
+    ['u', 's', 'm', 'h', 'D', 'W', 'M', 'Q', 'Y']
+    >>> IntervalUnit.minutes
+    IntervalUnit.m
+    >>> list(IntervalUnit.aliases())
+    ['microseconds', 'seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'quarters', 'years']
+
     """
 
-    D = 1
-    W = 7
-    M = YEAR_IN_DAYS / 12
-    Q = YEAR_IN_DAYS / 4
-    Y = YEAR_IN_DAYS
+    u = microseconds = 1 / (1_000_000 * SECONDS_IN_DAY)
+    s = seconds = 1 / SECONDS_IN_DAY
+    m = minutes = 1 / (60 * 24)
+    h = hours = 1 / 24
+    D = days = 1
+    W = weeks = 7
+    M = months = YEAR_IN_DAYS / 12
+    Q = quarters = YEAR_IN_DAYS / 4
+    Y = years = YEAR_IN_DAYS
 
     @classmethod
     def from_string(cls, n: str) -> "IntervalUnit":
-        return cls[n.upper()]
+        return cls[n]
+
+    @classmethod
+    def aliases(cls) -> dict[str, "IntervalUnit"]:
+        return {n: e for n, e in cls.__members__.items() if len(n) != 1}
 
     def timedelta(self) -> timedelta:
         return timedelta(days=self.value)
@@ -362,23 +388,37 @@ class IntervalUnit(Enum):
 
 
 @final
+@total_ordering
 class Interval:
     """Mapping years, month, and quarter to real numbers of approximate days. Weeks and days mapped to integer. "
 
-    >>> Interval(1, IntervalUnit.D).timedelta()
-    datetime.timedelta(days=1)
-    >>> Interval(1, IntervalUnit.W).timedelta()
-    datetime.timedelta(days=7)
-    >>> Interval(1, IntervalUnit.M).timedelta()
-    datetime.timedelta(days=30, seconds=37843, microseconds=200000)
-    >>> Interval(1, IntervalUnit.Q).timedelta()
-    datetime.timedelta(days=91, seconds=27129, microseconds=600000)
-    >>> Interval(1, IntervalUnit.Y).timedelta()
-    datetime.timedelta(days=365, seconds=22118, microseconds=400000)
+    >>> p = lambda i: f"{i} {i.timedelta()}"
+    >>> p(Interval(2, IntervalUnit.s))
+    '2s 0:00:02'
+    >>> p(Interval.from_string("2s"))
+    '2s 0:00:02'
+    >>> p(Interval.from_string("2seconds"))
+    '2s 0:00:02'
+    >>> p(Interval.from_string("2 seconds"))
+    '2s 0:00:02'
+    >>> p(Interval.from_string("2 second"))
+    Traceback (most recent call last):
+    ...
+    ValueError: ('Invalid interval string', '2 second')
+    >>> p(Interval(1, IntervalUnit.D))
+    '1D 1 day, 0:00:00'
+    >>> Interval.from_string("1D") == Interval(1, IntervalUnit.D)
+    True
+    >>> Interval.from_string("1D") >= Interval.from_string("23 hours")
+    True
+    >>> Interval.from_string("1D") >= Interval.from_string("24 hours")
+    True
+    >>> Interval.from_string("1D") >= Interval.from_string("25 hours")
+    False
     """
 
-    _P = "".join(p.name for p in IntervalUnit)
-    FREQ_RE = re.compile(r"(\d+)([" + _P + _P.lower() + "])")
+    FREQ_RE = re.compile(f"(\\d+)([{''.join(p.name for p in IntervalUnit)}])")
+    ALIAS_FREQ_RE = re.compile(f"(\\d+) ?({'|'.join(IntervalUnit.aliases())})")
 
     multiplier: int
     period: IntervalUnit
@@ -402,16 +442,29 @@ class Interval:
             n, p = m.groups()
             return cls(int(n), IntervalUnit.from_string(p))
         else:
-            raise ValueError("Invalid frequency string", s)
+            raise ValueError("Invalid interval string", s)
 
     @classmethod
     def matcher(cls, s: str) -> re.Match[str] | None:
-        return re.match(cls.FREQ_RE, s)
+        return re.match(cls.FREQ_RE, s) or re.match(cls.ALIAS_FREQ_RE, s)
 
     def timedelta(self) -> timedelta:
         return self.multiplier * self.period.timedelta()
 
-    def match(self, d: date, as_of: date) -> bool:
+    @override
+    def __hash__(self):
+        return hash((self.multiplier, self.period))
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        assert isinstance(other, Interval)
+        return self.timedelta() == other.timedelta()
+
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, Interval)
+        return self.timedelta() < other.timedelta()
+
+    def match(self, d: date | datetime, as_of: date | datetime) -> bool:
         return d <= as_of and d + self.timedelta() > as_of
 
     def find_file(
