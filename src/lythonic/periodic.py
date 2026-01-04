@@ -407,11 +407,15 @@ class Interval:
     ValueError: ('Invalid interval string', '2 second')
     >>> p(Interval(1, IntervalUnit.D))
     '1D 1 day, 0:00:00'
+    >>> float(Interval.from_string("1D"))
+    1.0
+    >>> float(Interval.from_string("3h"))
+    0.125
     >>> Interval.from_string("1D") == Interval(1, IntervalUnit.D)
     True
-    >>> Interval.from_string("1D") >= Interval.from_string("23 hours")
+    >>> Interval("1D") >= Interval.from_string("23 hours")
     True
-    >>> Interval.from_string("1D") >= Interval.from_string("24 hours")
+    >>> Interval(Interval("1D")) >= Interval.from_string("24 hours")
     True
     >>> Interval.from_string("1D") >= Interval.from_string("25 hours")
     False
@@ -423,9 +427,17 @@ class Interval:
     multiplier: int
     period: IntervalUnit
 
-    def __init__(self, multiplier: int, period: IntervalUnit) -> None:
-        self.multiplier = multiplier
-        self.period = period
+    def __init__(self, multiplier_or_value: "int|str|Interval", period: IntervalUnit|None = None) -> None:
+        if isinstance(multiplier_or_value, int):
+            assert period is not None
+            self.multiplier = multiplier_or_value
+            self.period = period
+        else:
+            if isinstance(multiplier_or_value, str):
+                multiplier_or_value = Interval.from_string(multiplier_or_value)
+            self.multiplier = multiplier_or_value.multiplier
+            self.period = multiplier_or_value.period
+        
 
     @classmethod
     def from_string_safe(cls, s: "Interval|str|None") -> "Interval | None":
@@ -451,6 +463,10 @@ class Interval:
     def timedelta(self) -> timedelta:
         return self.multiplier * self.period.timedelta()
 
+    def __float__(self)->float:
+        """Interval duration in days"""
+        return float(self.multiplier * self.period.value)
+    
     @override
     def __hash__(self):
         return hash((self.multiplier, self.period))
