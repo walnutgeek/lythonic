@@ -499,14 +499,14 @@ class DbModel(BaseModel, Generic[T]):
                 select_vars = ", ".join([fi.name for fi in self.fields()])
             execute_sql(
                 self.cursor,
-                f"SELECT {select_vars} FROM {self.table_name} " + self.where_clause(),
+                f"SELECT {select_vars} FROM {self.table_name} {self.where_clause()}",
                 self.args,
             )
 
         def execute_delete(self):
             execute_sql(
                 self.cursor,
-                f"DELETE FROM {self.table_name} " + self.where_clause(),
+                f"DELETE FROM {self.table_name} {self.where_clause()}",
                 self.args,
             )
 
