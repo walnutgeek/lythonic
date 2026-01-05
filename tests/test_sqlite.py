@@ -203,3 +203,22 @@ def test_add_attempt():
         assert isinstance(c_loaded2, list)
         assert len(c_loaded2) == 2
         conn.commit()
+        sess = rag.ConvoSession(model="4o", user_id="alice", session_type="active").save(conn)
+        rag.ConvoMessage(
+            role="user", content="hello", finish_reason="stop", session_id=sess.session_id
+        ).save(conn)
+        rag.ConvoMessage(
+            role="assistant",
+            content="how are you",
+            finish_reason="stop",
+            session_id=sess.session_id,
+        ).save(conn)
+        assert rag.ConvoMessage.select_count(conn, session_id=sess.session_id) == 2
+        pk_filter, pk_defined = sess.get_pk_filter()
+        assert pk_defined
+        assert rag.ConvoMessage.delete(conn, **pk_filter) == 2
+        assert rag.ConvoMessage.select_count(conn, session_id=sess.session_id) == 0
+        assert rag.ConvoSession.delete(conn, **pk_filter) == 1
+        assert rag.ConvoSession.select_count(conn, session_id=sess.session_id) == 0
+
+        conn.commit()

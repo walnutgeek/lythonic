@@ -146,6 +146,26 @@ record.field = "new value"
 n_updated = record.update(conn, pk_field=record.pk_field)
 ```
 
+### Delete
+
+```python
+# Delete all matching rows, returns count of deleted rows
+n_deleted = MyModel.delete(conn, status="inactive")
+```
+
+### Primary Key Filter
+
+Use `get_pk_filter()` to get a filter dict for the current record's primary key:
+
+```python
+record = MyModel.load_by_id(conn, 42)
+pk_filter, pk_defined = record.get_pk_filter()
+# pk_filter is e.g. {"my_id": 42}, pk_defined is True if pk != -1
+
+# Useful for deleting related records
+RelatedModel.delete(conn, **pk_filter)
+```
+
 ### Count and Exists
 
 ```python
@@ -231,7 +251,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, Generic, Literal, NamedTuple, TypeVar, cast, get_args, get_origin
+from typing import Any, Generic, Literal, NamedTuple, Self, TypeVar, cast, get_args, get_origin
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -437,18 +457,26 @@ class DbModel(BaseModel, Generic[T]):
         assert len(pks) == 1
         return pks[0]
 
-    def save(self, conn: sqlite3.Connection) -> None:
+    def get_pk_filter(self) -> tuple[dict[str, Any], bool]:
+        """
+        Returns: primary key filter and whether it is defined
+        """
         cls = self.__class__
         pk = cls._ensure_pk()
         pk_val = getattr(self, pk.name)
-        if pk_val == -1:
+        return {pk.name: pk_val}, pk_val != -1
+
+    def save(self, conn: sqlite3.Connection) -> Self:
+        pk_filter, pk_defined = self.get_pk_filter()
+        if not pk_defined:
             self.insert(conn, auto_increment=True)
-            return
-        n_updated = self.update(conn, **{pk.name: pk_val})
+            return self
+        n_updated = self.update(conn, **pk_filter)
         if n_updated == 0:
             self.insert(conn)
         else:
             assert n_updated == 1
+        return self
 
     class _WhereBased(NamedTuple):
         cursor: sqlite3.Cursor
@@ -472,6 +500,13 @@ class DbModel(BaseModel, Generic[T]):
             execute_sql(
                 self.cursor,
                 f"SELECT {select_vars} FROM {self.table_name} " + self.where_clause(),
+                self.args,
+            )
+
+        def execute_delete(self):
+            execute_sql(
+                self.cursor,
+                f"DELETE FROM {self.table_name} " + self.where_clause(),
                 self.args,
             )
 
@@ -527,7 +562,7 @@ class DbModel(BaseModel, Generic[T]):
 
     @classmethod
     def select(cls, conn: sqlite3.Connection, **filters: Any) -> list[T]:
-        """Select all rows from the database that match the filters.
+        """Select all rows from the table that match the filters.
 
         Filters are given as keyword arguments, the keys are the field names
         and the values are the values to filter by.
@@ -535,6 +570,17 @@ class DbModel(BaseModel, Generic[T]):
         sc = cls._prepare_where(conn, **filters)
         sc.execute_select()
         return [cls._from_row(row, sc.fields()) for row in sc.cursor.fetchall()]
+
+    @classmethod
+    def delete(cls, conn: sqlite3.Connection, **filters: Any) -> int:
+        """Delete all rows from the table that match the filters.
+
+        Filters are given as keyword arguments, the keys are the field names
+        and the values are the values to filter by.
+        """
+        sc = cls._prepare_where(conn, **filters)
+        sc.execute_delete()
+        return sc.cursor.rowcount
 
     @classmethod
     def _from_row(cls, row: tuple[Any, ...], fields: list[FieldInfo]) -> T:

@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
-from typing import Any, TypeVar
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -77,7 +77,7 @@ class UserOwned(DbModel[UO]):
     user_id: int = Field(default=-1, description="(FK:User.user_id) Reference to the user")
 
     @override
-    def save(self, conn: sqlite3.Connection) -> None:
+    def save(self, conn: sqlite3.Connection) -> Self:
         raise NotImplementedError("Use save_with_ctx instead")
 
     @override
