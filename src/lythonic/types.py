@@ -609,17 +609,25 @@ KNOWN_TYPES.register(
         concrete_type=date,
         map_to_string=lambda x: x.isoformat(),
         map_from_string=date.fromisoformat,
+        simple_type=True,
     ),
     KnownTypeArgs(
         concrete_type=datetime,
         map_to_string=lambda x: x.isoformat(),
         map_from_string=datetime.fromisoformat,
+        simple_type=True,
     ),
-    KnownTypeArgs(abstract_type=Path, map_from_string=Path),
+    KnownTypeArgs(abstract_type=Path, map_from_string=Path, simple_type=True),
     KnownTypeArgs(
-        abstract_type=Enum, is_factory=True, map_from_string=Enum, map_to_string=lambda x: x.value
+        abstract_type=Enum,
+        is_factory=True,
+        map_from_string=Enum,
+        map_to_string=lambda x: x.value,
+        simple_type=True,
     ),
-    KnownTypeArgs(abstract_type=IntEnum, db_type=int, is_factory=True, map_from_db=IntEnum),
+    KnownTypeArgs(
+        abstract_type=IntEnum, db_type=int, is_factory=True, map_from_db=IntEnum, simple_type=True
+    ),
     KnownTypeArgs(
         abstract_type=BaseModel,
         json_type=dict,
