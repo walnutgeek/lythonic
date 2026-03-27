@@ -38,7 +38,8 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
-    "pydantic"
+    "pydantic",
+    "pyyaml>=6.0.3",
 ]
 
 
