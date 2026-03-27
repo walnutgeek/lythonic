@@ -7,14 +7,23 @@ Methods are exposed through a nested namespace object with attribute access.
 
 from __future__ import annotations
 
+import json
+import random
+import sqlite3
+import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel
 
-from lythonic import GRef
+from lythonic import GlobalRef, GRef
 from lythonic.compose import Method
+from lythonic.state import execute_sql, open_sqlite_db
 from lythonic.types import KNOWN_TYPES
+
+DAYS_TO_SECONDS = 86400.0
 
 
 class CacheRule(BaseModel):
@@ -79,3 +88,183 @@ def generate_cache_table_ddl(table_name: str, method: Method) -> str:
 
     cols_str = ",\n".join(columns)
     return f"CREATE TABLE IF NOT EXISTS {table_name} (\n{cols_str}\n)"
+
+
+def _cache_lookup(
+    conn: sqlite3.Connection,
+    table_name: str,
+    method: Method,
+    kwargs: dict[str, Any],
+) -> tuple[str, float] | None:
+    """Look up a cache entry. Returns (value_json, fetched_at) or None."""
+    where_parts: list[str] = []
+    values: list[Any] = []
+    for arg in method.args:
+        assert arg.annotation is not None
+        kt = KNOWN_TYPES.resolve_type(arg.annotation)
+        where_parts.append(f"{arg.name} = ?")
+        values.append(kt.db.map_to(kwargs[arg.name]))
+
+    where_clause = " AND ".join(where_parts)
+    sql = f"SELECT value_json, fetched_at FROM {table_name} WHERE {where_clause}"
+    cursor = conn.cursor()
+    execute_sql(cursor, sql, tuple(values))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
+def _cache_upsert(
+    conn: sqlite3.Connection,
+    table_name: str,
+    method: Method,
+    kwargs: dict[str, Any],
+    value_json: str,
+    fetched_at: float,
+) -> None:
+    """Insert or replace a cache entry."""
+    col_names: list[str] = []
+    values: list[Any] = []
+    for arg in method.args:
+        assert arg.annotation is not None
+        kt = KNOWN_TYPES.resolve_type(arg.annotation)
+        col_names.append(arg.name)
+        values.append(kt.db.map_to(kwargs[arg.name]))
+
+    col_names.extend(["value_json", "fetched_at"])
+    values.extend([value_json, fetched_at])
+
+    placeholders = ", ".join(["?"] * len(values))
+    cols = ", ".join(col_names)
+    sql = f"INSERT OR REPLACE INTO {table_name} ({cols}) VALUES ({placeholders})"
+    cursor = conn.cursor()
+    execute_sql(cursor, sql, tuple(values))
+    conn.commit()
+
+
+def _serialize_return_value(value: Any, return_type: Any) -> str:  # pyright: ignore[reportUnusedParameter]
+    """Serialize a return value to JSON string."""
+    if isinstance(value, BaseModel):
+        return value.model_dump_json()
+    return json.dumps(value)
+
+
+def _deserialize_return_value(value_json: str, return_type: Any) -> Any:
+    """Deserialize a JSON string back to the return type."""
+    if (
+        return_type is not None
+        and isinstance(return_type, type)
+        and issubclass(return_type, BaseModel)
+    ):
+        return return_type.model_validate_json(value_json)
+    return json.loads(value_json)
+
+
+def _build_sync_wrapper(
+    method: Method,
+    table_name: str,
+    db_path: Path,
+    min_ttl_seconds: float,
+    max_ttl_seconds: float,
+) -> Callable[..., Any]:
+    """Build a sync wrapper callable for a cached method."""
+
+    def wrapper(**kwargs: Any) -> Any:
+        with open_sqlite_db(db_path) as conn:
+            cached = _cache_lookup(conn, table_name, method, kwargs)
+            now = time.time()
+
+            if cached is not None:
+                value_json, fetched_at = cached
+                age = now - fetched_at
+
+                if age < min_ttl_seconds:
+                    return _deserialize_return_value(value_json, method.return_annotation)
+
+                if age < max_ttl_seconds:
+                    # Probabilistic refresh: probability increases linearly from 0 to 1
+                    p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
+                    if random.random() >= p:
+                        return _deserialize_return_value(value_json, method.return_annotation)
+                    try:
+                        result = method.o(**kwargs)
+                        result_json = _serialize_return_value(result, method.return_annotation)
+                        _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
+                        return result
+                    except Exception:
+                        return _deserialize_return_value(value_json, method.return_annotation)
+
+            # Cache miss or expired past max_ttl
+            result = method.o(**kwargs)
+            result_json = _serialize_return_value(result, method.return_annotation)
+            _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
+            return result
+
+    return wrapper
+
+
+def _build_async_wrapper(
+    method: Method,  # pyright: ignore[reportUnusedParameter]
+    table_name: str,  # pyright: ignore[reportUnusedParameter]
+    db_path: Path,  # pyright: ignore[reportUnusedParameter]
+    min_ttl_seconds: float,  # pyright: ignore[reportUnusedParameter]
+    max_ttl_seconds: float,  # pyright: ignore[reportUnusedParameter]
+) -> Callable[..., Any]:
+    """Build an async wrapper callable for a cached method."""
+    raise NotImplementedError
+
+
+class CacheRegistry:
+    """
+    Loads cache config, validates rules, creates tables, builds wrappers,
+    and installs them on a nested namespace.
+    """
+
+    cached: Namespace
+    db_path: Path
+
+    def __init__(self, config: CacheConfig, config_dir: Path) -> None:
+        self.cached = Namespace()
+
+        if config.cache_db is not None:
+            self.db_path = config_dir / config.cache_db
+        else:
+            self.db_path = config_dir / "cache.db"
+
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        for rule in config.rules:
+            self._register_rule(rule)
+
+    def _register_rule(self, rule: CacheRule) -> None:
+        gref = GlobalRef(rule.gref)
+        method = Method(gref)
+
+        method.validate_simple_type_args()
+
+        namespace_path = rule.namespace_path if rule.namespace_path is not None else gref.name
+        tbl_name = table_name_from_path(namespace_path)
+
+        ddl = generate_cache_table_ddl(tbl_name, method)
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(cursor, ddl)
+            conn.commit()
+
+        min_ttl_s = rule.min_ttl * DAYS_TO_SECONDS
+        max_ttl_s = rule.max_ttl * DAYS_TO_SECONDS
+
+        if gref.is_async():
+            wrapper = _build_async_wrapper(method, tbl_name, self.db_path, min_ttl_s, max_ttl_s)
+        else:
+            wrapper = _build_sync_wrapper(method, tbl_name, self.db_path, min_ttl_s, max_ttl_s)
+
+        self.cached.install(namespace_path, wrapper)
+
+    @classmethod
+    def from_yaml(cls, config_path: Path) -> CacheRegistry:
+        """Load a CacheRegistry from a YAML config file."""
+        raw = yaml.safe_load(config_path.read_text())
+        config = CacheConfig.model_validate(raw)
+        return cls(config, config_dir=config_path.parent)

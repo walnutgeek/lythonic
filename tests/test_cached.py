@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
+import tempfile
+import time
+from pathlib import Path
 from textwrap import dedent
+from typing import Any
+
+import tests.test_cached as this_module
 
 
 def test_cache_config_from_yaml():
@@ -73,3 +80,87 @@ def test_generate_ddl_multiple_params():
 
     ddl = generate_cache_table_ddl("get_exchange_rate", Method(fetch))
     assert "PRIMARY KEY (from_currency, to_currency)" in ddl
+
+
+# Referenced via GlobalRef in tests below
+def _fake_fetch(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    this_module._fake_fetch_count += 1  # pyright: ignore
+    return {"price": 100.0, "ticker": ticker}
+
+
+_fake_fetch_count = 0
+
+
+# Referenced via GlobalRef in tests below
+def _fake_fetch2(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._fake_fetch2_count += 1  # pyright: ignore
+    return {"price": float(this_module._fake_fetch2_count)}  # pyright: ignore
+
+
+_fake_fetch2_count = 0
+
+
+def test_sync_wrapper_miss_fetches_and_caches():
+    """On cache miss, the wrapper calls the original and stores the result."""
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    this_module._fake_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_fake_fetch",  # pyright: ignore
+                    namespace_path="market.fetch",
+                    min_ttl=1.0,
+                    max_ttl=2.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        result = registry.cached.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert result == {"price": 100.0, "ticker": "AAPL"}
+        assert this_module._fake_fetch_count == 1  # pyright: ignore
+
+        # Second call should come from cache
+        result2 = registry.cached.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert result2 == {"price": 100.0, "ticker": "AAPL"}
+        assert this_module._fake_fetch_count == 1  # pyright: ignore
+
+
+def test_sync_wrapper_expired_refetches():
+    """Past max_ttl, the wrapper must re-fetch."""
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    this_module._fake_fetch2_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_fake_fetch2",  # pyright: ignore
+                    namespace_path="fetch2",
+                    min_ttl=0.0001,
+                    max_ttl=0.0002,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        registry.cached.fetch2(ticker="X")  # pyright: ignore
+        assert this_module._fake_fetch2_count == 1  # pyright: ignore
+
+        # Backdate fetched_at to simulate expiry
+        db_path = Path(tmp) / "cache.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE fetch2 SET fetched_at = ? WHERE ticker = ?",
+                (time.time() - 86400 * 1, "X"),
+            )
+            conn.commit()
+
+        registry.cached.fetch2(ticker="X")  # pyright: ignore
+        assert this_module._fake_fetch2_count == 2  # pyright: ignore
