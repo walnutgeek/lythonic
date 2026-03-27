@@ -1,8 +1,61 @@
 """
-Cached method wrappers with YAML-configured TTL-based caching.
+Cached: YAML-configured caching layer for download methods.
 
-Wraps sync/async download methods with SQLite-backed caching.
-Methods are exposed through a nested namespace object with attribute access.
+Wraps sync or async methods that return `dict` or Pydantic `BaseModel` with
+SQLite-backed caching. Each cached method gets its own table with typed
+parameter columns (derived from the method signature) and a composite
+primary key.
+
+## Configuration
+
+Define cache rules in a YAML file (default: `./data/compose/cached/cache.yaml`):
+
+```yaml
+rules:
+  - gref: "myapp.downloads:fetch_prices"
+    namespace_path: "market.fetch_prices"
+    min_ttl: 0.5    # days, fresh period
+    max_ttl: 2.0    # days, hard expiry
+
+  - gref: "myapp.downloads:get_exchange_rate"
+    min_ttl: 0.25
+    max_ttl: 1.0
+```
+
+## Usage
+
+```python
+from pathlib import Path
+from lythonic.compose.cached import CacheRegistry
+
+registry = CacheRegistry.from_yaml(Path("./data/compose/cached/cache.yaml"))
+
+# Sync method — served from cache when fresh
+result = registry.cached.market.fetch_prices(ticker="AAPL")
+
+# Async method — awaited on cache miss or hard expiry
+rate = await registry.cached.get_exchange_rate(from_currency="USD", to_currency="EUR")
+```
+
+## TTL Behavior
+
+- **age < `min_ttl`**: return cached value (fresh)
+- **`min_ttl` <= age < `max_ttl`**: probabilistic refresh — probability increases
+  linearly from 0 to 1. On refresh failure, returns stale value.
+- **age >= `max_ttl`** or cache miss: call original method. On failure, raises.
+
+## Validation
+
+All method parameters must have types registered as `simple_type` in
+`KNOWN_TYPES` (primitives, date, datetime, Path). Validated at config load
+time via `Method.validate_simple_type_args()`.
+
+## Namespace
+
+Wrapped methods are installed on a `Namespace` object with nested attribute
+access. Dot-separated `namespace_path` values create intermediate objects
+(e.g., `"market.fetch_prices"` becomes `cached.market.fetch_prices(...)`).
+When `namespace_path` is omitted, the original function name is used at root.
 """
 
 from __future__ import annotations

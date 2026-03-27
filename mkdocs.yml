@@ -69,6 +69,7 @@ nav:
   - API Reference:
       - lythonic: reference/core.md
       - lythonic.compose: reference/compose.md
+      - lythonic.compose.cached: reference/compose-cached.md
       - lythonic.compose.cli: reference/compose-cli.md
       - lythonic.compose.logic: reference/compose-logic.md
       - lythonic.misc: reference/misc.md

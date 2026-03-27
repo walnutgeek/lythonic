@@ -43,6 +43,22 @@ json_val = kt.json.map_to(dt)  # "2024-01-15T10:30:00"
 db_val = kt.db.map_to(dt)  # "2024-01-15T10:30:00"
 ```
 
+## Simple Types
+
+Types whose string representation is a plain, URL-safe scalar are marked
+`simple_type=True` on `KnownTypeArgs` / `KnownType`. This is auto-detected
+during `KNOWN_TYPES.register()` for primitives (`int`, `float`, `bool`, `str`),
+`date`, `datetime`, and `Path`. Used by `lythonic.compose.cached` to validate
+that method parameters can serve as cache key columns.
+
+```python
+kt = KNOWN_TYPES.resolve_type(int)
+assert kt.simple_type  # True — plain scalar
+
+kt = KNOWN_TYPES.resolve_type(bytes)
+assert not kt.simple_type  # False — base64-encoded, not a plain scalar
+```
+
 ## Registering Custom Types
 
 ```python
@@ -53,6 +69,7 @@ KNOWN_TYPES.register(
         concrete_type=MyType,
         map_from_string=MyType.parse,
         map_to_string=str,
+        simple_type=True,  # if the string form is URL-safe
     )
 )
 ```

@@ -17,29 +17,35 @@ Lythonic uses a two-tier documentation approach:
 
 ```
 docs/
-  index.md                    # Landing page
-  getting-started.md          # Quick start guide
+  index.md                    # Landing page with feature list and quick example
+  getting-started.md          # Installation + first working example
 
   tutorials/                  # Step-by-step learning
-    first-schema.md
-    crud-operations.md
-    cashflow-example.md
+    first-schema.md           # Schema definition in depth
+    crud-operations.md        # All database operations
+    cashflow-example.md       # Real-world multi-tenant example
 
   how-to/                     # Task-focused guides
-    define-schema.md
-    multi-tenant.md
+    define-schema.md          # Quick reference for schema patterns
+    multi-tenant.md           # Multi-tenant app patterns
 
-  reference/                  # API docs (auto-extracted)
-    state.md                  # ::: lythonic.state
-    user.md                   # ::: lythonic.state.user
-    types.md                  # ::: lythonic.types
+  reference/                  # API docs (auto-extracted from module docstrings)
+    core.md                   # ::: lythonic (GlobalRef, Result, etc.)
+    state.md                  # ::: lythonic.state (DbModel, Schema, etc.)
+    user.md                   # ::: lythonic.state.user (UserOwned, UserContext)
+    types.md                  # ::: lythonic.types (KnownType, MapPair, etc.)
+    compose.md                # ::: lythonic.compose (Method, ArgInfo, etc.)
+    compose-logic.md          # ::: lythonic.compose.logic (LogicNode, LogicGraph)
+    compose-cli.md            # ::: lythonic.compose.cli (ActionTree, RunContext)
+    periodic.md               # ::: lythonic.periodic (Frequency, Interval, etc.)
+    misc.md                   # ::: lythonic.misc (ensure_dir, tabula_rasa_path)
 
-mkdocs.yml                    # Site configuration
+mkdocs.yml                    # Site configuration and nav structure
 ```
 
 ## Content Types
 
-Following the [Diátaxis](https://diataxis.fr/) framework:
+Following the [Diataxis](https://diataxis.fr/) framework:
 
 | Type | Purpose | Location |
 |------|---------|----------|
@@ -48,11 +54,101 @@ Following the [Diátaxis](https://diataxis.fr/) framework:
 | **Reference** | API documentation | `docs/reference/` + module docstrings |
 | **Explanation** | Background, design decisions | `docs/explanation/` (future) |
 
+## What Goes Where
+
+### Module docstrings (source code)
+
+The **primary home** for API documentation. Every public module should have a
+docstring in its `__init__.py` (or the module file itself) that covers:
+
+- One-line summary of what the module does
+- `## Quick Start` section with a minimal working example
+- Sections explaining key concepts, organized by topic
+- Usage examples for non-obvious patterns
+
+mkdocstrings extracts these automatically into the static site. This means the
+source code is always the source of truth for API docs.
+
+**When to update module docstrings:**
+- Adding or changing public API (classes, functions, constants)
+- Changing behavior that users depend on
+- Adding a new module (also create a `docs/reference/<module>.md` page)
+
+**What belongs here:**
+- API descriptions, parameters, return types
+- Usage examples that show how to call the API
+- Caveats, gotchas, and non-obvious behavior
+
+**What does NOT belong here:**
+- Step-by-step learning guides (use tutorials)
+- Design rationale or architecture discussion (use explanation)
+
+### Tutorials (`docs/tutorials/`)
+
+Long-form, sequential guides that teach a concept from scratch. A reader follows
+start to finish.
+
+**When to write a tutorial:**
+- Introducing a major feature (e.g., schema definition, CRUD, multi-tenant)
+- A concept that requires context and progressive building (not just API calls)
+
+**Style:**
+- Complete runnable examples throughout
+- Build on previous steps sequentially
+- Use concrete, realistic models (Task, Author, Book, Account)
+- Focus on the learning path, not exhaustive API coverage
+
+### How-To Guides (`docs/how-to/`)
+
+Short, task-focused pages. A reader wants to accomplish a specific goal.
+
+**When to write a how-to:**
+- A common task that combines multiple API calls
+- A pattern that is not obvious from the API reference alone
+
+**Style:**
+- Answer "How do I X?"
+- Short and focused on one task
+- Link to reference for full API details
+- No sequential learning assumed
+
+### Reference Pages (`docs/reference/`)
+
+Thin wrappers that pull docstrings from source code via mkdocstrings. The page
+itself is minimal:
+
+```markdown
+# lythonic.state
+
+Core module for SQLite ORM functionality.
+
+::: lythonic.state
+    options:
+      show_root_heading: false
+      members:
+        - DbModel
+        - Schema
+```
+
+**When to add a reference page:**
+- Adding a new module to the project
+- Also add it to `nav:` in `mkdocs.yml`
+
+### Design Specs and Plans (`docs/superpowers/`)
+
+Technical design documents and implementation plans for features, generated
+during brainstorming and planning phases:
+
+- `docs/superpowers/specs/` - Design specs (requirements, architecture, data models)
+- `docs/superpowers/plans/` - Implementation plans (task-by-task breakdown)
+
+These are working documents, not user-facing.
+
 ## Writing Guidelines
 
 ### Module Docstrings
 
-Keep comprehensive API docs in module `__init__.py` files. Format:
+Format for `__init__.py` files:
 
 ```python
 """
@@ -66,33 +162,21 @@ Detailed docs...
 """
 ```
 
-mkdocstrings extracts these automatically.
+Follow the docstring conventions in `CLAUDE.md` (concise, no arg/return
+repetition when obvious, backticks for code, triple-quote on own lines).
 
-### Tutorials
+### Class and Function Docstrings
 
-- Step-by-step, sequential
-- Include complete runnable examples
-- Focus on learning path, not API completeness
+- Public classes and functions SHOULD have docstrings.
+- Internal/private ones only need docstrings if purpose is non-obvious.
+- Do NOT repeat what is obvious from names and type annotations.
+- DO explain "why", caveats, and non-obvious behavior.
 
-### How-To Guides
+### Tutorials and How-Tos
 
-- Short, focused on one task
-- Answer "How do I X?"
-- Link to reference for details
-
-### Reference Pages
-
-Use mkdocstrings directive:
-
-```markdown
-# lythonic.state
-
-::: lythonic.state
-    options:
-      members:
-        - DbModel
-        - Schema
-```
+- Use fenced code blocks with `python` language tag.
+- All code examples should be complete and runnable.
+- Use admonitions (`!!! note`, `!!! warning`) sparingly and only when needed.
 
 ## Build Commands
 
@@ -110,24 +194,13 @@ make docs-serve
 make docs-deploy
 ```
 
-## Configuration
-
-See `mkdocs.yml` for:
-
-- Site metadata and theme settings
-- Navigation structure
-- mkdocstrings handler options
-- Markdown extensions
-
-## Deployment
-
-Options:
-
-1. **GitHub Pages** - `make docs-deploy` pushes to `gh-pages` branch
-2. **Netlify** - Connect repo, build command: `make docs`
-3. **Read the Docs** - Supports MkDocs natively
-
 ## Adding New Documentation
+
+### New Module
+
+1. Add docstring to the module's `__init__.py`
+2. Create `docs/reference/<module>.md` with mkdocstrings directive
+3. Add to `nav:` in `mkdocs.yml`
 
 ### New Tutorial
 
@@ -140,11 +213,18 @@ Options:
 1. Create `docs/how-to/my-task.md`
 2. Add to `nav:` in `mkdocs.yml`
 
-### New Module Reference
+## Configuration
 
-1. Add docstring to module `__init__.py`
-2. Create `docs/reference/module.md` with mkdocstrings directive
-3. Add to `nav:` in `mkdocs.yml`
+See `mkdocs.yml` for site metadata, theme settings, navigation structure,
+mkdocstrings handler options, and Markdown extensions.
+
+## Deployment
+
+Options:
+
+1. **GitHub Pages** - `make docs-deploy` pushes to `gh-pages` branch
+2. **Netlify** - Connect repo, build command: `make docs`
+3. **Read the Docs** - Supports MkDocs natively
 
 ## Search
 

@@ -343,6 +343,28 @@ Always use full type annotations, generics, and other modern practices.
 - If a function does not use a parameter, but it should still be present, you can use `#
   pyright: ignore[reportUnusedParameter]` in a comment to suppress the linter warning.
 
+## Documentation
+
+Full documentation strategy is in `documenting.md`. Key rules:
+
+- **API docs live in module docstrings**, not in separate docs files.
+  mkdocstrings extracts them into the static site automatically.
+  When you change public API, update the module docstring.
+
+- **Reference pages** (`docs/reference/`) are thin mkdocstrings wrappers.
+  When adding a new module, create a reference page and add it to `mkdocs.yml` nav.
+
+- **Tutorials** (`docs/tutorials/`) are sequential learning guides with complete
+  runnable examples. Write one when introducing a major feature.
+
+- **How-to guides** (`docs/how-to/`) are short task-focused pages.
+  Write one for common patterns not obvious from the API reference.
+
+- DO NOT duplicate API documentation between module docstrings and docs/ pages.
+  The module docstring is the source of truth.
+
+- Build and preview: `make docs-serve`. Deploy: `make docs-deploy`.
+
 ## Guidelines for Backward Compatibility
 
 - When changing code in a library or general function, if a change to an API or library
@@ -351,3 +373,5 @@ Always use full type annotations, generics, and other modern practices.
 - DO NOT implement additional code for backward compatiblity (such as extra methods or
   variable aliases or comments about backward compatibility) UNLESS the user has
   confirmed that it is necessary.
+
+ 

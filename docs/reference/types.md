@@ -6,8 +6,11 @@ Type mapping and conversion utilities.
     options:
       show_root_heading: false
       members:
+        - KNOWN_TYPES
         - KnownType
         - KnownTypeArgs
+        - KnownTypesMap
         - JsonBase
         - DbTypeInfo
         - MapPair
+        - is_primitive
