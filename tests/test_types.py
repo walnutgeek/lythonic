@@ -1,6 +1,7 @@
 # Placeholder for an empty build.
 from datetime import UTC, date, datetime
 from enum import Enum, IntEnum
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -118,6 +119,10 @@ def test_known_types():
         FruitEnum.pear, "mapped_str='pear' -> mapped_json='pear' -> mapped_db='pear'"
     )
     do_roundtrip_by_type(ToolEnum.spanner, "mapped_str='1' -> mapped_json=1 -> mapped_db=1")
+
+    assert KNOWN_TYPES.resolve_type(ToolEnum).simple_type
+    assert KNOWN_TYPES.resolve_type(FruitEnum).simple_type
+
     assert FruitEnum in KNOWN_TYPES.types_by_type
     assert ToolEnum in KNOWN_TYPES.types_by_type
 
@@ -135,3 +140,20 @@ def test_known_types():
 
     assert CookingBase in KNOWN_TYPES.types_by_type
     assert CookingModel not in KNOWN_TYPES.types_by_type
+
+
+def test_simple_type_primitives():
+    for t in (int, float, bool, str):
+        kt = KNOWN_TYPES.resolve_type(t)
+        assert kt.simple_type
+
+
+def test_simple_type_date_datetime_path():
+    for t in (date, datetime, Path):
+        kt = KNOWN_TYPES.resolve_type(t)
+        assert kt.simple_type
+
+
+def test_non_simple_type():
+    kt = KNOWN_TYPES.resolve_type(bytes)
+    assert not kt.simple_type

@@ -536,7 +536,7 @@ class KnownTypesMap:
         for args in array_of_args:
             if not args.simple_type:
                 t = args.concrete_type or args.abstract_type
-                if t is not None and (is_primitive(t) or t in (date, datetime, Path)):
+                if t is not None and is_primitive(t):
                     args.simple_type = True
             if not args.is_factory:
                 self.register_type(KnownType(args))
@@ -644,23 +644,3 @@ KNOWN_TYPES.register(
     # TODO: when appropriate packages are available entries below should be initialized
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
 )
-
-
-## Tests
-
-
-def test_simple_type_primitives():
-    for t in (int, float, bool, str):
-        kt = KNOWN_TYPES.resolve_type(t)
-        assert kt.simple_type
-
-
-def test_simple_type_date_datetime_path():
-    for t in (date, datetime, Path):
-        kt = KNOWN_TYPES.resolve_type(t)
-        assert kt.simple_type
-
-
-def test_non_simple_type():
-    kt = KNOWN_TYPES.resolve_type(bytes)
-    assert not kt.simple_type
