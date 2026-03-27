@@ -201,3 +201,171 @@ async def test_async_wrapper_miss_fetches_and_caches():
         result2 = await registry.cached.async_market.fetch(ticker="GOOG")  # pyright: ignore
         assert result2 == {"price": 200.0, "ticker": "GOOG"}
         assert this_module._fake_async_count == 1  # pyright: ignore
+
+
+# Task 8: Pydantic BaseModel return type
+
+from pydantic import BaseModel as PydanticBaseModel
+
+
+class PriceResult(PydanticBaseModel):
+    ticker: str
+    price: float
+
+
+# Referenced via GlobalRef
+def _fetch_typed(ticker: str) -> PriceResult:  # pyright: ignore[reportUnusedFunction]
+    return PriceResult(ticker=ticker, price=42.0)
+
+
+def test_pydantic_return_type_cached():
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_fetch_typed",  # pyright: ignore
+                    namespace_path="typed_fetch",
+                    min_ttl=1.0,
+                    max_ttl=2.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        result = registry.cached.typed_fetch(ticker="MSFT")  # pyright: ignore
+        assert isinstance(result, PriceResult)
+        assert result.ticker == "MSFT"
+        assert result.price == 42.0
+
+        result2 = registry.cached.typed_fetch(ticker="MSFT")  # pyright: ignore
+        assert isinstance(result2, PriceResult)
+        assert result2.ticker == "MSFT"
+
+
+# Task 9: YAML file loading
+
+
+# Referenced via GlobalRef
+def _yaml_fetch(code: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    this_module._yaml_fetch_count += 1  # pyright: ignore
+    return {"code": code, "value": 999}
+
+
+_yaml_fetch_count = 0
+
+
+def test_from_yaml_file():
+    from lythonic.compose.cached import CacheRegistry
+
+    this_module._yaml_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        config_path = tmp_path / "cache.yaml"
+        config_path.write_text(
+            dedent("""
+            rules:
+              - gref: "tests.test_cached:_yaml_fetch"
+                namespace_path: "codes.lookup"
+                min_ttl: 1.0
+                max_ttl: 5.0
+        """).strip()
+        )
+
+        registry = CacheRegistry.from_yaml(config_path)
+
+        result = registry.cached.codes.lookup(code="ABC")  # pyright: ignore
+        assert result == {"code": "ABC", "value": 999}
+        assert this_module._yaml_fetch_count == 1  # pyright: ignore
+
+        result2 = registry.cached.codes.lookup(code="ABC")  # pyright: ignore
+        assert result2 == {"code": "ABC", "value": 999}
+        assert this_module._yaml_fetch_count == 1  # pyright: ignore
+
+
+# Task 10: Probabilistic refresh
+
+
+# Referenced via GlobalRef
+def _prob_fetch(key: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._prob_fetch_count += 1  # pyright: ignore
+    return {"v": this_module._prob_fetch_count}  # pyright: ignore
+
+
+_prob_fetch_count = 0
+
+
+def test_probabilistic_refresh_between_ttls():
+    """Between min_ttl and max_ttl, refresh probability increases with age."""
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    this_module._prob_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_prob_fetch",  # pyright: ignore
+                    namespace_path="prob",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        registry.cached.prob(key="A")  # pyright: ignore
+        assert this_module._prob_fetch_count == 1  # pyright: ignore
+
+        # Set fetched_at to almost max_ttl ago (p ~= 1, almost certain refresh)
+        db_path = Path(tmp) / "cache.db"
+        almost_max_secs = 2.99 * 86400
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE prob SET fetched_at = ? WHERE key = ?",
+                (time.time() - almost_max_secs, "A"),
+            )
+            conn.commit()
+
+        # With p ~= 0.995, should almost certainly refresh within 20 tries
+        refreshed = False
+        for _ in range(20):
+            before = this_module._prob_fetch_count  # pyright: ignore
+            registry.cached.prob(key="A")  # pyright: ignore
+            if this_module._prob_fetch_count > before:  # pyright: ignore
+                refreshed = True
+                break
+        assert refreshed
+
+
+# Task 11: Default namespace path
+
+
+# Referenced via GlobalRef
+def _my_download(tag: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+    return {"tag": tag}
+
+
+def test_default_namespace_path_uses_function_name():
+    """When namespace_path is None, uses the original function name at root."""
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_my_download",  # pyright: ignore
+                    min_ttl=1.0,
+                    max_ttl=2.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        result = registry.cached._my_download(tag="hello")  # pyright: ignore
+        assert result == {"tag": "hello"}

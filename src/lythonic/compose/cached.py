@@ -11,6 +11,7 @@ import json
 import random
 import sqlite3
 import time
+import typing
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -143,6 +144,18 @@ def _cache_upsert(
     conn.commit()
 
 
+def _resolve_return_type(method: Method) -> type | None:
+    """Resolve the return type annotation of a method, handling string annotations."""
+    try:
+        hints = typing.get_type_hints(method.o)
+        return hints.get("return")
+    except Exception:
+        rt = method.return_annotation
+        if isinstance(rt, type):
+            return rt
+        return None
+
+
 def _serialize_return_value(value: Any, return_type: Any) -> str:  # pyright: ignore[reportUnusedParameter]
     """Serialize a return value to JSON string."""
     if isinstance(value, BaseModel):
@@ -169,6 +182,7 @@ def _build_sync_wrapper(
     max_ttl_seconds: float,
 ) -> Callable[..., Any]:
     """Build a sync wrapper callable for a cached method."""
+    return_type = _resolve_return_type(method)
 
     def wrapper(**kwargs: Any) -> Any:
         with open_sqlite_db(db_path) as conn:
@@ -180,24 +194,24 @@ def _build_sync_wrapper(
                 age = now - fetched_at
 
                 if age < min_ttl_seconds:
-                    return _deserialize_return_value(value_json, method.return_annotation)
+                    return _deserialize_return_value(value_json, return_type)
 
                 if age < max_ttl_seconds:
                     # Probabilistic refresh: probability increases linearly from 0 to 1
                     p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
                     if random.random() >= p:
-                        return _deserialize_return_value(value_json, method.return_annotation)
+                        return _deserialize_return_value(value_json, return_type)
                     try:
                         result = method.o(**kwargs)
-                        result_json = _serialize_return_value(result, method.return_annotation)
+                        result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
                     except Exception:
-                        return _deserialize_return_value(value_json, method.return_annotation)
+                        return _deserialize_return_value(value_json, return_type)
 
             # Cache miss or expired past max_ttl
             result = method.o(**kwargs)
-            result_json = _serialize_return_value(result, method.return_annotation)
+            result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
             return result
 
@@ -212,6 +226,7 @@ def _build_async_wrapper(
     max_ttl_seconds: float,
 ) -> Callable[..., Any]:
     """Build an async wrapper callable for a cached method."""
+    return_type = _resolve_return_type(method)
 
     async def wrapper(**kwargs: Any) -> Any:
         with open_sqlite_db(db_path) as conn:
@@ -223,23 +238,23 @@ def _build_async_wrapper(
                 age = now - fetched_at
 
                 if age < min_ttl_seconds:
-                    return _deserialize_return_value(value_json, method.return_annotation)
+                    return _deserialize_return_value(value_json, return_type)
 
                 if age < max_ttl_seconds:
                     p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
                     if random.random() >= p:
-                        return _deserialize_return_value(value_json, method.return_annotation)
+                        return _deserialize_return_value(value_json, return_type)
                     try:
                         result = await method.o(**kwargs)
-                        result_json = _serialize_return_value(result, method.return_annotation)
+                        result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
                     except Exception:
-                        return _deserialize_return_value(value_json, method.return_annotation)
+                        return _deserialize_return_value(value_json, return_type)
 
             # Cache miss or expired past max_ttl
             result = await method.o(**kwargs)
-            result_json = _serialize_return_value(result, method.return_annotation)
+            result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
             return result
 
