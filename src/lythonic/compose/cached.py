@@ -205,14 +205,45 @@ def _build_sync_wrapper(
 
 
 def _build_async_wrapper(
-    method: Method,  # pyright: ignore[reportUnusedParameter]
-    table_name: str,  # pyright: ignore[reportUnusedParameter]
-    db_path: Path,  # pyright: ignore[reportUnusedParameter]
-    min_ttl_seconds: float,  # pyright: ignore[reportUnusedParameter]
-    max_ttl_seconds: float,  # pyright: ignore[reportUnusedParameter]
+    method: Method,
+    table_name: str,
+    db_path: Path,
+    min_ttl_seconds: float,
+    max_ttl_seconds: float,
 ) -> Callable[..., Any]:
     """Build an async wrapper callable for a cached method."""
-    raise NotImplementedError
+
+    async def wrapper(**kwargs: Any) -> Any:
+        with open_sqlite_db(db_path) as conn:
+            cached = _cache_lookup(conn, table_name, method, kwargs)
+            now = time.time()
+
+            if cached is not None:
+                value_json, fetched_at = cached
+                age = now - fetched_at
+
+                if age < min_ttl_seconds:
+                    return _deserialize_return_value(value_json, method.return_annotation)
+
+                if age < max_ttl_seconds:
+                    p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
+                    if random.random() >= p:
+                        return _deserialize_return_value(value_json, method.return_annotation)
+                    try:
+                        result = await method.o(**kwargs)
+                        result_json = _serialize_return_value(result, method.return_annotation)
+                        _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
+                        return result
+                    except Exception:
+                        return _deserialize_return_value(value_json, method.return_annotation)
+
+            # Cache miss or expired past max_ttl
+            result = await method.o(**kwargs)
+            result_json = _serialize_return_value(result, method.return_annotation)
+            _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
+            return result
+
+    return wrapper
 
 
 class CacheRegistry:

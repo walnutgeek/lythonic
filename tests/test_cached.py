@@ -164,3 +164,40 @@ def test_sync_wrapper_expired_refetches():
 
         registry.cached.fetch2(ticker="X")  # pyright: ignore
         assert this_module._fake_fetch2_count == 2  # pyright: ignore
+
+
+# Referenced via GlobalRef
+async def _fake_async_fetch(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    this_module._fake_async_count += 1  # pyright: ignore
+    return {"price": 200.0, "ticker": ticker}
+
+
+_fake_async_count = 0
+
+
+async def test_async_wrapper_miss_fetches_and_caches():
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    this_module._fake_async_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_fake_async_fetch",  # pyright: ignore
+                    namespace_path="async_market.fetch",
+                    min_ttl=1.0,
+                    max_ttl=2.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+
+        result = await registry.cached.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        assert result == {"price": 200.0, "ticker": "GOOG"}
+        assert this_module._fake_async_count == 1  # pyright: ignore
+
+        result2 = await registry.cached.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        assert result2 == {"price": 200.0, "ticker": "GOOG"}
+        assert this_module._fake_async_count == 1  # pyright: ignore
