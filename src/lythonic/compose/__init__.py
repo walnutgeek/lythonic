@@ -29,6 +29,7 @@ from typing import Any, Generic, NamedTuple, TypeVar
 from pydantic import BaseModel
 
 from lythonic import GlobalRef
+from lythonic.types import KNOWN_TYPES
 
 
 class ArgInfo(NamedTuple):
@@ -161,6 +162,30 @@ class Method:
     def __call__(self, *args: Any, **kwargs: Any):
         return self.o(*args, **kwargs)
 
+    def validate_simple_type_args(self) -> None:
+        """
+        Validate that all parameters have type annotations whose `KnownType`
+        has `simple_type=True`. Raises `ValueError` if any parameter fails.
+        """
+        for arg in self.args:
+            if arg.annotation is None:
+                raise ValueError(
+                    f"Parameter `{arg.name}` on `{self.gref}` has no type annotation, "
+                    f"required for simple_type validation"
+                )
+            try:
+                kt = KNOWN_TYPES.resolve_type(arg.annotation)
+            except (ValueError, TypeError) as e:
+                raise ValueError(
+                    f"Parameter `{arg.name}` on `{self.gref}` has type `{getattr(arg.annotation, '__name__', str(arg.annotation))}` "
+                    f"which is not a registered KnownType"
+                ) from e
+            if not kt.simple_type:
+                raise ValueError(
+                    f"Parameter `{arg.name}` on `{self.gref}` has type `{getattr(arg.annotation, '__name__', str(arg.annotation))}` "
+                    f"which is not a simple_type (required for cache key)"
+                )
+
 
 T = TypeVar("T", bound=Method)
 
@@ -185,3 +210,35 @@ class MethodDict(Generic[T], dict[str, T]):
 
     def wrap(self, o: Callable[..., Any]) -> T:
         return self.add(o)
+
+
+## Tests
+
+
+def test_validate_simple_type_args_passes():
+    def fetch(ticker: str, year: int) -> dict[str, Any]:  # pyright: ignore[reportUnusedParameter]
+        return {}
+
+    m = Method(fetch)
+    m.validate_simple_type_args()
+
+
+def test_validate_simple_type_args_fails_on_non_simple():
+    def fetch(data: bytes) -> dict[str, Any]:  # pyright: ignore[reportUnusedParameter]
+        return {}
+
+    m = Method(fetch)
+    try:
+        m.validate_simple_type_args()
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "data" in str(e)
+        assert "simple_type" in str(e)
+
+
+def test_validate_simple_type_args_skips_optional():
+    def fetch(ticker: str, limit: int = 10) -> dict[str, Any]:  # pyright: ignore[reportUnusedParameter]
+        return {}
+
+    m = Method(fetch)
+    m.validate_simple_type_args()
