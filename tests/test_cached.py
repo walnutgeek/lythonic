@@ -47,3 +47,29 @@ def test_namespace_path_generates_table_name():
     assert table_name_from_path("market.fetch_prices") == "market__fetch_prices"
     assert table_name_from_path("get_data") == "get_data"
     assert table_name_from_path("a.b.c") == "a__b__c"
+
+
+def test_generate_ddl_single_param():
+    from lythonic.compose import Method
+    from lythonic.compose.cached import generate_cache_table_ddl
+
+    def fetch(ticker: str) -> dict[str, float]:  # pyright: ignore[reportUnusedParameter]
+        return {}
+
+    ddl = generate_cache_table_ddl("market__fetch_prices", Method(fetch))
+    assert "CREATE TABLE IF NOT EXISTS market__fetch_prices" in ddl
+    assert "ticker TEXT NOT NULL" in ddl
+    assert "value_json TEXT NOT NULL" in ddl
+    assert "fetched_at REAL NOT NULL" in ddl
+    assert "PRIMARY KEY (ticker)" in ddl
+
+
+def test_generate_ddl_multiple_params():
+    from lythonic.compose import Method
+    from lythonic.compose.cached import generate_cache_table_ddl
+
+    def fetch(from_currency: str, to_currency: str) -> dict[str, float]:  # pyright: ignore[reportUnusedParameter]
+        return {}
+
+    ddl = generate_cache_table_ddl("get_exchange_rate", Method(fetch))
+    assert "PRIMARY KEY (from_currency, to_currency)" in ddl

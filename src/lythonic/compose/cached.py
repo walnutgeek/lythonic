@@ -13,6 +13,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from lythonic import GRef
+from lythonic.compose import Method
+from lythonic.types import KNOWN_TYPES
 
 
 class CacheRule(BaseModel):
@@ -52,3 +54,28 @@ class Namespace:
                 setattr(current, part, Namespace())
             current = getattr(current, part)
         setattr(current, parts[-1], func)
+
+
+def generate_cache_table_ddl(table_name: str, method: Method) -> str:
+    """
+    Generate CREATE TABLE DDL for a cache table based on the method's
+    parameter types.
+    """
+    columns: list[str] = []
+    param_names: list[str] = []
+
+    for arg in method.args:
+        assert arg.annotation is not None
+        kt = KNOWN_TYPES.resolve_type(arg.annotation)
+        db_type = kt.db_type_info.name
+        columns.append(f"    {arg.name} {db_type} NOT NULL")
+        param_names.append(arg.name)
+
+    columns.append("    value_json TEXT NOT NULL")
+    columns.append("    fetched_at REAL NOT NULL")
+
+    pk = ", ".join(param_names)
+    columns.append(f"    PRIMARY KEY ({pk})")
+
+    cols_str = ",\n".join(columns)
+    return f"CREATE TABLE IF NOT EXISTS {table_name} (\n{cols_str}\n)"
