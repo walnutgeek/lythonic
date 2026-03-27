@@ -247,6 +247,7 @@ class KnownTypeArgs(BaseModel):
     concrete_type: type | None = None
     abstract_type: type | None = None
     is_factory: bool = False
+    simple_type: bool = False
     name: str | None = None
     aliases: list[str] | None = None
 
@@ -395,6 +396,7 @@ class KnownType:
     string: MapPair[str]
     json: MapPair[Any]
     db: MapPair[Any]
+    simple_type: bool
 
     @classmethod
     def ensure(cls, type_: type | str | KnownType) -> KnownType:
@@ -430,6 +432,7 @@ class KnownType:
         if args.aliases is not None:
             for alias in args.aliases:
                 self.aliases.add(alias.lower())
+        self.simple_type = args.simple_type
 
     def get_type(self) -> type:
         return self.type_
@@ -531,6 +534,10 @@ class KnownTypesMap:
 
     def register(self, *array_of_args: KnownTypeArgs) -> None:
         for args in array_of_args:
+            if not args.simple_type:
+                t = args.concrete_type or args.abstract_type
+                if t is not None and (is_primitive(t) or t in (date, datetime, Path)):
+                    args.simple_type = True
             if not args.is_factory:
                 self.register_type(KnownType(args))
             else:
@@ -629,3 +636,23 @@ KNOWN_TYPES.register(
     # TODO: when appropriate packages are available entries below should be initialized
     # KnownType("dataframe", pd.DataFrame, json_type=dict),
 )
+
+
+## Tests
+
+
+def test_simple_type_primitives():
+    for t in (int, float, bool, str):
+        kt = KNOWN_TYPES.resolve_type(t)
+        assert kt.simple_type
+
+
+def test_simple_type_date_datetime_path():
+    for t in (date, datetime, Path):
+        kt = KNOWN_TYPES.resolve_type(t)
+        assert kt.simple_type
+
+
+def test_non_simple_type():
+    kt = KNOWN_TYPES.resolve_type(bytes)
+    assert not kt.simple_type
