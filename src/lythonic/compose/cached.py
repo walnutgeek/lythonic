@@ -50,6 +50,16 @@ All method parameters must have types registered as `simple_type` in
 `KNOWN_TYPES` (primitives, date, datetime, Path). Validated at config load
 time via `Method.validate_simple_type_args()`.
 
+## Pushback
+
+When a cached method raises `CacheRefreshPushback(days, namespace_prefix)`, all
+probabilistic refreshes matching the scope are suppressed for the given duration.
+If `namespace_prefix` is omitted, only the raising method is suppressed.
+
+- During the probabilistic window with active pushback: returns stale data.
+- Past `max_ttl` with active pushback: raises `CacheRefreshSuppressed`.
+- Cache miss: always calls the method regardless of pushback.
+
 ## Namespace
 
 Wrapped methods are installed on a `Namespace` object with nested attribute
