@@ -464,3 +464,27 @@ def test_pushback_expired_not_matched():
 
             _pushback_set(conn, "market", time.time() - 1.0)
             assert _pushback_check(conn, "market.fetch") is None
+
+
+def test_pushback_table_created_on_registry_init():
+    """CacheRegistry.__init__ creates the _pushback table."""
+    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_fake_fetch",  # pyright: ignore
+                    namespace_path="market.fetch",
+                    min_ttl=1.0,
+                    max_ttl=2.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        CacheRegistry(config, config_dir=Path(tmp))
+
+        db_path = Path(tmp) / "cache.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM _pushback")
+            assert cursor.fetchone()[0] == 0

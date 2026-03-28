@@ -395,6 +395,15 @@ class CacheRegistry:
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "CREATE TABLE IF NOT EXISTS _pushback "
+                "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)",
+            )
+            conn.commit()
+
         for rule in config.rules:
             self._register_rule(rule)
 
