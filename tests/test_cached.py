@@ -29,7 +29,6 @@ def test_cache_config_from_yaml():
     data = yaml.safe_load(yaml_str)
     config = CacheConfig.model_validate(data)
     assert len(config.rules) == 2
-    assert config.namespace == "lythonic.compose.cached"
     assert config.rules[0].namespace_path == "util.dumps"
     assert config.rules[0].min_ttl == 0.5
     assert config.rules[0].max_ttl == 2.0

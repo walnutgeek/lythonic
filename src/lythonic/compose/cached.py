@@ -164,7 +164,6 @@ class CacheRule(BaseModel):
 class CacheConfig(BaseModel):
     """Root of the YAML config file."""
 
-    namespace: str = "lythonic.compose.cached"
     cache_db: str | None = None
     rules: list[CacheRule]
 
