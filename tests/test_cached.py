@@ -488,3 +488,62 @@ def test_pushback_table_created_on_registry_init():
         with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM _pushback")
             assert cursor.fetchone()[0] == 0
+
+
+# Referenced via GlobalRef
+def _pushback_fetch(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._pushback_fetch_count += 1  # pyright: ignore
+    return {"price": float(this_module._pushback_fetch_count)}  # pyright: ignore
+
+
+_pushback_fetch_count = 0
+
+
+def test_pushback_suppresses_probabilistic_refresh():
+    """When pushback is active, probabilistic refresh is skipped and stale data returned."""
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRegistry,
+        CacheRule,
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._pushback_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
+                    namespace_path="market.pushback_fetch",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        # Initial fetch to populate cache
+        result = registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        assert this_module._pushback_fetch_count == 1  # pyright: ignore
+        assert result == {"price": 1.0}
+
+        # Backdate to middle of probabilistic window (2 days old, p=0.5)
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
+                (time.time() - 86400 * 2, "AAPL"),
+            )
+            conn.commit()
+
+        # Set pushback on "market" prefix
+        with sqlite3.connect(str(db_path)) as conn:
+            _pushback_set(conn, "market", time.time() + 86400)
+
+        # Call many times — method should never be called due to pushback
+        for _ in range(50):
+            result = registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        assert this_module._pushback_fetch_count == 1  # pyright: ignore
+        assert result == {"price": 1.0}

@@ -111,7 +111,7 @@ class CacheRefreshSuppressed(Exception):
         self.suppressed_until = suppressed_until
 
 
-def _pushback_set(conn: sqlite3.Connection, namespace_prefix: str, suppressed_until: float) -> None:  # pyright: ignore[reportUnusedFunction]
+def _pushback_set(conn: sqlite3.Connection, namespace_prefix: str, suppressed_until: float) -> None:
     """Replace any existing pushback with a new one (single-row table)."""
     cursor = conn.cursor()
     execute_sql(cursor, "DELETE FROM _pushback")
@@ -123,7 +123,7 @@ def _pushback_set(conn: sqlite3.Connection, namespace_prefix: str, suppressed_un
     conn.commit()
 
 
-def _pushback_check(conn: sqlite3.Connection, namespace_path: str) -> float | None:  # pyright: ignore[reportUnusedFunction]
+def _pushback_check(conn: sqlite3.Connection, namespace_path: str) -> float | None:
     """
     Check if a pushback is active for the given namespace path.
     Returns `suppressed_until` timestamp if suppressed, `None` otherwise.
@@ -295,6 +295,7 @@ def _build_sync_wrapper(
     db_path: Path,
     min_ttl_seconds: float,
     max_ttl_seconds: float,
+    namespace_path: str,
 ) -> Callable[..., Any]:
     """Build a sync wrapper callable for a cached method."""
     return_type = _resolve_return_type(method)
@@ -316,15 +317,27 @@ def _build_sync_wrapper(
                     p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
                     if random.random() >= p:
                         return _deserialize_return_value(value_json, return_type)
+                    if _pushback_check(conn, namespace_path):
+                        return _deserialize_return_value(value_json, return_type)
                     try:
                         result = method.o(**kwargs)
                         result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
+                    except CacheRefreshPushback as e:
+                        prefix = e.namespace_prefix or namespace_path
+                        until = time.time() + e.days * DAYS_TO_SECONDS
+                        _pushback_set(conn, prefix, until)
+                        return _deserialize_return_value(value_json, return_type)
                     except Exception:
                         return _deserialize_return_value(value_json, return_type)
 
-            # Cache miss or expired past max_ttl
+                # Past max_ttl with cached entry
+                suppressed_until = _pushback_check(conn, namespace_path)
+                if suppressed_until:
+                    raise CacheRefreshSuppressed(namespace_path, suppressed_until)
+
+            # Cache miss or expired past max_ttl (no pushback)
             result = method.o(**kwargs)
             result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
@@ -339,6 +352,7 @@ def _build_async_wrapper(
     db_path: Path,
     min_ttl_seconds: float,
     max_ttl_seconds: float,
+    namespace_path: str,  # pyright: ignore[reportUnusedParameter]
 ) -> Callable[..., Any]:
     """Build an async wrapper callable for a cached method."""
     return_type = _resolve_return_type(method)
@@ -426,9 +440,13 @@ class CacheRegistry:
         max_ttl_s = rule.max_ttl * DAYS_TO_SECONDS
 
         if gref.is_async():
-            wrapper = _build_async_wrapper(method, tbl_name, self.db_path, min_ttl_s, max_ttl_s)
+            wrapper = _build_async_wrapper(
+                method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
+            )
         else:
-            wrapper = _build_sync_wrapper(method, tbl_name, self.db_path, min_ttl_s, max_ttl_s)
+            wrapper = _build_sync_wrapper(
+                method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
+            )
 
         self.cached.install(namespace_path, wrapper)
 
