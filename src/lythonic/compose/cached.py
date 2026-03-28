@@ -352,7 +352,7 @@ def _build_async_wrapper(
     db_path: Path,
     min_ttl_seconds: float,
     max_ttl_seconds: float,
-    namespace_path: str,  # pyright: ignore[reportUnusedParameter]
+    namespace_path: str,
 ) -> Callable[..., Any]:
     """Build an async wrapper callable for a cached method."""
     return_type = _resolve_return_type(method)
@@ -373,15 +373,27 @@ def _build_async_wrapper(
                     p = (age - min_ttl_seconds) / (max_ttl_seconds - min_ttl_seconds)
                     if random.random() >= p:
                         return _deserialize_return_value(value_json, return_type)
+                    if _pushback_check(conn, namespace_path):
+                        return _deserialize_return_value(value_json, return_type)
                     try:
                         result = await method.o(**kwargs)
                         result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
+                    except CacheRefreshPushback as e:
+                        prefix = e.namespace_prefix or namespace_path
+                        until = time.time() + e.days * DAYS_TO_SECONDS
+                        _pushback_set(conn, prefix, until)
+                        return _deserialize_return_value(value_json, return_type)
                     except Exception:
                         return _deserialize_return_value(value_json, return_type)
 
-            # Cache miss or expired past max_ttl
+                # Past max_ttl with cached entry
+                suppressed_until = _pushback_check(conn, namespace_path)
+                if suppressed_until:
+                    raise CacheRefreshSuppressed(namespace_path, suppressed_until)
+
+            # Cache miss or expired past max_ttl (no pushback)
             result = await method.o(**kwargs)
             result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())

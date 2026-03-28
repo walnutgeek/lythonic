@@ -547,3 +547,58 @@ def test_pushback_suppresses_probabilistic_refresh():
             result = registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
+
+
+# Referenced via GlobalRef
+async def _async_pushback_fetch(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._async_pushback_fetch_count += 1  # pyright: ignore
+    return {"price": float(this_module._async_pushback_fetch_count)}  # pyright: ignore
+
+
+_async_pushback_fetch_count = 0
+
+
+async def test_async_pushback_suppresses_probabilistic_refresh():
+    """Async wrapper: pushback suppresses probabilistic refresh."""
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRegistry,
+        CacheRule,
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._async_pushback_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_async_pushback_fetch",  # pyright: ignore
+                    namespace_path="async_market.pushback_fetch",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        result = await registry.cached.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+        assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
+
+        # Backdate to probabilistic window
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE async_market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
+                (time.time() - 86400 * 2, "GOOG"),
+            )
+            conn.commit()
+
+        with sqlite3.connect(str(db_path)) as conn:
+            _pushback_set(conn, "async_market", time.time() + 86400)
+
+        for _ in range(50):
+            result = await registry.cached.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+        assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
+        assert result == {"price": 1.0}
