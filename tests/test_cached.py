@@ -666,3 +666,57 @@ def test_pushback_recorded_on_exception():
         # Pushback should now be recorded
         with sqlite3.connect(str(db_path)) as conn:
             assert _pushback_check(conn, "api.rate_limited") is not None
+
+
+def test_past_max_ttl_with_pushback_raises_suppressed():
+    """Past max_ttl with active pushback raises CacheRefreshSuppressed."""
+    import pytest
+
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRefreshSuppressed,
+        CacheRegistry,
+        CacheRule,
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._pushback_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
+                    namespace_path="market.pushback_fetch",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        # Populate cache
+        registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        assert this_module._pushback_fetch_count == 1  # pyright: ignore
+
+        # Backdate past max_ttl
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
+                (time.time() - 86400 * 4, "AAPL"),
+            )
+            conn.commit()
+
+        # Set pushback
+        with sqlite3.connect(str(db_path)) as conn:
+            _pushback_set(conn, "market", time.time() + 86400)
+
+        with pytest.raises(CacheRefreshSuppressed) as exc_info:
+            registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+
+        assert exc_info.value.namespace_path == "market.pushback_fetch"
+        assert exc_info.value.suppressed_until > time.time()
+        # Method should not have been called again
+        assert this_module._pushback_fetch_count == 1  # pyright: ignore
