@@ -80,6 +80,37 @@ from lythonic.types import KNOWN_TYPES
 DAYS_TO_SECONDS = 86400.0
 
 
+class CacheRefreshPushback(Exception):
+    """
+    Raise from a cached method to suppress probabilistic refreshes.
+    Defaults to suppressing only the raising method; set `namespace_prefix`
+    to suppress a group of methods.
+    """
+
+    days: float
+    namespace_prefix: str | None
+
+    def __init__(self, days: float, namespace_prefix: str | None = None):
+        super().__init__(f"Cache refresh pushback for {days} days")
+        self.days = days
+        self.namespace_prefix = namespace_prefix
+
+
+class CacheRefreshSuppressed(Exception):
+    """
+    Raised when a cache entry is past max_ttl but refresh is suppressed
+    by an active pushback.
+    """
+
+    namespace_path: str
+    suppressed_until: float
+
+    def __init__(self, namespace_path: str, suppressed_until: float):
+        super().__init__(f"Cache refresh suppressed for {namespace_path} until {suppressed_until}")
+        self.namespace_path = namespace_path
+        self.suppressed_until = suppressed_until
+
+
 class CacheRule(BaseModel):
     """One cached method definition."""
 

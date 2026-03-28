@@ -369,3 +369,23 @@ def test_default_namespace_path_uses_function_name():
 
         result = registry.cached._my_download(tag="hello")  # pyright: ignore
         assert result == {"tag": "hello"}
+
+
+def test_pushback_exception_has_fields():
+    from lythonic.compose.cached import CacheRefreshPushback
+
+    ex = CacheRefreshPushback(days=1.5, namespace_prefix="market")
+    assert ex.days == 1.5
+    assert ex.namespace_prefix == "market"
+
+    ex2 = CacheRefreshPushback(days=0.5)
+    assert ex2.days == 0.5
+    assert ex2.namespace_prefix is None
+
+
+def test_suppressed_exception_has_fields():
+    from lythonic.compose.cached import CacheRefreshSuppressed
+
+    ex = CacheRefreshSuppressed(namespace_path="market.fetch", suppressed_until=1000.0)
+    assert ex.namespace_path == "market.fetch"
+    assert ex.suppressed_until == 1000.0
