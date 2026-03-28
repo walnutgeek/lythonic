@@ -602,3 +602,67 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
             result = await registry.cached.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
+
+
+from lythonic.compose.cached import CacheRefreshPushback
+
+
+# Referenced via GlobalRef
+def _rate_limited_fetch(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._rate_limited_count += 1  # pyright: ignore
+    if this_module._rate_limited_count > 1:  # pyright: ignore
+        raise CacheRefreshPushback(days=1.0)
+    return {"price": 50.0}
+
+
+_rate_limited_count = 0
+
+
+def test_pushback_recorded_on_exception():
+    """When a method raises CacheRefreshPushback, pushback is recorded and stale returned."""
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRegistry,
+        CacheRule,
+        _pushback_check,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._rate_limited_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_rate_limited_fetch",  # pyright: ignore
+                    namespace_path="api.rate_limited",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        # First call succeeds
+        result = registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        assert result == {"price": 50.0}
+        assert this_module._rate_limited_count == 1  # pyright: ignore
+
+        # Backdate to probabilistic window with p ~= 1 (near-certain refresh)
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE api__rate_limited SET fetched_at = ? WHERE ticker = ?",
+                (time.time() - 86400 * 2.99, "X"),
+            )
+            conn.commit()
+
+        # Next call triggers refresh, method raises CacheRefreshPushback.
+        # Should get stale data back.
+        result = registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        assert result == {"price": 50.0}
+        assert this_module._rate_limited_count == 2  # pyright: ignore
+
+        # Pushback should now be recorded
+        with sqlite3.connect(str(db_path)) as conn:
+            assert _pushback_check(conn, "api.rate_limited") is not None
