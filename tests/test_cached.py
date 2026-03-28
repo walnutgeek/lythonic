@@ -720,3 +720,97 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
         assert exc_info.value.suppressed_until > time.time()
         # Method should not have been called again
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
+
+
+def test_cache_miss_ignores_pushback():
+    """On cache miss, method is called even if pushback is active."""
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRegistry,
+        CacheRule,
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._pushback_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
+                    namespace_path="market.pushback_fetch",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                )
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        # Set pushback before any cache entry exists
+        with sqlite3.connect(str(db_path)) as conn:
+            _pushback_set(conn, "market", time.time() + 86400)
+
+        # Cache miss — should call method despite pushback
+        result = registry.cached.market.pushback_fetch(ticker="NEW")  # pyright: ignore
+        assert this_module._pushback_fetch_count == 1  # pyright: ignore
+        assert result["price"] == 1.0
+
+
+def test_default_scope_uses_method_namespace_path():
+    """CacheRefreshPushback with no prefix scopes to the raising method only."""
+    from lythonic.compose.cached import (
+        CacheConfig,
+        CacheRegistry,
+        CacheRule,
+        _pushback_check,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    this_module._rate_limited_count = 0  # pyright: ignore
+    this_module._pushback_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = CacheConfig(
+            rules=[
+                CacheRule(
+                    gref="tests.test_cached:_rate_limited_fetch",  # pyright: ignore
+                    namespace_path="api.rate_limited",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                ),
+                CacheRule(
+                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
+                    namespace_path="api.other",
+                    min_ttl=1.0,
+                    max_ttl=3.0,
+                ),
+            ],
+            cache_db="cache.db",
+        )
+        registry = CacheRegistry(config, config_dir=Path(tmp))
+        db_path = Path(tmp) / "cache.db"
+
+        # Populate both caches
+        registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        registry.cached.api.other(ticker="Y")  # pyright: ignore
+
+        # Backdate both to probabilistic window (p ~= 1)
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "UPDATE api__rate_limited SET fetched_at = ?",
+                (time.time() - 86400 * 2.99,),
+            )
+            conn.execute(
+                "UPDATE api__other SET fetched_at = ?",
+                (time.time() - 86400 * 2.99,),
+            )
+            conn.commit()
+
+        # Trigger rate_limited to raise CacheRefreshPushback(days=1) with no prefix
+        registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+
+        # Pushback should be scoped to "api.rate_limited" only
+        with sqlite3.connect(str(db_path)) as conn:
+            assert _pushback_check(conn, "api.rate_limited") is not None
+            assert _pushback_check(conn, "api.other") is None
