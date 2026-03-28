@@ -111,6 +111,37 @@ class CacheRefreshSuppressed(Exception):
         self.suppressed_until = suppressed_until
 
 
+def _pushback_set(conn: sqlite3.Connection, namespace_prefix: str, suppressed_until: float) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Replace any existing pushback with a new one (single-row table)."""
+    cursor = conn.cursor()
+    execute_sql(cursor, "DELETE FROM _pushback")
+    execute_sql(
+        cursor,
+        "INSERT INTO _pushback (namespace_prefix, suppressed_until) VALUES (?, ?)",
+        (namespace_prefix, suppressed_until),
+    )
+    conn.commit()
+
+
+def _pushback_check(conn: sqlite3.Connection, namespace_path: str) -> float | None:  # pyright: ignore[reportUnusedFunction]
+    """
+    Check if a pushback is active for the given namespace path.
+    Returns `suppressed_until` timestamp if suppressed, `None` otherwise.
+    Clears expired entries before checking.
+    """
+    cursor = conn.cursor()
+    execute_sql(cursor, "DELETE FROM _pushback WHERE suppressed_until <= ?", (time.time(),))
+    execute_sql(cursor, "SELECT namespace_prefix, suppressed_until FROM _pushback")
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    prefix: str = row[0]
+    suppressed_until: float = row[1]
+    if namespace_path == prefix or namespace_path.startswith(prefix + "."):
+        return suppressed_until
+    return None
+
+
 class CacheRule(BaseModel):
     """One cached method definition."""
 

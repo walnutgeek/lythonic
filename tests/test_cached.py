@@ -389,3 +389,78 @@ def test_suppressed_exception_has_fields():
     ex = CacheRefreshSuppressed(namespace_path="market.fetch", suppressed_until=1000.0)
     assert ex.namespace_path == "market.fetch"
     assert ex.suppressed_until == 1000.0
+
+
+def test_pushback_set_and_check():
+    """_pushback_set writes a row; _pushback_check matches by prefix."""
+    from lythonic.compose.cached import (
+        _pushback_check,  # pyright: ignore[reportPrivateUsage]
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS _pushback "
+                "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
+            )
+            now = time.time()
+
+            _pushback_set(conn, "market", now + 86400)
+
+            # Exact match
+            assert _pushback_check(conn, "market") is not None
+            # Prefix match with dot boundary
+            assert _pushback_check(conn, "market.fetch_prices") is not None
+            # No match
+            assert _pushback_check(conn, "weather.forecast") is None
+            # "market" should NOT match "marketplace"
+            assert _pushback_check(conn, "marketplace.something") is None
+
+
+def test_pushback_replacement():
+    """A new _pushback_set replaces the previous row (single-row table)."""
+    from lythonic.compose.cached import (
+        _pushback_check,  # pyright: ignore[reportPrivateUsage]
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS _pushback "
+                "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
+            )
+            now = time.time()
+
+            _pushback_set(conn, "market", now + 86400)
+            assert _pushback_check(conn, "market.fetch") is not None
+
+            # Replace with a different prefix
+            _pushback_set(conn, "weather", now + 86400)
+            assert _pushback_check(conn, "market.fetch") is None
+            assert _pushback_check(conn, "weather.forecast") is not None
+
+            row_count = conn.execute("SELECT COUNT(*) FROM _pushback").fetchone()[0]
+            assert row_count == 1
+
+
+def test_pushback_expired_not_matched():
+    """Expired pushback entries are cleaned up and not matched."""
+    from lythonic.compose.cached import (
+        _pushback_check,  # pyright: ignore[reportPrivateUsage]
+        _pushback_set,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS _pushback "
+                "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
+            )
+
+            _pushback_set(conn, "market", time.time() - 1.0)
+            assert _pushback_check(conn, "market.fetch") is None
