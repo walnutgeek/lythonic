@@ -273,3 +273,124 @@ async def test_fan_out_fan_in():
 
         assert result.status == "completed"
         assert result.outputs["merge"] == "archive:100.0+report:100.0"
+
+
+async def _async_fail(value: float) -> str:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    raise RuntimeError("intentional failure")
+
+
+async def test_node_failure():
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_fail, nsref="t:fail_node")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        f = dag.node(ns.get("t:fail_node"))
+        _ = s >> f
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:fail_pipe",
+        )
+
+        assert result.status == "failed"
+        assert result.failed_node == "fail_node"
+        assert "intentional failure" in (result.error or "")
+
+        run = runner.provenance.get_run(result.run_id)
+        assert run is not None
+        assert run["status"] == "failed"
+
+
+async def _async_pause_node(value: float) -> str:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    from lythonic.compose.dag_runner import DagPause
+
+    raise DagPause()
+
+
+async def test_node_driven_pause():
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_pause_node, nsref="t:pauser")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:fmt")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        p = dag.node(ns.get("t:pauser"))
+        f = dag.node(ns.get("t:fmt"))
+        _ = s >> p >> f
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:pause_pipe",
+        )
+
+        assert result.status == "paused"
+        assert result.failed_node is None
+        # "fmt" should not have run
+        assert "fmt" not in result.outputs
+
+
+_ext_pause_call_count = 0
+
+
+async def _slow_step1(ticker: str) -> float:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    import asyncio
+
+    global _ext_pause_call_count  # noqa: PLW0603
+    _ext_pause_call_count += 1
+    await asyncio.sleep(0.01)
+    return 1.0
+
+
+async def _slow_step2(value: float) -> str:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    global _ext_pause_call_count  # noqa: PLW0603
+    _ext_pause_call_count += 1
+    return "done"
+
+
+async def test_external_pause():
+    import asyncio
+
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    global _ext_pause_call_count  # noqa: PLW0603
+    _ext_pause_call_count = 0
+
+    ns = Namespace()
+    ns.register(this_module._slow_step1, nsref="t:step1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._slow_step2, nsref="t:step2")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s1 = dag.node(ns.get("t:step1"))
+        s2 = dag.node(ns.get("t:step2"))
+        _ = s1 >> s2
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+
+        async def pause_after_delay():
+            await asyncio.sleep(0.005)
+            runner.pause()
+
+        asyncio.create_task(pause_after_delay())
+        result = await runner.run(
+            source_inputs={"step1": {"ticker": "X"}},
+            dag_nsref="t:ext_pause",
+        )
+
+        assert result.status == "paused"
+        # step1 completed but step2 should not have run
+        assert _ext_pause_call_count == 1
