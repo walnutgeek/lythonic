@@ -481,3 +481,55 @@ async def test_restart_failed_run():
         result2 = await runner.restart(result1.run_id)
         assert result2.status == "completed"
         assert result2.outputs["maybe_fail"] == "ok:100.0"
+
+
+_replay_source_count = 0
+
+
+async def _replay_source(ticker: str) -> float:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    this_module._replay_source_count += 1  # pyright: ignore
+    return float(this_module._replay_source_count) * 100  # pyright: ignore
+
+
+async def test_replay_selective_reexecution():
+    """Replay: rerun 'double' and 'fmt' but keep 'source' output from previous run."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    this_module._replay_source_count = 0  # pyright: ignore
+
+    ns = Namespace()
+    ns.register(this_module._replay_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:fmt")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        d = dag.node(ns.get("t:double"))
+        f = dag.node(ns.get("t:fmt"))
+        _ = s >> d >> f
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+
+        # First run
+        result1 = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:replay",
+        )
+        assert result1.status == "completed"
+        assert result1.outputs["fmt"] == "result=200.0"
+        assert this_module._replay_source_count == 1  # pyright: ignore
+
+        # Replay: rerun double and fmt, but keep source output
+        result2 = await runner.replay(result1.run_id, rerun_nodes={"double", "fmt"})
+        assert result2.status == "completed"
+        # Source was NOT re-run (count stays 1), but its output (100.0) was reused
+        assert this_module._replay_source_count == 1  # pyright: ignore
+        assert result2.outputs["fmt"] == "result=200.0"
+        assert result2.run_id != result1.run_id
+
+        # Verify source node was recorded as skipped
+        execs = runner.provenance.get_node_executions(result2.run_id)
+        source_exec = [e for e in execs if e["node_label"] == "source"][0]
+        assert source_exec["status"] == "skipped"

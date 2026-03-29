@@ -179,6 +179,47 @@ class DagRunner:
 
         return await self._execute(run_id, run_info["dag_nsref"], source_inputs, completed_outputs)
 
+    async def replay(
+        self,
+        run_id: str,
+        rerun_nodes: set[str],
+    ) -> DagRunResult:
+        """
+        Re-execute selected nodes using a previous run's outputs for
+        the rest. Creates a new run.
+        """
+        old_run = self.provenance.get_run(run_id)
+        if old_run is None:
+            raise ValueError(f"Run '{run_id}' not found")
+
+        # Load outputs from old run
+        old_outputs: dict[str, Any] = {}
+        for node_exec in self.provenance.get_node_executions(run_id):
+            if node_exec["status"] in ("completed", "skipped") and node_exec["output_json"]:
+                old_outputs[node_exec["node_label"]] = json.loads(node_exec["output_json"])
+
+        # Create new run
+        new_run_id = str(uuid.uuid4())
+        source_inputs_json: str = old_run.get("source_inputs_json", "{}")
+        source_inputs: dict[str, dict[str, Any]] = (
+            json.loads(source_inputs_json) if source_inputs_json else {}
+        )
+        self.provenance.create_run(new_run_id, old_run["dag_nsref"], source_inputs)
+        self._pause_requested = False
+
+        # Pre-populate outputs for nodes NOT being re-run
+        completed_outputs: dict[str, Any] = {}
+        for label, output in old_outputs.items():
+            if label not in rerun_nodes:
+                completed_outputs[label] = output
+                self.provenance.record_node_skipped(
+                    new_run_id, label, json.dumps(output, default=str)
+                )
+
+        return await self._execute(
+            new_run_id, old_run["dag_nsref"], source_inputs, completed_outputs
+        )
+
     @staticmethod
     def _extract_list_element_type(annotation: Any) -> str | None:
         """If annotation is 'list[X]', return 'X'. Otherwise None."""
