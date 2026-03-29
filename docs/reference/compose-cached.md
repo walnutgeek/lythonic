@@ -9,6 +9,7 @@ YAML-configured caching layer for download methods.
         - CacheRegistry
         - CacheConfig
         - CacheRule
-        - Namespace
+        - CacheRefreshPushback
+        - CacheRefreshSuppressed
         - generate_cache_table_ddl
         - table_name_from_path
