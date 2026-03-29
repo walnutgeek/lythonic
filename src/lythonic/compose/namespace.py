@@ -224,3 +224,86 @@ class Namespace:
         if name in self._leaves:
             return self._leaves[name]
         raise AttributeError(f"'{name}' not found in namespace")
+
+
+class DagEdge(BaseModel):
+    """Edge between two `DagNode`s in a `Dag`."""
+
+    upstream: str
+    downstream: str
+
+
+class DagNode:
+    """
+    Unique node in a `Dag`, wrapping a `NamespaceNode`.
+    Same callable can appear multiple times with different labels.
+    """
+
+    ns_node: NamespaceNode
+    label: str
+    dag: Dag
+
+    def __init__(self, ns_node: NamespaceNode, label: str, dag: Dag) -> None:
+        self.ns_node = ns_node
+        self.label = label
+        self.dag = dag
+
+    def __rshift__(self, other: DagNode) -> DagNode:
+        """Register edge from self to other, return other for chaining."""
+        self.dag.add_edge(self, other)
+        return other
+
+
+class Dag:
+    """
+    Directed acyclic graph of `DagNode`s with type-based validation.
+    Use `node()` to add nodes and `>>` to declare edges.
+    """
+
+    nodes: dict[str, DagNode]
+    edges: list[DagEdge]
+
+    def __init__(self) -> None:
+        self.nodes = {}
+        self.edges = []
+
+    def node(
+        self,
+        source: NamespaceNode | Callable[..., Any],
+        label: str | None = None,
+    ) -> DagNode:
+        """
+        Create a unique `DagNode` in this graph. If `label` is `None`,
+        derived from the source's nsref leaf name. Raises `ValueError`
+        if the label already exists.
+        """
+        if isinstance(source, NamespaceNode):
+            ns_node = source
+        else:
+            method = Method(source)
+            from lythonic import GlobalRef
+
+            gref = GlobalRef(source)
+            ns_node = NamespaceNode(
+                method=method, nsref=f"{gref.module}:{gref.name}", namespace=Namespace()
+            )
+
+        if label is None:
+            _, leaf = _parse_nsref(ns_node.nsref)
+            label = leaf
+
+        if label in self.nodes:
+            raise ValueError(
+                f"Label '{label}' already exists in DAG. "
+                f"Use an explicit label for duplicate callables."
+            )
+
+        dag_node = DagNode(ns_node=ns_node, label=label, dag=self)
+        self.nodes[label] = dag_node
+        return dag_node
+
+    def add_edge(self, upstream: DagNode, downstream: DagNode) -> DagEdge:
+        """Register a directed edge between two nodes."""
+        edge = DagEdge(upstream=upstream.label, downstream=downstream.label)
+        self.edges.append(edge)
+        return edge

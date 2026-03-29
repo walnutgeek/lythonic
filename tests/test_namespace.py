@@ -263,3 +263,55 @@ def test_register_leaf_on_branch_raises():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "branch" in str(e).lower() or "already exists" in str(e)
+
+
+# Task 4: DagEdge, DagNode, and >> operator
+
+
+def test_dag_edge_fields():
+    from lythonic.compose.namespace import DagEdge
+
+    edge = DagEdge(upstream="fetch", downstream="compute")
+    assert edge.upstream == "fetch"
+    assert edge.downstream == "compute"
+
+
+def test_dag_node_rshift_creates_edge():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="test:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="test:compute")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("test:fetch"))
+    c = dag.node(ns.get("test:compute"))
+
+    result = f >> c
+    assert result is c
+    assert len(dag.edges) == 1
+    assert dag.edges[0].upstream == "fetch"
+    assert dag.edges[0].downstream == "compute"
+
+
+def test_dag_node_rshift_chaining():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:step1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:step2")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:step3")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    s1 = dag.node(ns.get("a:step1"))
+    s2 = dag.node(ns.get("a:step2"))
+    s3 = dag.node(ns.get("a:step3"))
+
+    s1 >> s2 >> s3  # pyright: ignore[reportUnusedExpression]
+
+    assert len(dag.edges) == 2
+    assert dag.edges[0].upstream == "step1"
+    assert dag.edges[0].downstream == "step2"
+    assert dag.edges[1].upstream == "step2"
+    assert dag.edges[1].downstream == "step3"
+
