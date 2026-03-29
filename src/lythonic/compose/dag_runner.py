@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """
 DagRunner: Async execution engine for DAGs with provenance tracking.
 

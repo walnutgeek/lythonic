@@ -533,3 +533,40 @@ async def test_replay_selective_reexecution():
         execs = runner.provenance.get_node_executions(result2.run_id)
         source_exec = [e for e in execs if e["node_label"] == "source"][0]
         assert source_exec["status"] == "skipped"
+
+
+async def test_dag_registered_in_namespace():
+    """A Dag registered in Namespace becomes callable."""
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        d = dag.node(ns.get("t:double"))
+        _ = s >> d
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dag.db_path = Path(tmp) / "runs.db"
+        ns.register(dag, nsref="pipelines:my_pipe")
+
+        node = ns.get("pipelines:my_pipe")
+        result = await node(source={"ticker": "X"})
+
+        assert result.run_id is not None  # pyright: ignore
+        assert result.status == "completed"  # pyright: ignore
+        assert result.outputs["double"] == 200.0  # pyright: ignore
+
+
+def test_dag_registration_requires_db_path():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    dag = Dag()
+    try:
+        ns.register(dag, nsref="p:test")  # pyright: ignore
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "db_path" in str(e)

@@ -29,6 +29,7 @@ import inspect as _inspect
 import logging
 import typing
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -168,7 +169,7 @@ class Namespace:
 
     def register(
         self,
-        c: Callable[..., Any] | str,
+        c: Callable[..., Any] | str | Dag,
         nsref: str | None = None,
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
     ) -> NamespaceNode:
@@ -177,6 +178,9 @@ class Namespace:
         module and name. If `decorate` is provided, wrap the callable for
         invocation (metadata is still extracted from the original).
         """
+        if isinstance(c, Dag):
+            return self._register_dag(c, nsref)
+
         from lythonic import GlobalRef
 
         gref = GlobalRef(c)
@@ -198,6 +202,50 @@ class Namespace:
             )
 
         node = NamespaceNode(method=method, nsref=nsref, namespace=self, decorated=decorated)
+        branch._leaves[leaf_name] = node
+        return node
+
+    def _register_dag(self, dag: Dag, nsref: str | None) -> NamespaceNode:
+        """Register a Dag as a callable NamespaceNode."""
+        if dag.db_path is None:
+            raise ValueError("Dag.db_path must be set before registering in a Namespace")
+        if nsref is None:
+            raise ValueError("nsref is required when registering a Dag")
+
+        from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
+
+        runner = DagRunner(dag, dag.db_path)
+
+        async def dag_wrapper(**kwargs: Any) -> Any:
+            source_labels = {n.label for n in dag.sources()}
+            source_inputs: dict[str, dict[str, Any]] = {}
+            for label in source_labels:
+                # If a kwarg key matches a source label and its value is a dict,
+                # use it directly as that node's inputs.
+                if label in kwargs and isinstance(kwargs[label], dict):
+                    source_inputs[label] = kwargs[label]
+                    continue
+                node = dag.nodes[label]
+                node_args = node.ns_node.method.args
+                if node.ns_node.expects_dag_context():
+                    node_args = node_args[1:]
+                node_kwargs = {a.name: kwargs[a.name] for a in node_args if a.name in kwargs}
+                if node_kwargs:
+                    source_inputs[label] = node_kwargs
+            return await runner.run(source_inputs=source_inputs, dag_nsref=nsref)
+
+        method = Method(dag_wrapper)
+        branch_parts, leaf_name = _parse_nsref(nsref)
+        branch = self._get_or_create_branch(branch_parts)
+
+        if leaf_name in branch._leaves:
+            raise ValueError(f"Leaf '{leaf_name}' already exists in namespace")
+        if leaf_name in branch._branches:
+            raise ValueError(
+                f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
+            )
+
+        node = NamespaceNode(method=method, nsref=nsref, namespace=self)
         branch._leaves[leaf_name] = node
         return node
 
@@ -268,6 +316,7 @@ class Dag:
     def __init__(self) -> None:
         self.nodes = {}
         self.edges = []
+        self.db_path: Path | None = None
 
     def node(
         self,
