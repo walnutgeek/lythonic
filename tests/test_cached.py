@@ -36,12 +36,20 @@ def test_cache_config_from_yaml():
     assert str(config.rules[1].gref) == "json:loads"
 
 
+def _ns_test_ok() -> str:  # pyright: ignore[reportUnusedFunction]
+    return "ok"
+
+
+def _ns_test_data() -> str:  # pyright: ignore[reportUnusedFunction]
+    return "data"
+
+
 def test_namespace_nested_access():
-    from lythonic.compose.cached import Namespace
+    from lythonic.compose.namespace import Namespace
 
     ns = Namespace()
-    ns.install("market.fetch_prices", lambda: "ok")
-    ns.install("get_data", lambda: "data")
+    ns.register(this_module._ns_test_ok, nsref="market:fetch_prices")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._ns_test_data, nsref="get_data")  # pyright: ignore[reportPrivateUsage]
 
     assert ns.market.fetch_prices() == "ok"  # pyright: ignore
     assert ns.get_data() == "data"  # pyright: ignore

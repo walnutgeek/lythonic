@@ -217,21 +217,6 @@ class Namespace:
         """Bulk register callables using derived paths."""
         return [self.register(c, decorate=decorate) for c in cc]
 
-    def install(self, path: str, func: Callable[..., Any]) -> None:
-        """
-        Install a plain callable at a dot-separated path, bypassing
-        `GlobalRef` resolution. Used for backward compatibility with code
-        that registers arbitrary callables (including lambdas).
-        """
-        parts = path.split(".")
-        current = self
-        for part in parts[:-1]:
-            if part not in current._branches:
-                current._branches[part] = Namespace()
-            current = current._branches[part]
-        leaf_name = parts[-1]
-        current._leaves[leaf_name] = func  # pyright: ignore
-
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
         if name in ("_branches", "_leaves"):
