@@ -383,3 +383,73 @@ def test_dag_node_from_callable():
     n = dag.node(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
     assert n.label == "_sample_fn"
     assert n.ns_node.method.doc == "Fetch some data."
+
+
+# Task 6: Dag validation (cycle detection + type compatibility)
+
+
+def _typed_source() -> float:
+    return 1.0
+
+
+def _typed_sink(value: float) -> str:  # pyright: ignore[reportUnusedParameter]
+    return "ok"
+
+
+def _incompatible_sink(data: list[int]) -> str:  # pyright: ignore[reportUnusedParameter, reportUnusedFunction]
+    return "ok"
+
+
+def test_dag_validate_passes_for_valid_dag():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:step1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:step2")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    s1 = dag.node(ns.get("a:step1"))
+    s2 = dag.node(ns.get("a:step2"))
+    s1 >> s2  # pyright: ignore[reportUnusedExpression]
+    dag.validate()
+
+
+def test_dag_validate_detects_cycle():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:n1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:n2")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:n3")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    n1 = dag.node(ns.get("a:n1"))
+    n2 = dag.node(ns.get("a:n2"))
+    n3 = dag.node(ns.get("a:n3"))
+
+    n1 >> n2 >> n3  # pyright: ignore[reportUnusedExpression]
+    # Create a cycle
+    dag.add_edge(n3, n1)
+
+    try:
+        dag.validate()
+        raise AssertionError("Expected ValueError for cycle")
+    except ValueError as e:
+        assert "cycle" in str(e).lower()
+
+
+def test_dag_validate_type_compatible():
+    """Type-compatible edges should pass validation."""
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._typed_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._typed_sink, nsref="t:sink")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    src = dag.node(ns.get("t:source"))
+    snk = dag.node(ns.get("t:sink"))
+    src >> snk  # pyright: ignore[reportUnusedExpression]
+    dag.validate()
+
+

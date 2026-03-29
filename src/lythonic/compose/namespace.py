@@ -25,6 +25,8 @@ result = node(ticker="AAPL")
 
 from __future__ import annotations
 
+import inspect as _inspect
+import logging
 import typing
 from collections.abc import Callable
 from typing import Any
@@ -307,3 +309,59 @@ class Dag:
         edge = DagEdge(upstream=upstream.label, downstream=downstream.label)
         self.edges.append(edge)
         return edge
+
+    def validate(self) -> None:
+        """Check acyclicity and type compatibility between connected nodes."""
+        self._check_acyclicity()
+        self._check_type_compatibility()
+
+    def _check_acyclicity(self) -> None:
+        """Kahn's algorithm for topological sort -- raises if cycle detected."""
+        in_degree: dict[str, int] = {label: 0 for label in self.nodes}
+        adj: dict[str, list[str]] = {label: [] for label in self.nodes}
+        for edge in self.edges:
+            adj[edge.upstream].append(edge.downstream)
+            in_degree[edge.downstream] += 1
+
+        queue = [label for label, deg in in_degree.items() if deg == 0]
+        visited = 0
+        while queue:
+            current = queue.pop(0)
+            visited += 1
+            for neighbor in adj[current]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        if visited != len(self.nodes):
+            raise ValueError("DAG contains a cycle")
+
+    def _check_type_compatibility(self) -> None:
+        """Warn-level check: upstream return type should match a downstream input type."""
+        for edge in self.edges:
+            upstream_node = self.nodes[edge.upstream]
+            downstream_node = self.nodes[edge.downstream]
+
+            upstream_return = upstream_node.ns_node.method.return_annotation
+            if upstream_return is None or upstream_return is _inspect.Parameter.empty:
+                continue
+
+            downstream_args = downstream_node.ns_node.method.args
+            if downstream_node.ns_node.expects_dag_context() and len(downstream_args) > 0:
+                downstream_args = downstream_args[1:]
+
+            if not downstream_args:
+                continue
+
+            downstream_types = {
+                arg.annotation for arg in downstream_args if arg.annotation is not None
+            }
+            if downstream_types and upstream_return not in downstream_types:
+                logging.getLogger(__name__).warning(
+                    "Type mismatch on edge %s -> %s: upstream returns %s, downstream accepts %s",
+                    edge.upstream,
+                    edge.downstream,
+                    upstream_return,
+                    downstream_types,
+                )
+
