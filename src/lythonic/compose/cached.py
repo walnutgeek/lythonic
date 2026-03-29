@@ -84,6 +84,7 @@ from pydantic import BaseModel
 
 from lythonic import GlobalRef, GRef
 from lythonic.compose import Method
+from lythonic.compose.namespace import Namespace as Namespace
 from lythonic.state import execute_sql, open_sqlite_db
 from lythonic.types import KNOWN_TYPES
 
@@ -173,21 +174,16 @@ def table_name_from_path(path: str) -> str:
     return path.replace(".", "__")
 
 
-class Namespace:
+def _namespace_path_to_nsref(path: str) -> str:
     """
-    Nested attribute namespace for cached method wrappers.
-
-    Dot-separated paths create intermediate Namespace objects automatically.
+    Convert old dot-separated namespace path to nsref format.
+    `"market.fetch_prices"` -> `"market:fetch_prices"`
+    `"fetch_prices"` -> `"fetch_prices"`
     """
-
-    def install(self, path: str, func: Callable[..., Any]) -> None:
-        parts = path.split(".")
-        current: Namespace = self
-        for part in parts[:-1]:
-            if not hasattr(current, part):
-                setattr(current, part, Namespace())
-            current = getattr(current, part)
-        setattr(current, parts[-1], func)
+    parts = path.rsplit(".", 1)
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]}:{parts[1]}"
 
 
 def generate_cache_table_ddl(table_name: str, method: Method) -> str:
@@ -460,6 +456,8 @@ class CacheRegistry:
         min_ttl_s = rule.min_ttl * DAYS_TO_SECONDS
         max_ttl_s = rule.max_ttl * DAYS_TO_SECONDS
 
+        nsref = _namespace_path_to_nsref(namespace_path)
+
         if gref.is_async():
             wrapper = _build_async_wrapper(
                 method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
@@ -469,7 +467,7 @@ class CacheRegistry:
                 method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
             )
 
-        self.cached.install(namespace_path, wrapper)
+        self.cached.register(str(gref), nsref=nsref, decorate=lambda _: wrapper)
 
     @classmethod
     def from_yaml(cls, config_path: Path) -> CacheRegistry:
