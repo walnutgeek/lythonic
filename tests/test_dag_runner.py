@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -343,14 +344,19 @@ async def test_node_driven_pause():
 
 
 _ext_pause_call_count = 0
+_ext_pause_event: asyncio.Event | None = None
 
 
 async def _slow_step1(ticker: str) -> float:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
-    import asyncio
-
     global _ext_pause_call_count  # noqa: PLW0603
     _ext_pause_call_count += 1
-    await asyncio.sleep(0.01)
+    # Signal that step1 has started so the pause task can fire
+    if _ext_pause_event is not None:
+        _ext_pause_event.set()
+    # Yield control to let the pause task run
+    import asyncio
+
+    await asyncio.sleep(0)
     return 1.0
 
 
@@ -366,8 +372,9 @@ async def test_external_pause():
     from lythonic.compose.dag_runner import DagRunner
     from lythonic.compose.namespace import Dag, Namespace
 
-    global _ext_pause_call_count  # noqa: PLW0603
+    global _ext_pause_call_count, _ext_pause_event  # noqa: PLW0603
     _ext_pause_call_count = 0
+    _ext_pause_event = asyncio.Event()
 
     ns = Namespace()
     ns.register(this_module._slow_step1, nsref="t:step1")  # pyright: ignore[reportPrivateUsage]
@@ -381,11 +388,12 @@ async def test_external_pause():
     with tempfile.TemporaryDirectory() as tmp:
         runner = DagRunner(dag, Path(tmp) / "runs.db")
 
-        async def pause_after_delay():
-            await asyncio.sleep(0.005)
+        async def pause_when_step1_starts():
+            assert _ext_pause_event is not None
+            await _ext_pause_event.wait()
             runner.pause()
 
-        asyncio.create_task(pause_after_delay())
+        asyncio.create_task(pause_when_step1_starts())
         result = await runner.run(
             source_inputs={"step1": {"ticker": "X"}},
             dag_nsref="t:ext_pause",
