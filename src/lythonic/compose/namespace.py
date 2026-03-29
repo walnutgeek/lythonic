@@ -207,4 +207,20 @@ class Namespace:
             raise KeyError(f"Leaf '{leaf_name}' not found")
         return branch._leaves[leaf_name]
 
-    # Placeholder for register_all and __getattr__ (Task 3)
+    def register_all(
+        self,
+        *cc: Callable[..., Any],
+        decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
+    ) -> list[NamespaceNode]:
+        """Bulk register callables using derived paths."""
+        return [self.register(c, decorate=decorate) for c in cc]
+
+    def __getattr__(self, name: str) -> Any:
+        # Avoid recursion for internal attributes.
+        if name in ("_branches", "_leaves"):
+            raise AttributeError(name)
+        if name in self._branches:
+            return self._branches[name]
+        if name in self._leaves:
+            return self._leaves[name]
+        raise AttributeError(f"'{name}' not found in namespace")
