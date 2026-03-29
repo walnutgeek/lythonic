@@ -315,3 +315,71 @@ def test_dag_node_rshift_chaining():
     assert dag.edges[1].upstream == "step2"
     assert dag.edges[1].downstream == "step3"
 
+
+# Task 5: Dag fan-out/fan-in, duplicate labels, callable source
+
+
+def test_dag_fan_out_fan_in():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:report")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:archive")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:summarize")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("a:fetch"))
+    r = dag.node(ns.get("a:report"))
+    a = dag.node(ns.get("a:archive"))
+    s = dag.node(ns.get("a:summarize"))
+
+    f >> r >> s  # pyright: ignore[reportUnusedExpression]
+    f >> a >> s  # pyright: ignore[reportUnusedExpression]
+
+    assert len(dag.edges) == 4
+    upstream_of_s = [e.upstream for e in dag.edges if e.downstream == "summarize"]
+    assert sorted(upstream_of_s) == ["archive", "report"]
+    downstream_of_f = [e.downstream for e in dag.edges if e.upstream == "fetch"]
+    assert sorted(downstream_of_f) == ["archive", "report"]
+
+
+def test_dag_same_callable_different_labels():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f1 = dag.node(ns.get("market:fetch"), label="fetch_us")
+    f2 = dag.node(ns.get("market:fetch"), label="fetch_eu")
+
+    assert f1.label == "fetch_us"
+    assert f2.label == "fetch_eu"
+    assert len(dag.nodes) == 2
+    # Both wrap the same NamespaceNode
+    assert f1.ns_node is f2.ns_node
+
+
+def test_dag_duplicate_auto_label_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("market:fetch"))
+    try:
+        dag.node(ns.get("market:fetch"))
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "already exists" in str(e)
+
+
+def test_dag_node_from_callable():
+    from lythonic.compose.namespace import Dag
+
+    dag = Dag()
+    n = dag.node(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
+    assert n.label == "_sample_fn"
+    assert n.ns_node.method.doc == "Fetch some data."
