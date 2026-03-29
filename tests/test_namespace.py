@@ -29,6 +29,7 @@ def _sample_fn(ticker: str, limit: int = 10) -> dict[str, Any]:
     return {"ticker": ticker, "limit": limit}
 
 
+
 def _ctx_fn(ctx: DagContext, value: float) -> float:  # pyright: ignore[reportUnusedParameter]
     """A DAG-aware function."""
     return value * 2
@@ -100,3 +101,70 @@ def test_namespace_node_expects_dag_context():
     ctx_node = NamespaceNode(method=Method(_get_ctx_fn()), nsref="t:b", namespace=ns)
     assert ctx_node.expects_dag_context()
     assert ctx_node.dag_context_type() is DagContext
+
+
+# Task 2: register and get
+
+
+def test_register_by_callable():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register(this_module._sample_fn, nsref="test:sample_fn")  # pyright: ignore[reportPrivateUsage]
+    assert node.nsref == "test:sample_fn"
+    assert node(ticker="X") == {"ticker": "X", "limit": 10}
+
+
+def test_register_by_string_gref():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register("tests.test_namespace:_sample_fn", nsref="test:sample")
+    assert node(ticker="Y") == {"ticker": "Y", "limit": 10}
+
+
+def test_register_derives_nsref():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
+    assert node.nsref == "tests.test_namespace:_sample_fn"
+
+
+def test_get_retrieves_node():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
+    node = ns.get("market:fetch")
+    assert node.nsref == "market:fetch"
+    assert node(ticker="Z") == {"ticker": "Z", "limit": 10}
+
+
+def test_get_nested_branch():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="market.data:fetch")  # pyright: ignore[reportPrivateUsage]
+    node = ns.get("market.data:fetch")
+    assert node.nsref == "market.data:fetch"
+
+
+def test_get_root_level():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="fetch")  # pyright: ignore[reportPrivateUsage]
+    node = ns.get("fetch")
+    assert node.nsref == "fetch"
+
+
+def test_get_missing_raises_key_error():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    try:
+        ns.get("nonexistent:thing")
+        raise AssertionError("Expected KeyError")
+    except KeyError:
+        pass

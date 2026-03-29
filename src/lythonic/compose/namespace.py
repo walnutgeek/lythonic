@@ -45,7 +45,7 @@ class DagContext(BaseModel):
     run_id: str
 
 
-def _parse_nsref(nsref: str) -> tuple[list[str], str]:  # pyright: ignore[reportUnusedFunction]
+def _parse_nsref(nsref: str) -> tuple[list[str], str]:
     """
     Parse nsref into (branch_parts, leaf_name).
 
@@ -141,3 +141,70 @@ class Namespace:
     def __init__(self) -> None:
         self._branches = {}
         self._leaves = {}
+
+    def _get_or_create_branch(self, parts: list[str]) -> Namespace:
+        """Navigate to a branch, creating intermediate branches as needed."""
+        current = self
+        for part in parts:
+            if part in current._leaves:
+                raise ValueError(
+                    f"Cannot create branch '{part}': a leaf with that name already exists"
+                )
+            if part not in current._branches:
+                current._branches[part] = Namespace()
+            current = current._branches[part]
+        return current
+
+    def _get_branch(self, parts: list[str]) -> Namespace:
+        """Navigate to an existing branch. Raises `KeyError` if not found."""
+        current = self
+        for part in parts:
+            if part not in current._branches:
+                raise KeyError(f"Branch '{part}' not found")
+            current = current._branches[part]
+        return current
+
+    def register(
+        self,
+        c: Callable[..., Any] | str,
+        nsref: str | None = None,
+        decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
+    ) -> NamespaceNode:
+        """
+        Register a callable. If `nsref` is `None`, derive from the callable's
+        module and name. If `decorate` is provided, wrap the callable for
+        invocation (metadata is still extracted from the original).
+        """
+        from lythonic import GlobalRef
+
+        gref = GlobalRef(c)
+
+        if nsref is None:
+            nsref = f"{gref.module}:{gref.name}"
+
+        method = Method(gref)
+        decorated = decorate(method.o) if decorate else None
+
+        branch_parts, leaf_name = _parse_nsref(nsref)
+        branch = self._get_or_create_branch(branch_parts)
+
+        if leaf_name in branch._leaves:
+            raise ValueError(f"Leaf '{leaf_name}' already exists in namespace")
+        if leaf_name in branch._branches:
+            raise ValueError(
+                f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
+            )
+
+        node = NamespaceNode(method=method, nsref=nsref, namespace=self, decorated=decorated)
+        branch._leaves[leaf_name] = node
+        return node
+
+    def get(self, nsref: str) -> NamespaceNode:
+        """Retrieve a node by nsref. Raises `KeyError` if not found."""
+        branch_parts, leaf_name = _parse_nsref(nsref)
+        branch = self._get_branch(branch_parts)
+        if leaf_name not in branch._leaves:
+            raise KeyError(f"Leaf '{leaf_name}' not found")
+        return branch._leaves[leaf_name]
+
+    # Placeholder for register_all and __getattr__ (Task 3)
