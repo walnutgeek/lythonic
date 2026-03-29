@@ -153,6 +153,32 @@ class DagRunner:
             return await fn(**kwargs)
         return fn(**kwargs)
 
+    async def restart(self, run_id: str) -> DagRunResult:
+        """Restart a paused or failed run from where it left off."""
+        run_info = self.provenance.get_run(run_id)
+        if run_info is None:
+            raise ValueError(f"Run '{run_id}' not found")
+        if run_info["status"] not in ("paused", "failed"):
+            raise ValueError(
+                f"Run '{run_id}' has status '{run_info['status']}', expected 'paused' or 'failed'"
+            )
+
+        # Load completed node outputs
+        completed_outputs: dict[str, Any] = {}
+        for node_exec in self.provenance.get_node_executions(run_id):
+            if node_exec["status"] == "completed" and node_exec["output_json"]:
+                completed_outputs[node_exec["node_label"]] = json.loads(node_exec["output_json"])
+
+        self.provenance.update_run_status(run_id, "running")
+        self._pause_requested = False
+
+        source_inputs_json: str = run_info.get("source_inputs_json", "{}")
+        source_inputs: dict[str, dict[str, Any]] = (
+            json.loads(source_inputs_json) if source_inputs_json else {}
+        )
+
+        return await self._execute(run_id, run_info["dag_nsref"], source_inputs, completed_outputs)
+
     @staticmethod
     def _extract_list_element_type(annotation: Any) -> str | None:
         """If annotation is 'list[X]', return 'X'. Otherwise None."""

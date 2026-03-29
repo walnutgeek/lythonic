@@ -394,3 +394,90 @@ async def test_external_pause():
         assert result.status == "paused"
         # step1 completed but step2 should not have run
         assert _ext_pause_call_count == 1
+
+
+_pause_once_count = 0
+
+
+async def _pause_once(value: float) -> float:  # pyright: ignore[reportUnusedFunction]
+    from lythonic.compose.dag_runner import DagPause
+
+    this_module._pause_once_count += 1  # pyright: ignore
+    if this_module._pause_once_count == 1:  # pyright: ignore
+        raise DagPause()
+    return value * 2
+
+
+_fail_once_count = 0
+
+
+async def _fail_once(value: float) -> str:  # pyright: ignore[reportUnusedFunction]
+    this_module._fail_once_count += 1  # pyright: ignore
+    if this_module._fail_once_count == 1:  # pyright: ignore
+        raise RuntimeError("first attempt fails")
+    return f"ok:{value}"
+
+
+async def test_restart_paused_run():
+    """Restart a paused run -- resumes from the paused node."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    this_module._pause_once_count = 0  # pyright: ignore
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._pause_once, nsref="t:maybe_pause")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:fmt")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        p = dag.node(ns.get("t:maybe_pause"))
+        f = dag.node(ns.get("t:fmt"))
+        _ = s >> p >> f
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+
+        # First run pauses
+        result1 = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:restart_pipe",
+        )
+        assert result1.status == "paused"
+
+        # Restart completes
+        result2 = await runner.restart(result1.run_id)
+        assert result2.status == "completed"
+        assert result2.run_id == result1.run_id
+        assert result2.outputs["fmt"] == "result=200.0"
+
+
+async def test_restart_failed_run():
+    """Restart a failed run -- re-executes from the failed node."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    this_module._fail_once_count = 0  # pyright: ignore
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._fail_once, nsref="t:maybe_fail")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        f = dag.node(ns.get("t:maybe_fail"))
+        _ = s >> f
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+
+        result1 = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:restart_fail",
+        )
+        assert result1.status == "failed"
+
+        result2 = await runner.restart(result1.run_id)
+        assert result2.status == "completed"
+        assert result2.outputs["maybe_fail"] == "ok:100.0"
