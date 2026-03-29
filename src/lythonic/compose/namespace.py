@@ -365,3 +365,41 @@ class Dag:
                     downstream_types,
                 )
 
+    def topological_order(self) -> list[DagNode]:
+        """Return nodes in topological order. Stable sort by label for determinism."""
+        in_degree: dict[str, int] = {label: 0 for label in self.nodes}
+        adj: dict[str, list[str]] = {label: [] for label in self.nodes}
+        for edge in self.edges:
+            adj[edge.upstream].append(edge.downstream)
+            in_degree[edge.downstream] += 1
+
+        queue = sorted([label for label, deg in in_degree.items() if deg == 0])
+        result: list[DagNode] = []
+        while queue:
+            current = queue.pop(0)
+            result.append(self.nodes[current])
+            for neighbor in sorted(adj[current]):
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        return result
+
+    def sources(self) -> list[DagNode]:
+        """Return nodes with no upstream edges."""
+        has_upstream = {edge.downstream for edge in self.edges}
+        return [self.nodes[label] for label in self.nodes if label not in has_upstream]
+
+    def sinks(self) -> list[DagNode]:
+        """Return nodes with no downstream edges."""
+        has_downstream = {edge.upstream for edge in self.edges}
+        return [self.nodes[label] for label in self.nodes if label not in has_downstream]
+
+    def __enter__(self) -> Dag:
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any
+    ) -> None:
+        if exc_type is None:
+            self.validate()

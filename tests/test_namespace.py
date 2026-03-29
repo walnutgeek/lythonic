@@ -453,3 +453,95 @@ def test_dag_validate_type_compatible():
     dag.validate()
 
 
+# Task 7: Dag introspection and context manager
+
+
+def test_dag_topological_order():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:compute")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:report")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("a:fetch"))
+    c = dag.node(ns.get("a:compute"))
+    r = dag.node(ns.get("a:report"))
+    f >> c >> r  # pyright: ignore[reportUnusedExpression]
+
+    order = dag.topological_order()
+    labels = [n.label for n in order]
+    assert labels.index("fetch") < labels.index("compute")
+    assert labels.index("compute") < labels.index("report")
+
+
+def test_dag_sources_and_sinks():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:compute")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:report")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("a:fetch"))
+    c = dag.node(ns.get("a:compute"))
+    r = dag.node(ns.get("a:report"))
+    f >> c >> r  # pyright: ignore[reportUnusedExpression]
+
+    source_labels = sorted([n.label for n in dag.sources()])
+    sink_labels = sorted([n.label for n in dag.sinks()])
+    assert source_labels == ["fetch"]
+    assert sink_labels == ["report"]
+
+
+def test_dag_sources_sinks_fan_out():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:report")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="a:archive")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("a:fetch"))
+    r = dag.node(ns.get("a:report"))
+    a = dag.node(ns.get("a:archive"))
+    f >> r  # pyright: ignore[reportUnusedExpression]
+    f >> a  # pyright: ignore[reportUnusedExpression]
+
+    assert len(dag.sources()) == 1
+    sink_labels = sorted([n.label for n in dag.sinks()])
+    assert sink_labels == ["archive", "report"]
+
+
+def test_dag_context_manager_validates():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:step1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:step2")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s1 = dag.node(ns.get("a:step1"))
+        s2 = dag.node(ns.get("a:step2"))
+        s1 >> s2  # pyright: ignore[reportUnusedExpression]
+
+
+def test_dag_context_manager_catches_cycle():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:n1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:n2")  # pyright: ignore[reportPrivateUsage]
+
+    try:
+        with Dag() as dag:
+            n1 = dag.node(ns.get("a:n1"))
+            n2 = dag.node(ns.get("a:n2"))
+            n1 >> n2  # pyright: ignore[reportUnusedExpression]
+            dag.add_edge(n2, n1)
+        raise AssertionError("Expected ValueError for cycle")
+    except ValueError as e:
+        assert "cycle" in str(e).lower()
