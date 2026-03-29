@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
@@ -162,7 +163,7 @@ def test_sync_wrapper_expired_refetches():
 
         # Backdate fetched_at to simulate expiry
         db_path = Path(tmp) / "cache.db"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE fetch2 SET fetched_at = ? WHERE ticker = ?",
                 (time.time() - 86400 * 1, "X"),
@@ -331,7 +332,7 @@ def test_probabilistic_refresh_between_ttls():
         # Set fetched_at to almost max_ttl ago (p ~= 1, almost certain refresh)
         db_path = Path(tmp) / "cache.db"
         almost_max_secs = 2.99 * 86400
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE prob SET fetched_at = ? WHERE key = ?",
                 (time.time() - almost_max_secs, "A"),
@@ -407,7 +408,7 @@ def test_pushback_set_and_check():
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS _pushback "
                 "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
@@ -435,7 +436,7 @@ def test_pushback_replacement():
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS _pushback "
                 "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
@@ -463,7 +464,7 @@ def test_pushback_expired_not_matched():
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "test.db"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS _pushback "
                 "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)"
@@ -492,7 +493,7 @@ def test_pushback_table_created_on_registry_init():
         CacheRegistry(config, config_dir=Path(tmp))
 
         db_path = Path(tmp) / "cache.db"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM _pushback")
             assert cursor.fetchone()[0] == 0
 
@@ -538,7 +539,7 @@ def test_pushback_suppresses_probabilistic_refresh():
         assert result == {"price": 1.0}
 
         # Backdate to middle of probabilistic window (2 days old, p=0.5)
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
                 (time.time() - 86400 * 2, "AAPL"),
@@ -546,7 +547,7 @@ def test_pushback_suppresses_probabilistic_refresh():
             conn.commit()
 
         # Set pushback on "market" prefix
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             _pushback_set(conn, "market", time.time() + 86400)
 
         # Call many times — method should never be called due to pushback
@@ -595,14 +596,14 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate to probabilistic window
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE async_market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
                 (time.time() - 86400 * 2, "GOOG"),
             )
             conn.commit()
 
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             _pushback_set(conn, "async_market", time.time() + 86400)
 
         for _ in range(50):
@@ -657,7 +658,7 @@ def test_pushback_recorded_on_exception():
         assert this_module._rate_limited_count == 1  # pyright: ignore
 
         # Backdate to probabilistic window with p ~= 1 (near-certain refresh)
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE api__rate_limited SET fetched_at = ? WHERE ticker = ?",
                 (time.time() - 86400 * 2.99, "X"),
@@ -671,7 +672,7 @@ def test_pushback_recorded_on_exception():
         assert this_module._rate_limited_count == 2  # pyright: ignore
 
         # Pushback should now be recorded
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             assert _pushback_check(conn, "api.rate_limited") is not None
 
 
@@ -709,7 +710,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate past max_ttl
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE market__pushback_fetch SET fetched_at = ? WHERE ticker = ?",
                 (time.time() - 86400 * 4, "AAPL"),
@@ -717,7 +718,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
             conn.commit()
 
         # Set pushback
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             _pushback_set(conn, "market", time.time() + 86400)
 
         with pytest.raises(CacheRefreshSuppressed) as exc_info:
@@ -756,7 +757,7 @@ def test_cache_miss_ignores_pushback():
         db_path = Path(tmp) / "cache.db"
 
         # Set pushback before any cache entry exists
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             _pushback_set(conn, "market", time.time() + 86400)
 
         # Cache miss — should call method despite pushback
@@ -803,7 +804,7 @@ def test_default_scope_uses_method_namespace_path():
         registry.cached.api.other(ticker="Y")  # pyright: ignore
 
         # Backdate both to probabilistic window (p ~= 1)
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE api__rate_limited SET fetched_at = ?",
                 (time.time() - 86400 * 2.99,),
@@ -818,6 +819,6 @@ def test_default_scope_uses_method_namespace_path():
         registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
 
         # Pushback should be scoped to "api.rate_limited" only
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn:
             assert _pushback_check(conn, "api.rate_limited") is not None
             assert _pushback_check(conn, "api.other") is None
