@@ -153,6 +153,15 @@ class DagRunner:
             return await fn(**kwargs)
         return fn(**kwargs)
 
+    @staticmethod
+    def _extract_list_element_type(annotation: Any) -> str | None:
+        """If annotation is 'list[X]', return 'X'. Otherwise None."""
+        if isinstance(annotation, str):
+            s = annotation.strip()
+            if s.startswith("list[") and s.endswith("]"):
+                return s[5:-1]
+        return None
+
     def _wire_inputs(
         self,
         dag_node: DagNode,
@@ -172,16 +181,25 @@ class DagRunner:
 
         kwargs: dict[str, Any] = {}
         for arg in args:
+            # Check if parameter expects a list (fan-in collection)
+            list_elem_type = self._extract_list_element_type(arg.annotation)
+
             matching_values: list[Any] = []
             for edge in upstream_edges:
                 if edge.upstream in node_outputs:
                     upstream_node = self.dag.nodes[edge.upstream]
                     upstream_return = upstream_node.ns_node.method.return_annotation
-                    if upstream_return is not None and upstream_return == arg.annotation:
+                    if upstream_return is None:
+                        continue
+                    # Direct type match or list element type match for fan-in
+                    if upstream_return == arg.annotation:
+                        matching_values.append(node_outputs[edge.upstream])
+                    elif list_elem_type and str(upstream_return) == list_elem_type:
                         matching_values.append(node_outputs[edge.upstream])
 
             if len(matching_values) == 1:
-                kwargs[arg.name] = matching_values[0]
+                # For list-typed params, always wrap in a list
+                kwargs[arg.name] = [matching_values[0]] if list_elem_type else matching_values[0]
             elif len(matching_values) > 1:
                 kwargs[arg.name] = matching_values
 

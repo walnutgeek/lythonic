@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import tests.test_dag_runner as this_module
+from lythonic.compose.namespace import DagContext
 
 
 def test_provenance_create_and_get_run():
@@ -126,6 +127,22 @@ def test_provenance_get_missing_run():
         assert prov.get_run("nonexistent") is None
 
 
+async def _ctx_node(ctx: DagContext, value: float) -> str:  # pyright: ignore[reportUnusedFunction]
+    return f"{ctx.node_label}:{ctx.run_id[:8]}:{value}"
+
+
+async def _async_report(value: float) -> str:  # pyright: ignore[reportUnusedFunction]
+    return f"report:{value}"
+
+
+async def _async_archive(value: float) -> str:  # pyright: ignore[reportUnusedFunction]
+    return f"archive:{value}"
+
+
+async def _async_merge(values: list[str]) -> str:  # pyright: ignore[reportUnusedFunction]
+    return "+".join(sorted(values))
+
+
 async def _async_source(ticker: str) -> float:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
     return 100.0
 
@@ -199,3 +216,60 @@ async def test_provenance_recorded_during_run():
         for e in execs:
             assert e["status"] == "completed"
             assert e["output_json"] is not None
+
+
+async def test_dag_context_injection():
+    """Node with DagContext first param receives injected context."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._ctx_node, nsref="t:ctx_node")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        c = dag.node(ns.get("t:ctx_node"))
+        _ = s >> c
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="test:ctx_pipe",
+        )
+
+        assert result.status == "completed"
+        output = result.outputs["ctx_node"]
+        assert output.startswith("ctx_node:")
+        assert ":100.0" in output
+
+
+async def test_fan_out_fan_in():
+    """Fan-out from source, fan-in collecting list of values."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_report, nsref="t:report")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_archive, nsref="t:archive")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_merge, nsref="t:merge")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        r = dag.node(ns.get("t:report"))
+        a = dag.node(ns.get("t:archive"))
+        m = dag.node(ns.get("t:merge"))
+        _ = s >> r >> m
+        _ = s >> a >> m
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:fanio",
+        )
+
+        assert result.status == "completed"
+        assert result.outputs["merge"] == "archive:100.0+report:100.0"

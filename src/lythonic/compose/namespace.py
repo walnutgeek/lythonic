@@ -356,7 +356,17 @@ class Dag:
             downstream_types = {
                 arg.annotation for arg in downstream_args if arg.annotation is not None
             }
-            if downstream_types and upstream_return not in downstream_types:
+            # Also accept list[X] params when upstream returns X (fan-in)
+            fan_in_types: set[str] = set()
+            for dt in downstream_types:
+                if isinstance(dt, str) and dt.startswith("list[") and dt.endswith("]"):
+                    fan_in_types.add(dt[5:-1])
+            upstream_str = str(upstream_return)
+            if (
+                downstream_types
+                and upstream_return not in downstream_types
+                and upstream_str not in fan_in_types
+            ):
                 logging.getLogger(__name__).warning(
                     "Type mismatch on edge %s -> %s: upstream returns %s, downstream accepts %s",
                     edge.upstream,
