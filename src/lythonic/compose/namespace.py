@@ -120,6 +120,7 @@ class NamespaceNode:
         self.nsref = nsref
         self.namespace = namespace
         self._decorated = decorated
+        self.metadata: dict[str, Any] = {}
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:
