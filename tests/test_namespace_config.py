@@ -329,3 +329,150 @@ def test_load_namespace_dag_bad_nsref_raises():
             raise AssertionError("Expected KeyError or ValueError")
         except (KeyError, ValueError):
             pass
+
+
+def test_validate_config_valid():
+    from lythonic.compose.namespace_config import NamespaceConfig, validate_config
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {
+                    "nsref": "pipelines:pipe",
+                    "dag": {
+                        "nodes": [
+                            {"label": "step", "nsref": "math:double"},
+                        ]
+                    },
+                },
+            ],
+        }
+    )
+    errors = validate_config(config)
+    assert errors == []
+
+
+def test_validate_config_bad_gref():
+    from lythonic.compose.namespace_config import NamespaceConfig, validate_config
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "bad:fn", "gref": "nonexistent.module:fn"},
+            ],
+        }
+    )
+    errors = validate_config(config)
+    assert len(errors) > 0
+    assert "nonexistent" in errors[0].lower() or "import" in errors[0].lower()
+
+
+def test_validate_config_dag_nsref_not_in_config():
+    from lythonic.compose.namespace_config import NamespaceConfig, validate_config
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "pipelines:pipe",
+                    "dag": {
+                        "nodes": [
+                            {"label": "step", "nsref": "missing:fn"},
+                        ]
+                    },
+                },
+            ],
+        }
+    )
+    errors = validate_config(config)
+    assert len(errors) > 0
+    assert "missing:fn" in errors[0]
+
+
+def test_validate_config_duplicate_nsref():
+    from lythonic.compose.namespace_config import NamespaceConfig, validate_config
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_another_plain_fn"},
+            ],
+        }
+    )
+    errors = validate_config(config)
+    assert len(errors) > 0
+    assert "duplicate" in errors[0].lower()
+
+
+def test_validate_config_duplicate_dag_label():
+    from lythonic.compose.namespace_config import NamespaceConfig, validate_config
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {
+                    "nsref": "pipelines:pipe",
+                    "dag": {
+                        "nodes": [
+                            {"label": "step", "nsref": "math:double"},
+                            {"label": "step", "nsref": "math:double"},
+                        ]
+                    },
+                },
+            ],
+        }
+    )
+    errors = validate_config(config)
+    assert len(errors) > 0
+    assert "step" in errors[0]
+
+
+def test_dump_namespace_round_trip():
+    from lythonic.compose.namespace_config import (
+        NamespaceConfig,
+        StorageConfig,
+        dump_namespace,
+        load_namespace,
+    )
+
+    config = NamespaceConfig.model_validate(
+        {
+            "storage": {"cache_db": "cache.db"},
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {
+                    "nsref": "market:fetch",
+                    "gref": "tests.test_namespace_config:_cached_fn",
+                    "cache": {"min_ttl": 1.0, "max_ttl": 2.0},
+                },
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        dumped = dump_namespace(ns, storage=StorageConfig(cache_db="cache.db"))
+
+        assert len(dumped.entries) == 2
+        # Sorted by nsref
+        assert dumped.entries[0].nsref == "market:fetch"
+        assert dumped.entries[1].nsref == "math:double"
+        # Cache metadata preserved
+        assert dumped.entries[0].cache is not None
+        assert dumped.entries[0].cache.min_ttl == 1.0
+
+
+def test_dump_namespace_serialization_order():
+    from lythonic.compose.namespace import Namespace
+    from lythonic.compose.namespace_config import dump_namespace
+
+    ns = Namespace()
+    ns.register(this_module._plain_fn, nsref="z:last")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_plain_fn, nsref="a:first")  # pyright: ignore[reportPrivateUsage]
+
+    dumped = dump_namespace(ns)
+    assert dumped.entries[0].nsref == "a:first"
+    assert dumped.entries[1].nsref == "z:last"

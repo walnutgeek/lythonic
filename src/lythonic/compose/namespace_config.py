@@ -170,3 +170,121 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
         dag_node.metadata["dag"] = dag_entry_config
 
     return ns
+
+
+def validate_config(config: NamespaceConfig) -> list[str]:
+    """
+    Validate config without building a Namespace. Returns a list of
+    error messages (empty if valid).
+    """
+    from lythonic import GlobalRef
+    from lythonic.compose import Method
+
+    errors: list[str] = []
+
+    # Check duplicate nsrefs
+    seen_nsrefs: set[str] = set()
+    for entry in config.entries:
+        if entry.nsref in seen_nsrefs:
+            errors.append(f"Duplicate nsref: '{entry.nsref}'")
+        seen_nsrefs.add(entry.nsref)
+
+    # Collect callable nsrefs for DAG reference checking
+    callable_nsrefs = {e.nsref for e in config.entries if e.gref is not None}
+
+    for entry in config.entries:
+        # Validate grefs resolve
+        if entry.gref is not None:
+            try:
+                gref = GlobalRef(entry.gref)
+                gref.get_instance()
+            except Exception as e:
+                errors.append(f"Entry '{entry.nsref}': cannot resolve gref '{entry.gref}': {e}")
+                continue
+
+            # Validate cached entry parameters are simple_type
+            if entry.cache is not None:
+                try:
+                    method = Method(GlobalRef(entry.gref))
+                    method.validate_simple_type_args()
+                except ValueError as e:
+                    errors.append(f"Entry '{entry.nsref}': {e}")
+
+        # Validate DAG entries
+        if entry.dag is not None:
+            dag_labels: set[str] = set()
+            for node_cfg in entry.dag.nodes:
+                # Check duplicate labels
+                if node_cfg.label in dag_labels:
+                    errors.append(f"Entry '{entry.nsref}': duplicate label '{node_cfg.label}'")
+                dag_labels.add(node_cfg.label)
+
+                # Check nsref references a callable entry
+                if node_cfg.nsref not in callable_nsrefs:
+                    errors.append(
+                        f"Entry '{entry.nsref}': DAG node '{node_cfg.label}' "
+                        f"references '{node_cfg.nsref}' which is not a callable entry"
+                    )
+
+            # Check after references exist within the DAG
+            for node_cfg in entry.dag.nodes:
+                for upstream in node_cfg.after:
+                    if upstream not in dag_labels:
+                        errors.append(
+                            f"Entry '{entry.nsref}': node '{node_cfg.label}' "
+                            f"references unknown upstream '{upstream}'"
+                        )
+
+    return errors
+
+
+def dump_namespace(ns: Namespace, storage: StorageConfig | None = None) -> NamespaceConfig:
+    """
+    Export a live `Namespace` to a `NamespaceConfig`. Entries sorted
+    alphabetically by nsref. DAG nodes sorted by label.
+    """
+    from lythonic.compose.namespace import NamespaceNode
+
+    entries: list[NamespaceEntryConfig] = []
+
+    def _collect_leaves(namespace: Namespace) -> list[NamespaceNode]:
+        """Recursively collect all leaf nodes."""
+        leaves: list[NamespaceNode] = []
+        for node in namespace._leaves.values():  # pyright: ignore[reportPrivateUsage]
+            leaves.append(node)
+        for branch in namespace._branches.values():  # pyright: ignore[reportPrivateUsage]
+            leaves.extend(_collect_leaves(branch))
+        return leaves
+
+    for node in _collect_leaves(ns):
+        if "dag" in node.metadata:
+            dag_info = node.metadata["dag"]
+            entries.append(
+                NamespaceEntryConfig(
+                    nsref=node.nsref,
+                    dag=dag_info,
+                )
+            )
+        elif "cache" in node.metadata:
+            cache_info = node.metadata["cache"]
+            entries.append(
+                NamespaceEntryConfig(
+                    nsref=node.nsref,
+                    gref=str(node.method.gref),
+                    cache=CacheEntryConfig(**cache_info),
+                )
+            )
+        else:
+            entries.append(
+                NamespaceEntryConfig(
+                    nsref=node.nsref,
+                    gref=str(node.method.gref),
+                )
+            )
+
+    entries.sort(key=lambda e: e.nsref)
+
+    return NamespaceConfig(
+        storage=storage or StorageConfig(),
+        entries=entries,
+    )
