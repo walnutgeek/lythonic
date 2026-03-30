@@ -536,3 +536,87 @@ def test_dag_context_manager_catches_cycle():
         raise AssertionError("Expected ValueError for cycle")
     except ValueError as e:
         assert "cycle" in str(e).lower()
+
+
+# Task 2 (plan): Dag.clone(prefix)
+
+
+def test_dag_clone_prefixes_labels():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:compute")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as template:
+        f = template.node(ns.get("a:fetch"))
+        c = template.node(ns.get("a:compute"))
+        f >> c  # pyright: ignore[reportUnusedExpression]
+
+    clone = template.clone("etl")
+    assert "etl/fetch" in clone.nodes
+    assert "etl/compute" in clone.nodes
+    assert len(clone.nodes) == 2
+
+
+def test_dag_clone_remaps_edges():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:compute")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as template:
+        f = template.node(ns.get("a:fetch"))
+        c = template.node(ns.get("a:compute"))
+        f >> c  # pyright: ignore[reportUnusedExpression]
+
+    clone = template.clone("etl")
+    assert len(clone.edges) == 1
+    assert clone.edges[0].upstream == "etl/fetch"
+    assert clone.edges[0].downstream == "etl/compute"
+
+
+def test_dag_clone_shares_ns_node():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as template:
+        template.node(ns.get("a:fetch"))
+
+    clone = template.clone("sub")
+    assert clone.nodes["sub/fetch"].ns_node is template.nodes["fetch"].ns_node
+
+
+def test_dag_clone_leaves_original_unmodified():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:compute")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as template:
+        f = template.node(ns.get("a:fetch"))
+        c = template.node(ns.get("a:compute"))
+        f >> c  # pyright: ignore[reportUnusedExpression]
+
+    original_labels = set(template.nodes.keys())
+    original_edges = list(template.edges)
+
+    template.clone("etl")
+
+    assert set(template.nodes.keys()) == original_labels
+    assert template.edges == original_edges
+
+
+def test_dag_clone_empty_prefix_raises():
+    from lythonic.compose.namespace import Dag
+
+    dag = Dag()
+    try:
+        dag.clone("")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "non-empty" in str(e)

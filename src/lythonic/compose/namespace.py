@@ -137,6 +137,9 @@ class NamespaceNode:
             return resolved
         return None
 
+    def __repr__(self) -> str:  # pyright: ignore[reportImplicitOverride]
+        return f"NamespaceNode(nsref={self.nsref!r})"
+
 
 class Namespace:
     """
@@ -323,6 +326,31 @@ class Dag:
         self.nodes = {}
         self.edges = []
         self.db_path: Path | None = None
+
+    def clone(self, prefix: str) -> Dag:
+        """
+        Return a new Dag with all node labels prefixed with `prefix/`.
+        Edges are remapped to the new labels. The original is unmodified.
+        DagNodes in the clone share the same `NamespaceNode` references.
+        """
+        if not prefix:
+            raise ValueError("prefix must be non-empty")
+
+        new_dag = Dag()
+        for old_label, old_node in self.nodes.items():
+            new_label = f"{prefix}/{old_label}"
+            dag_node = DagNode(ns_node=old_node.ns_node, label=new_label, dag=new_dag)
+            new_dag.nodes[new_label] = dag_node
+
+        for edge in self.edges:
+            new_dag.edges.append(
+                DagEdge(
+                    upstream=f"{prefix}/{edge.upstream}",
+                    downstream=f"{prefix}/{edge.downstream}",
+                )
+            )
+
+        return new_dag
 
     def node(
         self,
