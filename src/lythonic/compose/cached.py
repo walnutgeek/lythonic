@@ -1,40 +1,33 @@
 """
-Cached: YAML-configured caching layer for download methods.
+Cached: caching layer for callables via `register_cached_callable`.
 
 Wraps sync or async methods that return `dict` or Pydantic `BaseModel` with
 SQLite-backed caching. Each cached method gets its own table with typed
 parameter columns (derived from the method signature) and a composite
 primary key.
 
-## Configuration
-
-Define cache rules in a YAML file (default: `./data/compose/cached/cache.yaml`):
-
-```yaml
-rules:
-  - gref: "myapp.downloads:fetch_prices"
-    namespace_path: "market.fetch_prices"
-    min_ttl: 0.5    # days, fresh period
-    max_ttl: 2.0    # days, hard expiry
-
-  - gref: "myapp.downloads:get_exchange_rate"
-    min_ttl: 0.25
-    max_ttl: 1.0
-```
-
 ## Usage
 
 ```python
 from pathlib import Path
-from lythonic.compose.cached import CacheRegistry
+from lythonic.compose.cached import register_cached_callable
+from lythonic.compose.namespace import Namespace
 
-registry = CacheRegistry.from_yaml(Path("./data/compose/cached/cache.yaml"))
+ns = Namespace()
+register_cached_callable(
+    ns, "myapp.downloads:fetch_prices", "market:fetch_prices",
+    min_ttl=0.5, max_ttl=2.0, db_path=Path("cache.db"),
+)
 
 # Sync method — served from cache when fresh
-result = registry.cached.market.fetch_prices(ticker="AAPL")
+result = ns.market.fetch_prices(ticker="AAPL")
 
 # Async method — awaited on cache miss or hard expiry
-rate = await registry.cached.get_exchange_rate(from_currency="USD", to_currency="EUR")
+register_cached_callable(
+    ns, "myapp.downloads:get_exchange_rate", "get_exchange_rate",
+    min_ttl=0.25, max_ttl=1.0, db_path=Path("cache.db"),
+)
+rate = await ns.get_exchange_rate(from_currency="USD", to_currency="EUR")
 ```
 
 ## TTL Behavior
@@ -47,7 +40,7 @@ rate = await registry.cached.get_exchange_rate(from_currency="USD", to_currency=
 ## Validation
 
 All method parameters must have types registered as `simple_type` in
-`KNOWN_TYPES` (primitives, date, datetime, Path). Validated at config load
+`KNOWN_TYPES` (primitives, date, datetime, Path). Validated at registration
 time via `Method.validate_simple_type_args()`.
 
 ## Pushback
@@ -63,9 +56,8 @@ If `namespace_prefix` is omitted, only the raising method is suppressed.
 ## Namespace
 
 Wrapped methods are installed on a `Namespace` object with nested attribute
-access. Dot-separated `namespace_path` values create intermediate objects
-(e.g., `"market.fetch_prices"` becomes `cached.market.fetch_prices(...)`).
-When `namespace_path` is omitted, the original function name is used at root.
+access. The `nsref` uses colon-separated format
+(e.g., `"market:fetch_prices"` becomes `ns.market.fetch_prices(...)`).
 """
 
 from __future__ import annotations
@@ -79,10 +71,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
 from pydantic import BaseModel
 
-from lythonic import GlobalRef, GRef
+from lythonic import GlobalRef
 from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace as Namespace
 from lythonic.state import execute_sql, open_sqlite_db
@@ -156,37 +147,9 @@ def _pushback_check(conn: sqlite3.Connection, namespace_path: str) -> float | No
     return None
 
 
-class CacheRule(BaseModel):
-    """One cached method definition."""
-
-    gref: GRef
-    namespace_path: str | None = None
-    min_ttl: float
-    max_ttl: float
-
-
-class CacheConfig(BaseModel):
-    """Root of the YAML config file."""
-
-    cache_db: str | None = None
-    rules: list[CacheRule]
-
-
 def table_name_from_path(path: str) -> str:
     """Convert a dot-separated namespace path to a SQL table name."""
     return path.replace(".", "__")
-
-
-def _namespace_path_to_nsref(path: str) -> str:
-    """
-    Convert old dot-separated namespace path to nsref format.
-    `"market.fetch_prices"` -> `"market:fetch_prices"`
-    `"fetch_prices"` -> `"fetch_prices"`
-    """
-    parts = path.rsplit(".", 1)
-    if len(parts) == 1:
-        return parts[0]
-    return f"{parts[0]}:{parts[1]}"
 
 
 def generate_cache_table_ddl(table_name: str, method: Method) -> str:
@@ -463,73 +426,3 @@ def register_cached_callable(
     node: NamespaceNode = ns.register(gref, nsref=nsref, decorate=lambda _: wrapper)
     node.metadata["cache"] = {"min_ttl": min_ttl, "max_ttl": max_ttl}
     return node
-
-
-class CacheRegistry:
-    """
-    Loads cache config, validates rules, creates tables, builds wrappers,
-    and installs them on a nested namespace.
-    """
-
-    cached: Namespace
-    db_path: Path
-
-    def __init__(self, config: CacheConfig, config_dir: Path) -> None:
-        self.cached = Namespace()
-
-        if config.cache_db is not None:
-            self.db_path = config_dir / config.cache_db
-        else:
-            self.db_path = config_dir / "cache.db"
-
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "CREATE TABLE IF NOT EXISTS _pushback "
-                "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)",
-            )
-            conn.commit()
-
-        for rule in config.rules:
-            self._register_rule(rule)
-
-    def _register_rule(self, rule: CacheRule) -> None:
-        gref = GlobalRef(rule.gref)
-        method = Method(gref)
-
-        method.validate_simple_type_args()
-
-        namespace_path = rule.namespace_path if rule.namespace_path is not None else gref.name
-        tbl_name = table_name_from_path(namespace_path)
-
-        ddl = generate_cache_table_ddl(tbl_name, method)
-        with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(cursor, ddl)
-            conn.commit()
-
-        min_ttl_s = rule.min_ttl * DAYS_TO_SECONDS
-        max_ttl_s = rule.max_ttl * DAYS_TO_SECONDS
-
-        nsref = _namespace_path_to_nsref(namespace_path)
-
-        if gref.is_async():
-            wrapper = _build_async_wrapper(
-                method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
-            )
-        else:
-            wrapper = _build_sync_wrapper(
-                method, tbl_name, self.db_path, min_ttl_s, max_ttl_s, namespace_path
-            )
-
-        self.cached.register(str(gref), nsref=nsref, decorate=lambda _: wrapper)
-
-    @classmethod
-    def from_yaml(cls, config_path: Path) -> CacheRegistry:
-        """Load a CacheRegistry from a YAML config file."""
-        raw = yaml.safe_load(config_path.read_text())
-        config = CacheConfig.model_validate(raw)
-        return cls(config, config_dir=config_path.parent)

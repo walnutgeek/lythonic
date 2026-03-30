@@ -5,36 +5,9 @@ import tempfile
 import time
 from contextlib import closing
 from pathlib import Path
-from textwrap import dedent
 from typing import Any
 
 import tests.test_cached as this_module
-
-
-def test_cache_config_from_yaml():
-    from lythonic.compose.cached import CacheConfig
-
-    yaml_str = dedent("""
-        rules:
-          - gref: "json:dumps"
-            namespace_path: "util.dumps"
-            min_ttl: 0.5
-            max_ttl: 2.0
-          - gref: "json:loads"
-            min_ttl: 0.25
-            max_ttl: 1.0
-    """).strip()
-
-    import yaml
-
-    data = yaml.safe_load(yaml_str)
-    config = CacheConfig.model_validate(data)
-    assert len(config.rules) == 2
-    assert config.rules[0].namespace_path == "util.dumps"
-    assert config.rules[0].min_ttl == 0.5
-    assert config.rules[0].max_ttl == 2.0
-    assert config.rules[1].namespace_path is None
-    assert str(config.rules[1].gref) == "json:loads"
 
 
 def _ns_test_ok() -> str:  # pyright: ignore[reportUnusedFunction]
@@ -110,59 +83,46 @@ _fake_fetch2_count = 0
 
 def test_sync_wrapper_miss_fetches_and_caches():
     """On cache miss, the wrapper calls the original and stores the result."""
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     this_module._fake_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fake_fetch",  # pyright: ignore
-                    namespace_path="market.fetch",
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_fake_fetch", "market:fetch", 1.0, 2.0, db_path
         )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
 
-        result = registry.cached.market.fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
         assert result == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._fake_fetch_count == 1  # pyright: ignore
 
         # Second call should come from cache
-        result2 = registry.cached.market.fetch(ticker="AAPL")  # pyright: ignore
+        result2 = ns.market.fetch(ticker="AAPL")  # pyright: ignore
         assert result2 == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._fake_fetch_count == 1  # pyright: ignore
 
 
 def test_sync_wrapper_expired_refetches():
     """Past max_ttl, the wrapper must re-fetch."""
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     this_module._fake_fetch2_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fake_fetch2",  # pyright: ignore
-                    namespace_path="fetch2",
-                    min_ttl=0.0001,
-                    max_ttl=0.0002,
-                )
-            ],
-            cache_db="cache.db",
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_fake_fetch2", "fetch2", 0.0001, 0.0002, db_path
         )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
 
-        registry.cached.fetch2(ticker="X")  # pyright: ignore
+        ns.fetch2(ticker="X")  # pyright: ignore
         assert this_module._fake_fetch2_count == 1  # pyright: ignore
 
         # Backdate fetched_at to simulate expiry
-        db_path = Path(tmp) / "cache.db"
         with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
                 "UPDATE fetch2 SET fetched_at = ? WHERE ticker = ?",
@@ -170,7 +130,7 @@ def test_sync_wrapper_expired_refetches():
             )
             conn.commit()
 
-        registry.cached.fetch2(ticker="X")  # pyright: ignore
+        ns.fetch2(ticker="X")  # pyright: ignore
         assert this_module._fake_fetch2_count == 2  # pyright: ignore
 
 
@@ -184,29 +144,23 @@ _fake_async_count = 0
 
 
 async def test_async_wrapper_miss_fetches_and_caches():
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     this_module._fake_async_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fake_async_fetch",  # pyright: ignore
-                    namespace_path="async_market.fetch",
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_fake_async_fetch", "async_market:fetch", 1.0, 2.0, db_path
         )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
 
-        result = await registry.cached.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        result = await ns.async_market.fetch(ticker="GOOG")  # pyright: ignore
         assert result == {"price": 200.0, "ticker": "GOOG"}
         assert this_module._fake_async_count == 1  # pyright: ignore
 
-        result2 = await registry.cached.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        result2 = await ns.async_market.fetch(ticker="GOOG")  # pyright: ignore
         assert result2 == {"price": 200.0, "ticker": "GOOG"}
         assert this_module._fake_async_count == 1  # pyright: ignore
 
@@ -227,71 +181,24 @@ def _fetch_typed(ticker: str) -> PriceResult:  # pyright: ignore[reportUnusedFun
 
 
 def test_pydantic_return_type_cached():
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fetch_typed",  # pyright: ignore
-                    namespace_path="typed_fetch",
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_fetch_typed", "typed_fetch", 1.0, 2.0, db_path
         )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
 
-        result = registry.cached.typed_fetch(ticker="MSFT")  # pyright: ignore
+        result = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
         assert isinstance(result, PriceResult)
         assert result.ticker == "MSFT"
         assert result.price == 42.0
 
-        result2 = registry.cached.typed_fetch(ticker="MSFT")  # pyright: ignore
+        result2 = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
         assert isinstance(result2, PriceResult)
         assert result2.ticker == "MSFT"
-
-
-# Task 9: YAML file loading
-
-
-# Referenced via GlobalRef
-def _yaml_fetch(code: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
-    this_module._yaml_fetch_count += 1  # pyright: ignore
-    return {"code": code, "value": 999}
-
-
-_yaml_fetch_count = 0
-
-
-def test_from_yaml_file():
-    from lythonic.compose.cached import CacheRegistry
-
-    this_module._yaml_fetch_count = 0  # pyright: ignore
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        config_path = tmp_path / "cache.yaml"
-        config_path.write_text(
-            dedent("""
-            rules:
-              - gref: "tests.test_cached:_yaml_fetch"
-                namespace_path: "codes.lookup"
-                min_ttl: 1.0
-                max_ttl: 5.0
-        """).strip()
-        )
-
-        registry = CacheRegistry.from_yaml(config_path)
-
-        result = registry.cached.codes.lookup(code="ABC")  # pyright: ignore
-        assert result == {"code": "ABC", "value": 999}
-        assert this_module._yaml_fetch_count == 1  # pyright: ignore
-
-        result2 = registry.cached.codes.lookup(code="ABC")  # pyright: ignore
-        assert result2 == {"code": "ABC", "value": 999}
-        assert this_module._yaml_fetch_count == 1  # pyright: ignore
 
 
 # Task 10: Probabilistic refresh
@@ -308,29 +215,20 @@ _prob_fetch_count = 0
 
 def test_probabilistic_refresh_between_ttls():
     """Between min_ttl and max_ttl, refresh probability increases with age."""
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     this_module._prob_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_prob_fetch",  # pyright: ignore
-                    namespace_path="prob",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(ns, "tests.test_cached:_prob_fetch", "prob", 1.0, 3.0, db_path)
 
-        registry.cached.prob(key="A")  # pyright: ignore
+        ns.prob(key="A")  # pyright: ignore
         assert this_module._prob_fetch_count == 1  # pyright: ignore
 
         # Set fetched_at to almost max_ttl ago (p ~= 1, almost certain refresh)
-        db_path = Path(tmp) / "cache.db"
         almost_max_secs = 2.99 * 86400
         with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
@@ -343,7 +241,7 @@ def test_probabilistic_refresh_between_ttls():
         refreshed = False
         for _ in range(20):
             before = this_module._prob_fetch_count  # pyright: ignore
-            registry.cached.prob(key="A")  # pyright: ignore
+            ns.prob(key="A")  # pyright: ignore
             if this_module._prob_fetch_count > before:  # pyright: ignore
                 refreshed = True
                 break
@@ -360,22 +258,17 @@ def _my_download(tag: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFun
 
 def test_default_namespace_path_uses_function_name():
     """When namespace_path is None, uses the original function name at root."""
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_my_download",  # pyright: ignore
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_my_download", "_my_download", 1.0, 2.0, db_path
         )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
 
-        result = registry.cached._my_download(tag="hello")  # pyright: ignore
+        result = ns._my_download(tag="hello")  # pyright: ignore
         assert result == {"tag": "hello"}
 
 
@@ -474,25 +367,18 @@ def test_pushback_expired_not_matched():
             assert _pushback_check(conn, "market.fetch") is None
 
 
-def test_pushback_table_created_on_registry_init():
-    """CacheRegistry.__init__ creates the _pushback table."""
-    from lythonic.compose.cached import CacheConfig, CacheRegistry, CacheRule
+def test_pushback_table_created_on_register():
+    """register_cached_callable creates the _pushback table."""
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_fake_fetch",  # pyright: ignore
-                    namespace_path="market.fetch",
-                    min_ttl=1.0,
-                    max_ttl=2.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        CacheRegistry(config, config_dir=Path(tmp))
-
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_fake_fetch", "market:fetch", 1.0, 2.0, db_path
+        )
+
         with closing(sqlite3.connect(str(db_path))) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM _pushback")
             assert cursor.fetchone()[0] == 0
@@ -510,31 +396,22 @@ _pushback_fetch_count = 0
 def test_pushback_suppresses_probabilistic_refresh():
     """When pushback is active, probabilistic refresh is skipped and stale data returned."""
     from lythonic.compose.cached import (
-        CacheConfig,
-        CacheRegistry,
-        CacheRule,
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
-                    namespace_path="market.pushback_fetch",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+        )
 
         # Initial fetch to populate cache
-        result = registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -552,7 +429,7 @@ def test_pushback_suppresses_probabilistic_refresh():
 
         # Call many times — method should never be called due to pushback
         for _ in range(50):
-            result = registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+            result = ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -569,30 +446,26 @@ _async_pushback_fetch_count = 0
 async def test_async_pushback_suppresses_probabilistic_refresh():
     """Async wrapper: pushback suppresses probabilistic refresh."""
     from lythonic.compose.cached import (
-        CacheConfig,
-        CacheRegistry,
-        CacheRule,
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._async_pushback_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_async_pushback_fetch",  # pyright: ignore
-                    namespace_path="async_market.pushback_fetch",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns,
+            "tests.test_cached:_async_pushback_fetch",
+            "async_market:pushback_fetch",
+            1.0,
+            3.0,
+            db_path,
+        )
 
-        result = await registry.cached.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+        result = await ns.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate to probabilistic window
@@ -607,7 +480,7 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
             _pushback_set(conn, "async_market", time.time() + 86400)
 
         for _ in range(50):
-            result = await registry.cached.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+            result = await ns.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -629,31 +502,22 @@ _rate_limited_count = 0
 def test_pushback_recorded_on_exception():
     """When a method raises CacheRefreshPushback, pushback is recorded and stale returned."""
     from lythonic.compose.cached import (
-        CacheConfig,
-        CacheRegistry,
-        CacheRule,
         _pushback_check,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._rate_limited_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_rate_limited_fetch",  # pyright: ignore
-                    namespace_path="api.rate_limited",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_rate_limited_fetch", "api:rate_limited", 1.0, 3.0, db_path
+        )
 
         # First call succeeds
-        result = registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        result = ns.api.rate_limited(ticker="X")  # pyright: ignore
         assert result == {"price": 50.0}
         assert this_module._rate_limited_count == 1  # pyright: ignore
 
@@ -667,7 +531,7 @@ def test_pushback_recorded_on_exception():
 
         # Next call triggers refresh, method raises CacheRefreshPushback.
         # Should get stale data back.
-        result = registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        result = ns.api.rate_limited(ticker="X")  # pyright: ignore
         assert result == {"price": 50.0}
         assert this_module._rate_limited_count == 2  # pyright: ignore
 
@@ -681,32 +545,23 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
     import pytest
 
     from lythonic.compose.cached import (
-        CacheConfig,
         CacheRefreshSuppressed,
-        CacheRegistry,
-        CacheRule,
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
-                    namespace_path="market.pushback_fetch",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+        )
 
         # Populate cache
-        registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate past max_ttl
@@ -722,7 +577,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
             _pushback_set(conn, "market", time.time() + 86400)
 
         with pytest.raises(CacheRefreshSuppressed) as exc_info:
-            registry.cached.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+            ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
 
         assert exc_info.value.namespace_path == "market.pushback_fetch"
         assert exc_info.value.suppressed_until > time.time()
@@ -733,35 +588,26 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
 def test_cache_miss_ignores_pushback():
     """On cache miss, method is called even if pushback is active."""
     from lythonic.compose.cached import (
-        CacheConfig,
-        CacheRegistry,
-        CacheRule,
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
-                    namespace_path="market.pushback_fetch",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                )
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+        )
 
         # Set pushback before any cache entry exists
         with closing(sqlite3.connect(str(db_path))) as conn:
             _pushback_set(conn, "market", time.time() + 86400)
 
         # Cache miss — should call method despite pushback
-        result = registry.cached.market.pushback_fetch(ticker="NEW")  # pyright: ignore
+        result = ns.market.pushback_fetch(ticker="NEW")  # pyright: ignore
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result["price"] == 1.0
 
@@ -769,39 +615,27 @@ def test_cache_miss_ignores_pushback():
 def test_default_scope_uses_method_namespace_path():
     """CacheRefreshPushback with no prefix scopes to the raising method only."""
     from lythonic.compose.cached import (
-        CacheConfig,
-        CacheRegistry,
-        CacheRule,
         _pushback_check,  # pyright: ignore[reportPrivateUsage]
+        register_cached_callable,
     )
+    from lythonic.compose.namespace import Namespace
 
     this_module._rate_limited_count = 0  # pyright: ignore
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
     with tempfile.TemporaryDirectory() as tmp:
-        config = CacheConfig(
-            rules=[
-                CacheRule(
-                    gref="tests.test_cached:_rate_limited_fetch",  # pyright: ignore
-                    namespace_path="api.rate_limited",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                ),
-                CacheRule(
-                    gref="tests.test_cached:_pushback_fetch",  # pyright: ignore
-                    namespace_path="api.other",
-                    min_ttl=1.0,
-                    max_ttl=3.0,
-                ),
-            ],
-            cache_db="cache.db",
-        )
-        registry = CacheRegistry(config, config_dir=Path(tmp))
+        ns = Namespace()
         db_path = Path(tmp) / "cache.db"
+        register_cached_callable(
+            ns, "tests.test_cached:_rate_limited_fetch", "api:rate_limited", 1.0, 3.0, db_path
+        )
+        register_cached_callable(
+            ns, "tests.test_cached:_pushback_fetch", "api:other", 1.0, 3.0, db_path
+        )
 
         # Populate both caches
-        registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
-        registry.cached.api.other(ticker="Y")  # pyright: ignore
+        ns.api.rate_limited(ticker="X")  # pyright: ignore
+        ns.api.other(ticker="Y")  # pyright: ignore
 
         # Backdate both to probabilistic window (p ~= 1)
         with closing(sqlite3.connect(str(db_path))) as conn:
@@ -816,7 +650,7 @@ def test_default_scope_uses_method_namespace_path():
             conn.commit()
 
         # Trigger rate_limited to raise CacheRefreshPushback(days=1) with no prefix
-        registry.cached.api.rate_limited(ticker="X")  # pyright: ignore
+        ns.api.rate_limited(ticker="X")  # pyright: ignore
 
         # Pushback should be scoped to "api.rate_limited" only
         with closing(sqlite3.connect(str(db_path))) as conn:

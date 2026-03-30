@@ -1,14 +1,12 @@
 # lythonic.compose.cached
 
-YAML-configured caching layer for download methods.
+Cache utilities for wrapping callables with SQLite-backed caching.
 
 ::: lythonic.compose.cached
     options:
       show_root_heading: false
       members:
-        - CacheRegistry
-        - CacheConfig
-        - CacheRule
+        - register_cached_callable
         - CacheRefreshPushback
         - CacheRefreshSuppressed
         - generate_cache_table_ddl
