@@ -52,9 +52,15 @@ def _parse_nsref(nsref: str) -> tuple[list[str], str]:
     """
     Parse nsref into (branch_parts, leaf_name).
 
-    `"market.data:fetch_prices"` -> `(["market", "data"], "fetch_prices")`
-    `"market:fetch_prices"` -> `(["market"], "fetch_prices")`
-    `"fetch_prices"` -> `([], "fetch_prices")`
+    >>> _parse_nsref('market.data:fetch_prices')
+    (['market', 'data'], 'fetch_prices')
+    >>> _parse_nsref('market:fetch_prices')
+    (['market'], 'fetch_prices')
+    >>> _parse_nsref('fetch_prices')
+    ([], 'fetch_prices')
+    >>> _parse_nsref(':fetch_prices')
+    ([], 'fetch_prices')
+
     """
     if ":" in nsref:
         branch_path, leaf_name = nsref.rsplit(":", 1)

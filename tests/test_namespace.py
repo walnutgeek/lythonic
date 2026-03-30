@@ -6,15 +6,6 @@ import tests.test_namespace as this_module
 from lythonic.compose.namespace import DagContext
 
 
-def test_parse_nsref_with_branch_and_leaf():
-    from lythonic.compose.namespace import _parse_nsref  # pyright: ignore[reportPrivateUsage]
-
-    assert _parse_nsref("market:fetch_prices") == (["market"], "fetch_prices")
-    assert _parse_nsref("market.data:fetch_prices") == (["market", "data"], "fetch_prices")
-    assert _parse_nsref("fetch_prices") == ([], "fetch_prices")
-    assert _parse_nsref(":fetch_prices") == ([], "fetch_prices")
-
-
 def test_dag_context_fields():
     from lythonic.compose.namespace import DagContext
 
