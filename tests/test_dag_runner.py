@@ -568,16 +568,27 @@ async def test_dag_registered_in_namespace():
         assert result.outputs["double"] == 200.0  # pyright: ignore
 
 
-def test_dag_registration_requires_db_path():
+async def test_dag_registered_without_db_path():
+    """Dag with no db_path registered in Namespace uses NullProvenance."""
     from lythonic.compose.namespace import Dag, Namespace
 
     ns = Namespace()
-    dag = Dag()
-    try:
-        ns.register(dag, nsref="p:test")  # pyright: ignore
-        raise AssertionError("Expected ValueError")
-    except ValueError as e:
-        assert "db_path" in str(e)
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        d = dag.node(ns.get("t:double"))
+        s >> d  # pyright: ignore[reportUnusedExpression]
+
+    # No db_path set
+    ns.register(dag, nsref="pipelines:no_persist")
+
+    node = ns.get("pipelines:no_persist")
+    result = await node(source={"ticker": "X"})
+    assert result.run_id is not None  # pyright: ignore
+    assert result.status == "completed"  # pyright: ignore
+    assert result.outputs["double"] == 200.0  # pyright: ignore
 
 
 async def test_runner_without_persistence():

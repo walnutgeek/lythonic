@@ -215,9 +215,11 @@ class Namespace:
         return node
 
     def _register_dag(self, dag: Dag, nsref: str | None) -> NamespaceNode:
-        """Register a Dag as a callable NamespaceNode."""
-        if dag.db_path is None:
-            raise ValueError("Dag.db_path must be set before registering in a Namespace")
+        """
+        Register a Dag as a callable NamespaceNode. If `dag.db_path` is
+        None, the runner uses NullProvenance (no persistence, no
+        restart/replay).
+        """
         if nsref is None:
             raise ValueError("nsref is required when registering a Dag")
 
