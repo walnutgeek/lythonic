@@ -186,8 +186,8 @@ Full testing strategy is in `testing.md`. Key rules:
 
 ## Types and Type Annotations
 
-- Use modern union syntax: `str | None` instead of `Optional[str]`, `dict[str]` instead
-  of `Dict[str]`, `list[str]` instead of `List[str]`, etc.
+- Use modern union syntax: `str | None` instead of `Optional[str]`, `dict[str,str]` instead
+  of `Dict[str,str]`, `list[str]` instead of `List[str]`, etc.
 
 - Never use/import `Optional` for new code.
 

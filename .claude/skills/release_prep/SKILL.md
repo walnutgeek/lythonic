@@ -16,7 +16,9 @@ commits since that tag.
 git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline
 ```
 
-Write a release notes file to `docs/release_notes/v$ARGUMENTS.md` following
+Note that tag and subtitue everywhere you see {LAST_RELEASE_TAG}
+
+Write a release notes file to `docs/release_notes/v$0.md` following
 the style of the previous release notes (see `docs/release_notes/` for
 examples). The release notes should:
 
@@ -27,39 +29,32 @@ examples). The release notes should:
 - Reference module paths (e.g., `lythonic.compose.namespace`) where relevant
 - Do NOT list every commit — summarize the intent of related changes
 
-## Step 2: Review superpowers docs
 
-Per `documenting.md`, `docs/superpowers/` is wiped after release. List the
-specs and plans that will be archived with this release:
+Commit and push release notes.
 
-```bash
-find docs/superpowers/specs docs/superpowers/plans -name '*.md' | sort
-```
+## Step 2: Review generate template for 
 
-Mention this in the release notes under a **Design Documents** section — just
-list the spec/plan filenames so the release tag preserves context.
+Come up with title for this release 80 words or less, try to catch common theme among all changes, yet you can cat it short with "..." if there are too many things to mention
 
-## Step 3: Run verification
+Replace {RELEASE_TITLE} with that title in the message for humman in the loop 
 
-```bash
-make lint && make test
-```
+Display the message for humman:
+"""
+Draft new release at: https://github.com/walnutgeek/lythonic/releases/new
 
-Report the result. Do NOT proceed if tests fail.
+Title: v$0: {RELEASE_TITLE}
 
-## Step 4: Present for review
+**Full Changelog**: https://github.com/walnutgeek/lythonic/compare/{LAST_RELEASE_TAG}...v$0
 
-Show the release notes to the user and ask for approval before committing.
-Do NOT commit, tag, or push without explicit approval.
+**Design docs**: [v$0/docs/superpowers](https://github.com/walnutgeek/lythonic/tree/v$0/docs/superpowers)
 
-Once approved:
-```bash
-git add docs/release_notes/v$ARGUMENTS.md
-git commit -m "docs: add v$ARGUMENTS release notes"
-```
+**Release notes**: [v$0](https://github.com/walnutgeek/lythonic/blob/main/docs/release_notes/v$0.md)
+"""
 
-Remind the user of the remaining manual steps:
-1. Push to main: `git push`
-2. Create GitHub release with tag `v$ARGUMENTS`
-3. GitHub Actions will run tests, build, and publish to PyPI
-4. After release: clean `docs/superpowers/specs/` and `docs/superpowers/plans/`
+Wait for human to confirm that release is triggered.
+
+When human confirmed, check if tag aleady exist ```git pull; git tag --list "v$1"|wc -l``` Output from git tag command should confirm that one tag matching. Don't proceed to the next step if it is not.
+
+## Ster 3: Cleaning up old design docs
+
+After a release is properly tagged, we can easily find old design docs by that tag. So, we want to delete them by `git rm -r docs/superpowers` then commit and push
