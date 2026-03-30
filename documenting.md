@@ -144,6 +144,10 @@ during brainstorming and planning phases:
 
 These are working documents, not user-facing.
 
+Directory `docs/superpowers/` preserved over release cycle, and wiped clean right 
+after release. So if you inspect release tag you can find all specs and tags that
+went into release. 
+
 ## Writing Guidelines
 
 ### Module Docstrings
@@ -171,6 +175,54 @@ repetition when obvious, backticks for code, triple-quote on own lines).
 - Internal/private ones only need docstrings if purpose is non-obvious.
 - Do NOT repeat what is obvious from names and type annotations.
 - DO explain "why", caveats, and non-obvious behavior.
+
+### Doctests in Docstrings
+
+Docstrings can include `>>>` examples that serve as both documentation and
+executable tests. pytest runs these automatically via `--doctest-modules`.
+
+**When to use doctests:**
+- Pure functions with simple, deterministic inputs and outputs
+- Parsing, formatting, conversion, and validation logic
+- Any function where showing concrete input/output examples clarifies usage
+  better than prose
+
+**When NOT to use doctests:**
+- Tests needing setup/teardown (temp files, databases)
+- Non-deterministic output (timestamps, UUIDs)
+- Error/exception testing
+- Tests needing mutable module state
+
+**Style:**
+- Keep examples to 1-5 lines of `>>>` each
+- Use realistic but minimal inputs
+- Order from simple to complex
+- Each example should be self-contained within its docstring block
+
+**Example:**
+
+```python
+def _parse_nsref(nsref: str) -> tuple[list[str], str]:
+    """
+    Parse nsref into (branch_parts, leaf_name).
+
+    >>> _parse_nsref('market.data:fetch_prices')
+    (['market', 'data'], 'fetch_prices')
+    >>> _parse_nsref('market:fetch_prices')
+    (['market'], 'fetch_prices')
+    >>> _parse_nsref('fetch_prices')
+    ([], 'fetch_prices')
+
+    """
+```
+
+When a standalone inline test (below `## Tests`) only verifies input/output
+on a pure function, consider converting it to a doctest. This improves
+documentation while keeping the test. Remove the standalone test after
+adding the doctest to avoid duplication.
+
+See `testing.md` for the full testing strategy, including when to use
+doctests vs. inline tests vs. separate test files.
 
 ### Tutorials and How-Tos
 

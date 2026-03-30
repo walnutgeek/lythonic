@@ -160,55 +160,29 @@ Always use full type annotations, generics, and other modern practices.
 
 ## Testing
 
-- For longer tests put them in a file like `tests/test_somename.py` in the `tests/`
-  directory (or `tests/module_name/test_somename.py` file for a submodule).
+Full testing strategy is in `testing.md`. Key rules:
 
-- For simple tests, prefer inline functions in the original code file below a `## Tests`
-  comment. This keeps the tests easy to maintain and close to the code.
-  Inline tests should NOT import pytest or pytest fixtures as we do not want runtime
-  dependency on pytest.
+- **Three tiers:** doctests (Tier 1), inline test functions (Tier 2), separate
+  test files (Tier 3). Choose the simplest tier that fits.
 
-- DO NOT write one-off test code in extra files that are throwaway.
+- **Doctests** (`>>>` in docstrings) for pure functions with simple I/O.
+  These serve as documentation AND tests. Prefer doctests over standalone tests
+  when the example clarifies usage.
 
-- DO NOT put `if __name__ == "__main__":` just for quick testing.
-  Instead use the inline function tests and run them with `uv run pytest`.
+- **Inline tests** below `## Tests` comment in source files for simple
+  validation. DO NOT import pytest — no runtime dependency on pytest.
 
-- You can run such individual tests with `uv run pytest -s src/.../path/to/test`
+- **Separate test files** (`tests/test_*.py`) for integration tests, async
+  tests, or anything needing temp files, databases, or fixtures.
 
-- Don’t add docs to assertions unless it’s not obvious what they’re checking - the
-  assertion appears in the stack trace.
-  Do NOT write `assert x == 5, "x should be 5"`. Do NOT write `assert x == 5 # Check if
-  x is 5`. That is redundant.
-  Just write `assert x == 5`.
+- DO NOT write trivial tests (Pydantic instantiation, constant values).
 
-- DO NOT write trivial or obvious tests that are evident directly from code, such as
-  assertions that confirm the value of a constant setting.
+- Use `raise AssertionError("explanation")` instead of `assert False`.
 
-- NEVER write `assert False`. If a test reaches an unexpected branch and must fail
-  explicitly, `raise AssertionError("Some explanation")` instead.
-  This is best typical best practice in Python since assertions can be removed with
-  optimization.
+- On Windows: use `contextlib.closing(sqlite3.connect(...))` to avoid file
+  locking issues with `TemporaryDirectory` cleanup.
 
-- DO NOT use pytest fixtures like parameterized tests or expected exception decorators
-  unless absolutely necessary in more complex tests.
-  It is typically simpler to use simple assertions and put the checks inside the test.
-  This is also preferable because then simple tests have no explicit pytest dependencies
-  and can be placed in code anywhere.
-
-- DO NOT write trivial tests that test something we know already works, like
-  instantiating a Pydantic object.
-
-  ```python
-  class Link(BaseModel):
-    url: str
-    title: str = None
-  
-  # DO NOT write tests like this. They are trivial and only create clutter!
-  def test_link_model():
-    link = Link(url="https://example.com", title="Example")
-    assert link.url == "https://example.com"
-    assert link.title == "Example"
-  ```
+- Avoid `asyncio.sleep()` for synchronization — use `asyncio.Event` instead.
 
 ## Types and Type Annotations
 
