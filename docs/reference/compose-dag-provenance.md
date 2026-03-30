@@ -7,3 +7,4 @@ SQLite-backed storage for DAG run state and node execution traces.
       show_root_heading: false
       members:
         - DagProvenance
+        - NullProvenance
