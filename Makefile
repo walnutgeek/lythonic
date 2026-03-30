@@ -4,9 +4,9 @@
 
 .DEFAULT_GOAL := default
 
-.PHONY: default install lint test upgrade build clean agent-rules docs docs-serve docs-deploy
+.PHONY: default install lint test upgrade build clean docs docs-serve docs-deploy
 
-default: agent-rules install lint test 
+default: install lint test 
 
 install:
 	uv sync --all-extras
