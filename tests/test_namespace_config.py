@@ -130,3 +130,49 @@ def test_namespace_node_metadata():
 
     node.metadata["cache"] = {"min_ttl": 0.5, "max_ttl": 2.0}
     assert node.metadata["cache"]["min_ttl"] == 0.5
+
+
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import tests.test_namespace_config as this_module
+
+
+def _cached_fn(ticker: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    this_module._cached_fn_count += 1  # pyright: ignore
+    return {"price": 100.0, "ticker": ticker}
+
+
+_cached_fn_count = 0
+
+
+def test_register_cached_callable():
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
+
+    this_module._cached_fn_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = Namespace()
+        db_path = Path(tmp) / "cache.db"
+        node = register_cached_callable(
+            ns,
+            gref="tests.test_namespace_config:_cached_fn",
+            nsref="market:fetch",
+            min_ttl=1.0,
+            max_ttl=2.0,
+            db_path=db_path,
+        )
+
+        assert node.nsref == "market:fetch"
+        assert node.metadata.get("cache") == {"min_ttl": 1.0, "max_ttl": 2.0}
+
+        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert result == {"price": 100.0, "ticker": "AAPL"}
+        assert this_module._cached_fn_count == 1  # pyright: ignore
+
+        # Second call from cache
+        result2 = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert result2 == {"price": 100.0, "ticker": "AAPL"}
+        assert this_module._cached_fn_count == 1  # pyright: ignore

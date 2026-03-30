@@ -77,7 +77,7 @@ import time
 import typing
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel
@@ -87,6 +87,9 @@ from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace as Namespace
 from lythonic.state import execute_sql, open_sqlite_db
 from lythonic.types import KNOWN_TYPES
+
+if TYPE_CHECKING:
+    from lythonic.compose.namespace import NamespaceNode
 
 DAYS_TO_SECONDS = 86400.0
 
@@ -405,6 +408,61 @@ def _build_async_wrapper(
             return result
 
     return wrapper
+
+
+def register_cached_callable(
+    ns: Namespace,
+    gref: str,
+    nsref: str,
+    min_ttl: float,
+    max_ttl: float,
+    db_path: Path,
+) -> NamespaceNode:
+    """
+    Register a callable with cache wrapping. Handles DDL generation,
+    wrapper building, pushback table creation, and namespace registration.
+    Stores cache config in `node.metadata["cache"]`.
+    """
+
+    gref_obj = GlobalRef(gref)
+    method = Method(gref_obj)
+    method.validate_simple_type_args()
+
+    # Derive table name from nsref (convert : and . to __)
+    tbl_name = table_name_from_path(nsref.replace(":", "__").replace(".", "__"))
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create cache table and pushback table
+    ddl = generate_cache_table_ddl(tbl_name, method)
+    with open_sqlite_db(db_path) as conn:
+        cursor = conn.cursor()
+        execute_sql(cursor, ddl)
+        execute_sql(
+            cursor,
+            "CREATE TABLE IF NOT EXISTS _pushback "
+            "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)",
+        )
+        conn.commit()
+
+    min_ttl_s = min_ttl * DAYS_TO_SECONDS
+    max_ttl_s = max_ttl * DAYS_TO_SECONDS
+
+    # namespace_path for pushback matching (use nsref with : replaced by .)
+    namespace_path = nsref.replace(":", ".")
+
+    if gref_obj.is_async():
+        wrapper = _build_async_wrapper(
+            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
+        )
+    else:
+        wrapper = _build_sync_wrapper(
+            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
+        )
+
+    node: NamespaceNode = ns.register(gref, nsref=nsref, decorate=lambda _: wrapper)
+    node.metadata["cache"] = {"min_ttl": min_ttl, "max_ttl": max_ttl}
+    return node
 
 
 class CacheRegistry:
