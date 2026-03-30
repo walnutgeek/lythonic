@@ -578,3 +578,72 @@ def test_dag_registration_requires_db_path():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "db_path" in str(e)
+
+
+async def test_runner_without_persistence():
+    """DagRunner with db_path=None executes successfully."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        s = dag.node(ns.get("t:source"))
+        d = dag.node(ns.get("t:double"))
+        s >> d  # pyright: ignore[reportUnusedExpression]
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"source": {"ticker": "X"}},
+        dag_nsref="t:no_persist",
+    )
+    assert result.status == "completed"
+    assert result.outputs["double"] == 200.0
+
+
+async def test_runner_without_persistence_restart_raises():
+    """restart() with NullProvenance raises ValueError (run not found)."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:source"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"source": {"ticker": "X"}},
+    )
+
+    try:
+        await runner.restart(result.run_id)
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "not found" in str(e)
+
+
+async def test_runner_without_persistence_replay_raises():
+    """replay() with NullProvenance raises ValueError (run not found)."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:source"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"source": {"ticker": "X"}},
+    )
+
+    try:
+        await runner.replay(result.run_id, rerun_nodes={"source"})
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "not found" in str(e)

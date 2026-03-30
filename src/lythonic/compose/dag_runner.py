@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from lythonic.compose.dag_provenance import DagProvenance
+from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
 from lythonic.compose.namespace import Dag, DagContext, DagNode
 
 
@@ -44,12 +44,15 @@ class DagRunner:
     """
 
     dag: Dag
-    provenance: DagProvenance
+    provenance: DagProvenance | NullProvenance
     _pause_requested: bool
 
-    def __init__(self, dag: Dag, db_path: Path) -> None:
+    def __init__(self, dag: Dag, db_path: Path | None = None) -> None:
         self.dag = dag
-        self.provenance = DagProvenance(db_path)
+        if db_path is not None:
+            self.provenance = DagProvenance(db_path)
+        else:
+            self.provenance = NullProvenance()
         self._pause_requested = False
 
     def pause(self) -> None:

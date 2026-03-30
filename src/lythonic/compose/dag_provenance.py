@@ -210,3 +210,43 @@ class DagProvenance:
                 (run_id,),
             )
             return [row[0] for row in cursor.fetchall()]
+
+
+class NullProvenance:
+    """
+    No-op provenance -- discards writes, returns None/empty on reads.
+    Used when `DagRunner` is created without a `db_path`.
+    """
+
+    def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def update_run_status(self, run_id: str, status: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def finish_run(self, run_id: str, status: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def record_node_start(self, run_id: str, node_label: str, input_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def record_node_complete(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def record_node_failed(self, run_id: str, node_label: str, error: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def record_node_skipped(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
+    def get_run(self, run_id: str) -> dict[str, Any] | None:  # pyright: ignore[reportUnusedParameter]
+        return None
+
+    def get_node_executions(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+        return []
+
+    def get_node_output(self, run_id: str, node_label: str) -> str | None:  # pyright: ignore[reportUnusedParameter]
+        return None
+
+    def get_pending_nodes(self, run_id: str) -> list[str]:  # pyright: ignore[reportUnusedParameter]
+        return []
