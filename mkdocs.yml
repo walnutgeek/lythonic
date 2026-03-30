@@ -70,6 +70,7 @@ nav:
       - lythonic: reference/core.md
       - lythonic.compose: reference/compose.md
       - lythonic.compose.namespace: reference/compose-namespace.md
+      - lythonic.compose.namespace_config: reference/compose-namespace-config.md
       - lythonic.compose.dag_provenance: reference/compose-dag-provenance.md
       - lythonic.compose.dag_runner: reference/compose-dag-runner.md
       - lythonic.compose.cached: reference/compose-cached.md
