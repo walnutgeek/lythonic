@@ -176,3 +176,156 @@ def test_register_cached_callable():
         result2 = ns.market.fetch(ticker="AAPL")  # pyright: ignore
         assert result2 == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._cached_fn_count == 1  # pyright: ignore
+
+
+def _plain_fn(x: int) -> int:  # pyright: ignore[reportUnusedFunction]
+    return x * 2
+
+
+def _another_plain_fn(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    return str(value)
+
+
+def test_load_namespace_callable_entries():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+            ]
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        node = ns.get("math:double")
+        assert node(x=5) == 10
+
+
+def test_load_namespace_cached_entries():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    this_module._cached_fn_count = 0  # pyright: ignore
+
+    config = NamespaceConfig.model_validate(
+        {
+            "storage": {"cache_db": "cache.db"},
+            "entries": [
+                {
+                    "nsref": "market:fetch",
+                    "gref": "tests.test_namespace_config:_cached_fn",
+                    "cache": {"min_ttl": 1.0, "max_ttl": 2.0},
+                },
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert result == {"price": 100.0, "ticker": "AAPL"}
+        assert this_module._cached_fn_count == 1  # pyright: ignore
+
+        # Cached
+        ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        assert this_module._cached_fn_count == 1  # pyright: ignore
+
+
+def test_load_namespace_dag_entries():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {"nsref": "fmt:to_str", "gref": "tests.test_namespace_config:_another_plain_fn"},
+                {
+                    "nsref": "pipelines:convert",
+                    "dag": {
+                        "nodes": [
+                            {"label": "double", "nsref": "math:double"},
+                            {"label": "format", "nsref": "fmt:to_str", "after": ["double"]},
+                        ]
+                    },
+                },
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        node = ns.get("pipelines:convert")
+        assert node is not None
+
+
+def test_load_namespace_two_pass_order_independence():
+    """DAG entry can appear before callable entries it references."""
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "pipelines:pipe",
+                    "dag": {
+                        "nodes": [
+                            {"label": "step", "nsref": "math:double"},
+                        ]
+                    },
+                },
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        assert ns.get("math:double") is not None
+        assert ns.get("pipelines:pipe") is not None
+
+
+def test_load_namespace_duplicate_nsref_raises():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_plain_fn"},
+                {"nsref": "math:double", "gref": "tests.test_namespace_config:_another_plain_fn"},
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            load_namespace(config, Path(tmp))
+            raise AssertionError("Expected ValueError")
+        except ValueError as e:
+            assert "duplicate" in str(e).lower() or "already exists" in str(e).lower()
+
+
+def test_load_namespace_dag_bad_nsref_raises():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "pipelines:pipe",
+                    "dag": {
+                        "nodes": [
+                            {"label": "step", "nsref": "nonexistent:fn"},
+                        ]
+                    },
+                },
+            ],
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            load_namespace(config, Path(tmp))
+            raise AssertionError("Expected KeyError or ValueError")
+        except (KeyError, ValueError):
+            pass

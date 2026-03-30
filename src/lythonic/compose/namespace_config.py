@@ -11,7 +11,13 @@ Provides `load_namespace()` to build a live Namespace from config,
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, model_validator
+
+if TYPE_CHECKING:
+    from lythonic.compose.namespace import Namespace
 
 
 class StorageConfig(BaseModel):
@@ -77,3 +83,90 @@ class NamespaceConfig(BaseModel):
 
     storage: StorageConfig = StorageConfig()
     entries: list[NamespaceEntryConfig]
+
+
+def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
+    """
+    Build a live `Namespace` from a `NamespaceConfig`. Two-pass: first
+    registers all callables (plain and cached), then builds DAGs that
+    reference them. Declaration order in config does not matter.
+    """
+    from lythonic.compose.namespace import Dag, Namespace
+
+    # Check for duplicate nsrefs
+    seen: set[str] = set()
+    for entry in config.entries:
+        if entry.nsref in seen:
+            raise ValueError(f"Duplicate nsref: '{entry.nsref}'")
+        seen.add(entry.nsref)
+
+    ns = Namespace()
+
+    # Resolve storage paths
+    cache_db = (config_dir / config.storage.cache_db) if config.storage.cache_db else None
+    dag_db = (config_dir / config.storage.dag_db) if config.storage.dag_db else None
+
+    # Pass 1: register callable entries
+    for entry in config.entries:
+        if entry.gref is None:
+            continue
+
+        if entry.cache is not None:
+            if cache_db is None:
+                raise ValueError(
+                    f"Entry '{entry.nsref}' has cache config but storage.cache_db is not set"
+                )
+            from lythonic.compose.cached import register_cached_callable
+
+            register_cached_callable(
+                ns,
+                gref=entry.gref,
+                nsref=entry.nsref,
+                min_ttl=entry.cache.min_ttl,
+                max_ttl=entry.cache.max_ttl,
+                db_path=cache_db,
+            )
+        else:
+            ns.register(entry.gref, nsref=entry.nsref)
+
+    # Pass 2: build DAGs
+    for entry in config.entries:
+        if entry.dag is None:
+            continue
+
+        dag = Dag()
+        for node_cfg in entry.dag.nodes:
+            ns_node = ns.get(node_cfg.nsref)
+            dag.node(ns_node, label=node_cfg.label)
+
+        for node_cfg in entry.dag.nodes:
+            for upstream_label in node_cfg.after:
+                upstream = dag.nodes[upstream_label]
+                downstream = dag.nodes[node_cfg.label]
+                dag.add_edge(upstream, downstream)
+
+        dag.validate()
+
+        if dag_db is not None:
+            dag.db_path = dag_db
+
+        ns.register(dag, nsref=entry.nsref)
+
+        # Store DAG config for round-trip serialization
+        dag_node = ns.get(entry.nsref)
+        dag_entry_config = DagEntryConfig(
+            nodes=sorted(
+                [
+                    DagNodeConfig(
+                        label=dn.label,
+                        nsref=dn.ns_node.nsref,
+                        after=sorted([e.upstream for e in dag.edges if e.downstream == dn.label]),
+                    )
+                    for dn in dag.nodes.values()
+                ],
+                key=lambda n: n.label,
+            )
+        )
+        dag_node.metadata["dag"] = dag_entry_config
+
+    return ns
