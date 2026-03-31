@@ -1,32 +1,42 @@
 # Lythonic
 
-**Light-weight pythonic SQLite integration with Pydantic.**
+**Lightweight pythonic toolkit for building complex workflows.**
 
-Lythonic provides a simple ORM-like interface for SQLite databases using Pydantic models
-to define the schema. It supports automatic DDL generation, CRUD operations, type mapping,
-and multi-tenant access patterns.
+Lythonic has two pillars: **compose** for building callable pipelines and
+DAGs, and **state** for structured data persistence with SQLite and Pydantic.
 
-## Features
+## Compose: Callable Pipelines
 
-- **Pydantic-based schema** - Define tables as Pydantic models
-- **Automatic DDL** - Generate CREATE TABLE statements from models
-- **Type mapping** - Automatic conversion between Python and SQLite types
-- **CRUD operations** - Insert, select, update with filtering
-- **Multi-tenant support** - Built-in user-scoped data access patterns
+Register functions in a namespace, wire them into a DAG, and execute:
 
-## Installation
+```python
+from lythonic.compose.namespace import Namespace, Dag
+from lythonic.compose.dag_runner import DagRunner
+import asyncio
 
-```bash
-pip install lythonic
+def fetch(url: str) -> dict:
+    return {"source": url, "raw": [1, 2, 3]}
+
+def transform(data: dict) -> dict:
+    return {"source": data["source"], "values": [v * 2 for v in data["raw"]]}
+
+ns = Namespace()
+ns.register(fetch, nsref="pipeline:fetch")
+ns.register(transform, nsref="pipeline:transform")
+
+with Dag() as dag:
+    dag.node(ns.get("pipeline:fetch")) >> dag.node(ns.get("pipeline:transform"))
+
+runner = DagRunner(dag)
+result = asyncio.run(runner.run(source_inputs={"fetch": {"url": "https://example.com"}}))
+print(result.status)   # "completed"
+print(result.outputs)  # {"transform": {"source": "https://example.com", "values": [2, 4, 6]}}
 ```
 
-Or with uv:
+## State: Structured Persistence
 
-```bash
-uv add lythonic
-```
-
-## Quick Example
+Define tables as Pydantic models with automatic DDL, CRUD, and multi-tenant
+support:
 
 ```python
 from pydantic import Field
@@ -40,24 +50,20 @@ class Book(DbModel["Book"]):
     book_id: int = Field(default=-1, description="(PK)")
     author_id: int = Field(description="(FK:Author.author_id)")
     title: str
-    year: int | None = None
 
 SCHEMA = Schema([Author, Book])
-SCHEMA.create_schema("books.db")
+SCHEMA.create_schema("library.db")
 
-with open_sqlite_db("books.db") as conn:
+with open_sqlite_db("library.db") as conn:
     author = Author(name="Jane Austen")
     author.save(conn)
-
-    book = Book(author_id=author.author_id, title="Pride and Prejudice", year=1813)
-    book.save(conn)
-
-    books = Book.select(conn, author_id=author.author_id)
+    Book(author_id=author.author_id, title="Pride and Prejudice").save(conn)
     conn.commit()
 ```
 
 ## Next Steps
 
-- [Getting Started](getting-started.md) - Installation and first steps
-- [Tutorials](tutorials/first-schema.md) - Step-by-step guides
-- [API Reference](reference/state.md) - Complete API documentation
+- [Build a Pipeline](tutorials/compose-pipeline.md) — end-to-end compose tutorial
+- [Your First Schema](tutorials/first-schema.md) — define tables with Pydantic models
+- [CRUD Operations](tutorials/crud-operations.md) — insert, query, update, delete
+- [API Reference](reference/compose-namespace.md) — complete API documentation
