@@ -53,7 +53,7 @@ Title: v$0: {RELEASE_TITLE}
 
 Wait for human to confirm that release is triggered.
 
-When human confirmed, check if tag aleady exist ```git pull; git tag --list "v$1"|wc -l``` Output from git tag command should confirm that one tag matching. Don't proceed to the next step if it is not.
+When human confirmed, check if tag aleady exist ```git pull; git tag --list "v$0"|wc -l``` Output from git tag command should confirm that one tag matching. Don't proceed to the next step if it is not.
 
 ## Ster 3: Cleaning up old design docs
 
