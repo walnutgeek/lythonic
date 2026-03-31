@@ -1,5 +1,5 @@
 site_name: Lythonic
-site_description: Light-weight pythonic SQLite integration with Pydantic
+site_description: Lightweight pythonic toolkit for building complex workflows
 site_url: https://walnutgeek.github.io/lythonic/
 repo_url: https://github.com/walnutgeek/lythonic
 repo_name: walnutgeek/lythonic
@@ -60,6 +60,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Tutorials:
+      - Build a Pipeline: tutorials/compose-pipeline.md
       - Your First Schema: tutorials/first-schema.md
       - CRUD Operations: tutorials/crud-operations.md
       - Cashflow Tracking Example: tutorials/cashflow-example.md
@@ -68,16 +69,21 @@ nav:
       - Multi-Tenant Apps: how-to/multi-tenant.md
   - API Reference:
       - lythonic: reference/core.md
-      - lythonic.compose: reference/compose.md
-      - lythonic.compose.namespace: reference/compose-namespace.md
-      - lythonic.compose.namespace_config: reference/compose-namespace-config.md
-      - lythonic.compose.dag_provenance: reference/compose-dag-provenance.md
-      - lythonic.compose.dag_runner: reference/compose-dag-runner.md
-      - lythonic.compose.cached: reference/compose-cached.md
-      - lythonic.compose.cli: reference/compose-cli.md
-      - lythonic.compose.logic: reference/compose-logic.md
-      - lythonic.misc: reference/misc.md
-      - lythonic.periodic: reference/periodic.md
-      - lythonic.state: reference/state.md
-      - lythonic.state.user: reference/user.md
+      - compose:
+          - lythonic.compose: reference/compose.md
+          - "...namespace": reference/compose-namespace.md
+          - "...namespace_config": reference/compose-namespace-config.md
+          - "...dag_runner": reference/compose-dag-runner.md
+          - "...dag_provenance": reference/compose-dag-provenance.md
+          - "...cached": reference/compose-cached.md
+          - "...cli": reference/compose-cli.md
+          - "...logic": reference/compose-logic.md
+      - state:
+          - lythonic.state: reference/state.md
+          - "...user": reference/user.md
       - lythonic.types: reference/types.md
+      - lythonic.periodic: reference/periodic.md
+      - lythonic.misc: reference/misc.md
+  - Release Notes:
+      - v0.0.10: release_notes/v0.0.10.md
+      - v0.0.9: release_notes/v0.0.9.md

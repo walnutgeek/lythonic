@@ -7,7 +7,7 @@ Repository = "https://github.com/walnutgeek/lythonic"
 
 [project]
 name = "lythonic"
-description = "Light-weight pythonic db integration - powered by the best of all time: sqlite and pydantic"
+description = "Lightweight pythonic toolkit for building complex workflows"
 authors = [
     { name="Walnut Geek", email="wg@walnutgeek.com" },
 ]
