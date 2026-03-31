@@ -7,7 +7,7 @@ them into a DAG, execute it, add provenance tracking, and layer on caching.
 ## Register Callables in a Namespace
 
 A `Namespace` is a hierarchical registry for callables. Paths use `.` for
-branches and `:` for the leaf name — like `"pipeline:fetch"`.
+branches and `:` for the leaf name — like `"pipeline.data:fetch"`.
 
 Start by defining two plain functions and registering them:
 
@@ -23,20 +23,22 @@ def transform(data: dict) -> dict:
     return {"source": data["source"], "values": [v * 2 for v in data["raw"]]}
 
 ns = Namespace()
-ns.register(fetch, nsref="pipeline:fetch")
-ns.register(transform, nsref="pipeline:transform")
+ns.register(fetch, nsref="pipeline.data:fetch")
+ns.register(transform, nsref="pipeline.data:transform")
 ```
 
-Once registered, callables are accessible by path or by attribute:
+The dot in `"pipeline.data:fetch"` creates a nested branch. Once
+registered, callables are accessible by path or by dot-access through
+the branch hierarchy:
 
 ```python
-node = ns.get("pipeline:fetch")
+node = ns.get("pipeline.data:fetch")
 result = node(url="https://example.com/data")
 print(result)
 # {'source': 'https://example.com/data', 'raw': [1, 2, 3]}
 
-# Dot-access also works
-result = ns.pipeline.fetch(url="https://example.com/data")
+# Dot-access walks the branches automatically
+result = ns.pipeline.data.fetch(url="https://example.com/data")
 ```
 
 Each registered callable is wrapped in a `NamespaceNode` that carries
@@ -54,8 +56,8 @@ from lythonic.compose.namespace import Dag
 
 dag = Dag()
 
-fetch_node = dag.node(ns.get("pipeline:fetch"))
-transform_node = dag.node(ns.get("pipeline:transform"))
+fetch_node = dag.node(ns.get("pipeline.data:fetch"))
+transform_node = dag.node(ns.get("pipeline.data:transform"))
 
 fetch_node >> transform_node
 ```
@@ -69,8 +71,8 @@ You can also use a context manager, which validates the DAG on exit
 
 ```python
 with Dag() as dag:
-    f = dag.node(ns.get("pipeline:fetch"))
-    t = dag.node(ns.get("pipeline:transform"))
+    f = dag.node(ns.get("pipeline.data:fetch"))
+    t = dag.node(ns.get("pipeline.data:transform"))
     f >> t
 # Validation runs automatically here
 ```
@@ -83,12 +85,12 @@ def validate(data: dict) -> dict:
     assert all(v > 0 for v in data["values"]), "Negative value found"
     return data
 
-ns.register(validate, nsref="pipeline:validate")
+ns.register(validate, nsref="pipeline.data:validate")
 
 with Dag() as dag:
-    f = dag.node(ns.get("pipeline:fetch"))
-    t = dag.node(ns.get("pipeline:transform"))
-    v = dag.node(ns.get("pipeline:validate"))
+    f = dag.node(ns.get("pipeline.data:fetch"))
+    t = dag.node(ns.get("pipeline.data:transform"))
+    v = dag.node(ns.get("pipeline.data:validate"))
     f >> t >> v
 ```
 
@@ -170,17 +172,28 @@ For expensive callables (API calls, slow computations), wrap them with
 `register_cached_callable`. This adds SQLite-backed caching with
 configurable TTL.
 
+`register_cached_callable` takes a `GlobalRef` string (module path +
+callable name) and registers a cache-wrapped version in the namespace:
+
 ```python
+from pathlib import Path
 from lythonic.compose.cached import register_cached_callable
 
-# Assume fetch_prices is defined in myapp.downloads
-# register_cached_callable(
-#     ns, "myapp.downloads:fetch_prices", "market:fetch_prices",
-#     min_ttl=0.5, max_ttl=2.0, db_path=Path("cache.db"),
-# )
+register_cached_callable(
+    ns,
+    gref="lythonic.compose.namespace:_parse_nsref",  # any importable callable
+    nsref="cache:parse_nsref",
+    min_ttl=0.5,   # days — fresh for 12 hours
+    max_ttl=2.0,   # days — force refresh after 2 days
+    db_path=Path("cache.db"),
+)
 
-# After registration, calls are served from cache when fresh:
-# result = ns.market.fetch_prices(ticker="AAPL")
+# First call hits the original function and caches the result
+result = ns.cache.parse_nsref(nsref="market.data:fetch_prices")
+print(result)  # (['market', 'data'], 'fetch_prices')
+
+# Subsequent calls within min_ttl are served from cache
+result = ns.cache.parse_nsref(nsref="market.data:fetch_prices")
 ```
 
 TTL behavior:
