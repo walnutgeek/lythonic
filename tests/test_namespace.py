@@ -874,7 +874,7 @@ def test_register_tags_validation():
         pass
 
 
-# Task 3 (tags): Namespace.query()
+# Namespace.query()
 
 
 def _setup_tagged_namespace():
