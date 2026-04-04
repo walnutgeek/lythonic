@@ -21,6 +21,24 @@ ns.register(fetch_prices, nsref="market:fetch_prices")
 node = ns.get("market:fetch_prices")
 result = node(ticker="AAPL")
 ```
+
+## Tags
+
+Nodes can be tagged at registration for later querying:
+
+```python
+ns.register(fetch_prices, nsref="market:fetch", tags={"slow", "market-data"})
+ns.register(compute_stats, nsref="market:stats", tags={"fast", "market-data"})
+
+ns.query("market-data")              # both nodes
+ns.query("slow & market-data")       # only fetch
+ns.query("~slow")                    # only stats
+ns.query("slow | fast")              # both nodes
+```
+
+Tag expressions support `&` (AND), `|` (OR), `~` (NOT) with standard
+precedence (`~` > `&` > `|`). Tags must not contain spaces or operator
+characters.
 """
 
 from __future__ import annotations
@@ -282,7 +300,8 @@ class Namespace:
         """
         Register a callable. If `nsref` is `None`, derive from the callable's
         module and name. If `decorate` is provided, wrap the callable for
-        invocation (metadata is still extracted from the original).
+        invocation (metadata is still extracted from the original). Optional
+        `tags` are stored on the node for querying via `query()`.
         """
         if isinstance(c, Dag):
             return self._register_dag(c, nsref, tags=tags)
