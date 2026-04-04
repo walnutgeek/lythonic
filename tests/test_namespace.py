@@ -872,3 +872,104 @@ def test_register_tags_validation():
         raise AssertionError("Expected TypeError")
     except TypeError:
         pass
+
+
+# Task 3 (tags): Namespace.query()
+
+
+def _setup_tagged_namespace():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:fast_market", tags={"fast", "market"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:slow_market", tags={"slow", "market"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="b:fast_exp", tags={"fast", "experimental"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="b:untagged")  # pyright: ignore[reportPrivateUsage]
+    return ns
+
+
+def test_query_single_tag():
+    ns = _setup_tagged_namespace()
+    result = ns.query("slow")
+    assert [n.nsref for n in result] == ["a:slow_market"]
+
+
+def test_query_and():
+    ns = _setup_tagged_namespace()
+    result = ns.query("fast & market")
+    assert [n.nsref for n in result] == ["a:fast_market"]
+
+
+def test_query_or():
+    ns = _setup_tagged_namespace()
+    result = ns.query("slow | experimental")
+    nsrefs = sorted(n.nsref for n in result)
+    assert nsrefs == ["a:slow_market", "b:fast_exp"]
+
+
+def test_query_not():
+    ns = _setup_tagged_namespace()
+    result = ns.query("~market")
+    nsrefs = sorted(n.nsref for n in result)
+    assert nsrefs == ["b:fast_exp", "b:untagged"]
+
+
+def test_query_combined_precedence():
+    """slow & ~experimental | fast evaluates as (slow & ~experimental) | fast"""
+    ns = _setup_tagged_namespace()
+    result = ns.query("slow & ~experimental | fast")
+    nsrefs = sorted(n.nsref for n in result)
+    assert nsrefs == ["a:fast_market", "a:slow_market", "b:fast_exp"]
+
+
+def test_query_no_matches():
+    ns = _setup_tagged_namespace()
+    result = ns.query("nonexistent")
+    assert result == []
+
+
+def test_query_empty_raises():
+    ns = _setup_tagged_namespace()
+    try:
+        ns.query("")
+        raise AssertionError("Expected ValueError")
+    except ValueError:
+        pass
+
+    try:
+        ns.query("   ")
+        raise AssertionError("Expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_query_malformed_raises():
+    ns = _setup_tagged_namespace()
+    for bad_expr in ["& slow", "slow &", "~ &", "| fast"]:
+        try:
+            ns.query(bad_expr)
+            raise AssertionError(f"Expected ValueError for {bad_expr!r}")
+        except ValueError:
+            pass
+
+
+def test_query_recursive_across_branches():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="deep.nested.branch:fn", tags={"deep"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="top:fn", tags={"deep"})  # pyright: ignore[reportPrivateUsage]
+    result = ns.query("deep")
+    nsrefs = sorted(n.nsref for n in result)
+    assert nsrefs == ["deep.nested.branch:fn", "top:fn"]
+
+
+def test_query_untagged_nodes_match_not():
+    """Nodes with no tags match ~sometag (they lack the tag)."""
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="a:tagged", tags={"x"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="a:untagged")  # pyright: ignore[reportPrivateUsage]
+    result = ns.query("~x")
+    assert [n.nsref for n in result] == ["a:untagged"]

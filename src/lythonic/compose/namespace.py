@@ -119,6 +119,76 @@ def _validate_tags(tags: frozenset[str] | set[str] | list[str] | None) -> frozen
     return result
 
 
+def _parse_tag_expr(expr: str) -> list[str]:
+    """
+    Tokenize a tag query expression into a list of tokens. Tokens are
+    tag names, `&`, `|`, or `~`. Raises `ValueError` for empty or
+    whitespace-only expressions.
+    """
+    tokens: list[str] = []
+    for part in expr.split():
+        i = 0
+        while i < len(part):
+            if part[i] in ("&", "|", "~"):
+                tokens.append(part[i])
+                i += 1
+            else:
+                j = i
+                while j < len(part) and part[j] not in ("&", "|", "~"):
+                    j += 1
+                tokens.append(part[i:j])
+                i = j
+    if not tokens:
+        raise ValueError("Tag query expression is empty")
+    return tokens
+
+
+def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
+    """
+    Evaluate a tokenized tag expression against a set of tags.
+    Precedence: ~ (NOT, highest) > & (AND) > | (OR, lowest).
+    No parentheses grouping.
+
+    Grammar:
+        or_expr  = and_expr ("|" and_expr)*
+        and_expr = not_expr ("&" not_expr)*
+        not_expr = "~" not_expr | tag
+    """
+    pos = 0
+
+    def _or_expr() -> bool:
+        nonlocal pos
+        result = _and_expr()
+        while pos < len(tokens) and tokens[pos] == "|":
+            pos += 1
+            result = _and_expr() or result
+        return result
+
+    def _and_expr() -> bool:
+        nonlocal pos
+        result = _not_expr()
+        while pos < len(tokens) and tokens[pos] == "&":
+            pos += 1
+            result = _not_expr() and result
+        return result
+
+    def _not_expr() -> bool:
+        nonlocal pos
+        if pos < len(tokens) and tokens[pos] == "~":
+            pos += 1
+            return not _not_expr()
+        if pos >= len(tokens) or tokens[pos] in ("&", "|"):
+            raise ValueError(f"Expected tag name at position {pos}")
+        tag = tokens[pos]
+        pos += 1
+        return tag in tags
+
+    result = _or_expr()
+    if pos < len(tokens):
+        raise ValueError(f"Unexpected token {tokens[pos]!r} at position {pos}")
+    return result
+
+
 class NamespaceNode:
     """
     Wraps a `Method` with namespace identity. Callable -- delegates to the
@@ -305,6 +375,21 @@ class Namespace:
     ) -> list[NamespaceNode]:
         """Bulk register callables using derived paths."""
         return [self.register(c, decorate=decorate, tags=tags) for c in cc]
+
+    def _all_leaves(self) -> list[NamespaceNode]:
+        """Recursively collect all leaf nodes from this namespace and all branches."""
+        leaves: list[NamespaceNode] = list(self._leaves.values())
+        for branch in self._branches.values():
+            leaves.extend(branch._all_leaves())
+        return leaves
+
+    def query(self, expr: str) -> list[NamespaceNode]:
+        """
+        Return all nodes matching a tag expression. Supports `&` (AND),
+        `|` (OR), `~` (NOT) with standard precedence (`~` > `&` > `|`).
+        """
+        tokens = _parse_tag_expr(expr)
+        return [node for node in self._all_leaves() if _eval_tag_expr(tokens, node.tags)]
 
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
