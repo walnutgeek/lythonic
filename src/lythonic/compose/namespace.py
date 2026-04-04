@@ -161,7 +161,8 @@ def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
         result = _and_expr()
         while pos < len(tokens) and tokens[pos] == "|":
             pos += 1
-            result = _and_expr() or result
+            right = _and_expr()
+            result = result or right
         return result
 
     def _and_expr() -> bool:
@@ -169,7 +170,8 @@ def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
         result = _not_expr()
         while pos < len(tokens) and tokens[pos] == "&":
             pos += 1
-            result = _not_expr() and result
+            right = _not_expr()
+            result = result and right
         return result
 
     def _not_expr() -> bool:

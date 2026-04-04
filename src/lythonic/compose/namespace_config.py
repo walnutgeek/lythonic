@@ -157,7 +157,7 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
         if dag_db is not None:
             dag.db_path = dag_db
 
-        ns.register(dag, nsref=entry.nsref)
+        ns.register(dag, nsref=entry.nsref, tags=entry.tags)
 
         # Store DAG config for round-trip serialization
         dag_node = ns.get(entry.nsref)

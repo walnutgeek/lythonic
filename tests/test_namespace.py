@@ -973,3 +973,22 @@ def test_query_untagged_nodes_match_not():
     ns.register(this_module._another_fn, nsref="a:untagged")  # pyright: ignore[reportPrivateUsage]
     result = ns.query("~x")
     assert [n.nsref for n in result] == ["a:untagged"]
+
+
+def test_query_or_short_circuit():
+    """Ensure OR doesn't short-circuit and skip token consumption."""
+    ns = _setup_tagged_namespace()
+    # a:fast_market has {fast, market}, b:fast_exp has {fast, experimental}
+    # "market | experimental" should match both without parser errors
+    result = ns.query("market | experimental")
+    nsrefs = sorted(n.nsref for n in result)
+    assert nsrefs == ["a:fast_market", "a:slow_market", "b:fast_exp"]
+
+
+def test_query_and_short_circuit():
+    """Ensure AND doesn't short-circuit and skip token consumption."""
+    ns = _setup_tagged_namespace()
+    # Node b:untagged has no tags. "nonexistent & market" should match nothing
+    # without parser errors from unconsumed tokens.
+    result = ns.query("nonexistent & market")
+    assert result == []
