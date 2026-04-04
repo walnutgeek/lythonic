@@ -61,6 +61,7 @@ class NamespaceEntryConfig(BaseModel):
     gref: str | None = None
     cache: CacheEntryConfig | None = None
     dag: DagEntryConfig | None = None
+    tags: list[str] | None = None
 
     @model_validator(mode="after")
     def _check_entry_type(self) -> NamespaceEntryConfig:
@@ -118,7 +119,7 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
                 )
             from lythonic.compose.cached import register_cached_callable
 
-            register_cached_callable(
+            node = register_cached_callable(
                 ns,
                 gref=entry.gref,
                 nsref=entry.nsref,
@@ -126,8 +127,14 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
                 max_ttl=entry.cache.max_ttl,
                 db_path=cache_db,
             )
+            if entry.tags:
+                from lythonic.compose.namespace import (
+                    _validate_tags,  # pyright: ignore[reportPrivateUsage]
+                )
+
+                node.tags = _validate_tags(entry.tags)
         else:
-            ns.register(entry.gref, nsref=entry.nsref)
+            ns.register(entry.gref, nsref=entry.nsref, tags=entry.tags)
 
     # Pass 2: build DAGs
     for entry in config.entries:
@@ -263,6 +270,7 @@ def dump_namespace(ns: Namespace, storage: StorageConfig | None = None) -> Names
                 NamespaceEntryConfig(
                     nsref=node.nsref,
                     dag=dag_info,
+                    tags=sorted(node.tags) if node.tags else None,
                 )
             )
         elif "cache" in node.metadata:
@@ -272,6 +280,7 @@ def dump_namespace(ns: Namespace, storage: StorageConfig | None = None) -> Names
                     nsref=node.nsref,
                     gref=str(node.method.gref),
                     cache=CacheEntryConfig(**cache_info),
+                    tags=sorted(node.tags) if node.tags else None,
                 )
             )
         else:
@@ -279,6 +288,7 @@ def dump_namespace(ns: Namespace, storage: StorageConfig | None = None) -> Names
                 NamespaceEntryConfig(
                     nsref=node.nsref,
                     gref=str(node.method.gref),
+                    tags=sorted(node.tags) if node.tags else None,
                 )
             )
 

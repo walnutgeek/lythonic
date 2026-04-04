@@ -476,3 +476,99 @@ def test_dump_namespace_serialization_order():
     dumped = dump_namespace(ns)
     assert dumped.entries[0].nsref == "a:first"
     assert dumped.entries[1].nsref == "z:last"
+
+
+def test_config_entry_with_tags():
+    from lythonic.compose.namespace_config import NamespaceConfig
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "market:fetch",
+                    "gref": "json:dumps",
+                    "tags": ["slow", "market"],
+                },
+            ]
+        }
+    )
+    assert config.entries[0].tags == ["slow", "market"]
+
+
+def test_config_entry_without_tags():
+    from lythonic.compose.namespace_config import NamespaceConfig
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {"nsref": "market:fetch", "gref": "json:dumps"},
+            ]
+        }
+    )
+    assert config.entries[0].tags is None
+
+
+def test_load_namespace_with_tags():
+    from lythonic.compose.namespace_config import NamespaceConfig, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "math:double",
+                    "gref": "tests.test_namespace_config:_plain_fn",
+                    "tags": ["fast", "math"],
+                },
+            ]
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        node = ns.get("math:double")
+        assert node.tags == frozenset({"fast", "math"})
+
+
+def test_dump_namespace_with_tags():
+    from lythonic.compose.namespace import Namespace
+    from lythonic.compose.namespace_config import dump_namespace
+
+    ns = Namespace()
+    ns.register(this_module._plain_fn, nsref="math:double", tags={"beta", "alpha"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_plain_fn, nsref="fmt:to_str")  # pyright: ignore[reportPrivateUsage]
+
+    dumped = dump_namespace(ns)
+    math_entry = next(e for e in dumped.entries if e.nsref == "fmt:to_str")
+    assert math_entry.tags is None
+    tagged_entry = next(e for e in dumped.entries if e.nsref == "math:double")
+    assert tagged_entry.tags == ["alpha", "beta"]
+
+
+def test_dump_load_round_trip_with_tags():
+    from lythonic.compose.namespace_config import NamespaceConfig, dump_namespace, load_namespace
+
+    config = NamespaceConfig.model_validate(
+        {
+            "entries": [
+                {
+                    "nsref": "math:double",
+                    "gref": "tests.test_namespace_config:_plain_fn",
+                    "tags": ["fast", "math"],
+                },
+                {
+                    "nsref": "fmt:to_str",
+                    "gref": "tests.test_namespace_config:_another_plain_fn",
+                },
+            ]
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ns = load_namespace(config, Path(tmp))
+        dumped = dump_namespace(ns)
+
+        tagged = next(e for e in dumped.entries if e.nsref == "math:double")
+        assert tagged.tags == ["fast", "math"]
+
+        untagged = next(e for e in dumped.entries if e.nsref == "fmt:to_str")
+        assert untagged.tags is None
