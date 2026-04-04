@@ -98,6 +98,27 @@ def _resolve_first_param_type(func: Callable[..., Any]) -> type | None:
     return None
 
 
+_INVALID_TAG_CHARS = frozenset("&|~")
+
+
+def _validate_tags(tags: frozenset[str] | set[str] | list[str] | None) -> frozenset[str]:
+    """
+    Validate and normalize tags to `frozenset[str]`. Rejects `str` input
+    (common mistake) and tags containing operator characters or whitespace.
+    """
+    if tags is None:
+        return frozenset()
+    if isinstance(tags, str):
+        raise TypeError("tags must be a collection of strings, not a str")
+    result = frozenset(tags)
+    for tag in result:
+        if any(c in _INVALID_TAG_CHARS for c in tag):
+            raise ValueError(f"Tag {tag!r} contains invalid characters (&, |, or ~)")
+        if any(c.isspace() for c in tag):
+            raise ValueError(f"Tag {tag!r} contains whitespace")
+    return result
+
+
 class NamespaceNode:
     """
     Wraps a `Method` with namespace identity. Callable -- delegates to the
@@ -115,12 +136,14 @@ class NamespaceNode:
         nsref: str,
         namespace: Namespace,
         decorated: Callable[..., Any] | None = None,
+        tags: frozenset[str] | set[str] | list[str] | None = None,
     ) -> None:
         self.method = method
         self.nsref = nsref
         self.namespace = namespace
         self._decorated = decorated
         self.metadata: dict[str, Any] = {}
+        self.tags: frozenset[str] = _validate_tags(tags)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:

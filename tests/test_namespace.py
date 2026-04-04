@@ -770,3 +770,62 @@ def test_rshift_dag_label_collision_raises():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "already exists" in str(e)
+
+
+# Tags
+
+
+def test_namespace_node_tags_default():
+    from lythonic.compose import Method
+    from lythonic.compose.namespace import Namespace, NamespaceNode
+
+    method = Method(_get_sample_fn())
+    ns = Namespace()
+    node = NamespaceNode(method=method, nsref="test:sample_fn", namespace=ns)
+    assert node.tags == frozenset()
+
+
+def test_namespace_node_tags_set():
+    from lythonic.compose import Method
+    from lythonic.compose.namespace import Namespace, NamespaceNode
+
+    method = Method(_get_sample_fn())
+    ns = Namespace()
+    node = NamespaceNode(
+        method=method, nsref="test:sample_fn", namespace=ns, tags=frozenset({"slow", "market"})
+    )
+    assert node.tags == frozenset({"slow", "market"})
+
+
+def test_namespace_node_tags_rejects_string():
+    from lythonic.compose import Method
+    from lythonic.compose.namespace import Namespace, NamespaceNode
+
+    method = Method(_get_sample_fn())
+    ns = Namespace()
+    try:
+        NamespaceNode(
+            method=method,
+            nsref="test:sample_fn",
+            namespace=ns,
+            tags="slow",  # pyright: ignore[reportArgumentType]
+        )
+        raise AssertionError("Expected TypeError")
+    except TypeError as e:
+        assert "str" in str(e)
+
+
+def test_namespace_node_tags_rejects_invalid_chars():
+    from lythonic.compose import Method
+    from lythonic.compose.namespace import Namespace, NamespaceNode
+
+    method = Method(_get_sample_fn())
+    ns = Namespace()
+    for bad_tag in ["slow&fast", "a|b", "~experimental", "has space"]:
+        try:
+            NamespaceNode(
+                method=method, nsref="test:sample_fn", namespace=ns, tags=frozenset({bad_tag})
+            )
+            raise AssertionError(f"Expected ValueError for tag {bad_tag!r}")
+        except ValueError as e:
+            assert "tag" in str(e).lower()
