@@ -9,6 +9,8 @@ Prepare a release for version $ARGUMENTS.
 
 ## Step 1: Generate Release Notes
 
+Ensure that you are on main branch. Stop if you are not.
+
 Find the last release tag (highest `v*` tag) and generate a summary of all
 commits since that tag.
 
@@ -33,6 +35,22 @@ Commit and push release notes.
 
 ## Step 2: Draft release message
 
+
+Find all design docs and sort by date if present in filename:
+```bash
+find docs/superpowers/ docs/ai/ -name \*.md 2>/dev/null
+```
+Craft snippet, keep it empty if no design docs found, otherwise follow template: 
+---
+**Design docs**: 
+<foreach design docs>
+https://github.com/walnutgeek/lythonic/tree/v$ARGUMENTS/{DESIGN_DOC_PATH}
+</foreach>
+
+---
+Replace {DESIGN_DOCS_SNIPPET} in the message below.
+
+
 Come up with a title for this release, 80 characters or less. Try to catch the
 common theme among all changes, yet you can cut it short with "..." if there
 are too many things to mention.
@@ -40,7 +58,6 @@ are too many things to mention.
 Replace {RELEASE_TITLE} with that title in the message below.
 
 Display the message for human review:
-
 ---
 
 Draft new release at: https://github.com/walnutgeek/lythonic/releases/new
@@ -49,9 +66,9 @@ Title: v$ARGUMENTS: {RELEASE_TITLE}
 
 **Full Changelog**: https://github.com/walnutgeek/lythonic/compare/{LAST_RELEASE_TAG}...v$ARGUMENTS
 
-**Design docs**: [v$ARGUMENTS/docs/superpowers](https://github.com/walnutgeek/lythonic/tree/v$ARGUMENTS/docs/superpowers)
+[Release notes](https://github.com/walnutgeek/lythonic/blob/main/docs/release_notes/v$ARGUMENTS.md)
 
-**Release notes**: [v$ARGUMENTS](https://github.com/walnutgeek/lythonic/blob/main/docs/release_notes/v$ARGUMENTS.md)
+{DESIGN_DOCS_SNIPPET}
 
 ---
 
@@ -69,8 +86,10 @@ if it does not.
 After a release is properly tagged, the design docs are accessible via the tag.
 Delete them from main:
 ```bash
-git rm -r docs/superpowers
+for dir in docs/superpowers docs/ai
+do
+[ -d $dir ] && git rm -r $dir
+done
 ```
-If `docs/superpowers` does not exist, skip this step.
 
 Commit and push.
