@@ -829,3 +829,46 @@ def test_namespace_node_tags_rejects_invalid_chars():
             raise AssertionError(f"Expected ValueError for tag {bad_tag!r}")
         except ValueError as e:
             assert "tag" in str(e).lower()
+
+
+def test_register_with_tags():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register(
+        this_module._sample_fn,  # pyright: ignore[reportPrivateUsage]
+        nsref="test:fetch",
+        tags={"slow", "market"},
+    )
+    assert node.tags == frozenset({"slow", "market"})
+
+
+def test_register_without_tags():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register(this_module._sample_fn, nsref="test:fetch")  # pyright: ignore[reportPrivateUsage]
+    assert node.tags == frozenset()
+
+
+def test_register_all_with_tags():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    nodes = ns.register_all(
+        this_module._sample_fn,  # pyright: ignore[reportPrivateUsage]
+        this_module._another_fn,  # pyright: ignore[reportPrivateUsage]
+        tags={"batch"},
+    )
+    assert all(n.tags == frozenset({"batch"}) for n in nodes)
+
+
+def test_register_tags_validation():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    try:
+        ns.register(this_module._sample_fn, nsref="test:fetch", tags="slow")  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+        raise AssertionError("Expected TypeError")
+    except TypeError:
+        pass

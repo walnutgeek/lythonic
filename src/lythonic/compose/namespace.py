@@ -205,6 +205,7 @@ class Namespace:
         c: Callable[..., Any] | str | Dag,
         nsref: str | None = None,
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
+        tags: frozenset[str] | set[str] | list[str] | None = None,
     ) -> NamespaceNode:
         """
         Register a callable. If `nsref` is `None`, derive from the callable's
@@ -212,7 +213,7 @@ class Namespace:
         invocation (metadata is still extracted from the original).
         """
         if isinstance(c, Dag):
-            return self._register_dag(c, nsref)
+            return self._register_dag(c, nsref, tags=tags)
 
         from lythonic import GlobalRef
 
@@ -234,11 +235,15 @@ class Namespace:
                 f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
             )
 
-        node = NamespaceNode(method=method, nsref=nsref, namespace=self, decorated=decorated)
+        node = NamespaceNode(
+            method=method, nsref=nsref, namespace=self, decorated=decorated, tags=tags
+        )
         branch._leaves[leaf_name] = node
         return node
 
-    def _register_dag(self, dag: Dag, nsref: str | None) -> NamespaceNode:
+    def _register_dag(
+        self, dag: Dag, nsref: str | None, tags: frozenset[str] | set[str] | list[str] | None = None
+    ) -> NamespaceNode:
         """
         Register a Dag as a callable NamespaceNode. If `dag.db_path` is
         None, the runner uses NullProvenance (no persistence, no
@@ -280,7 +285,7 @@ class Namespace:
                 f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
             )
 
-        node = NamespaceNode(method=method, nsref=nsref, namespace=self)
+        node = NamespaceNode(method=method, nsref=nsref, namespace=self, tags=tags)
         branch._leaves[leaf_name] = node
         return node
 
@@ -296,9 +301,10 @@ class Namespace:
         self,
         *cc: Callable[..., Any],
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
+        tags: frozenset[str] | set[str] | list[str] | None = None,
     ) -> list[NamespaceNode]:
         """Bulk register callables using derived paths."""
-        return [self.register(c, decorate=decorate) for c in cc]
+        return [self.register(c, decorate=decorate, tags=tags) for c in cc]
 
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
