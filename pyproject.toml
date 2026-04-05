@@ -100,8 +100,6 @@ packages = ["src/lythonic"]
 [tool.ruff]
 # Set as desired, typically 88 (black standard) or 100 (wide).
 line-length = 100
-# WIP example with not-yet-implemented for_each API
-exclude = ["src/lythonic/examples/dag"]
 
 [tool.ruff.lint]
 select = [
@@ -147,8 +145,6 @@ ignore = [
 # https://marketplace.visualstudio.com/items?itemName=detachhead.basedpyright
 # https://docs.basedpyright.com/latest/configuration/config-files/#sample-pyprojecttoml-file
 include = ["src", "tests", "devtools"]
-# WIP example with not-yet-implemented for_each API
-exclude = ["src/lythonic/examples/dag"]
 # By default BasedPyright is very strict, so you almost certainly want to disable
 # some of the rules.
 # First, these turn off warnings about (yes) how you ignore warnings:
@@ -184,7 +180,7 @@ testpaths = [
     "src",
     "tests",
 ]
-norecursedirs = ["src/lythonic/examples/dag"]
+norecursedirs = []
 filterwarnings = []
 
 addopts = ["--import-mode=importlib", "--doctest-modules", "--cov=src", "--cov-report=term-missing", "--cov-report=xml:cov.xml"]

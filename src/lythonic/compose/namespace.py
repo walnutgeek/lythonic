@@ -39,6 +39,23 @@ ns.query("slow | fast")              # both nodes
 Tag expressions support `&` (AND), `|` (OR), `~` (NOT) with standard
 precedence (`~` > `&` > `|`). Tags must not contain spaces or operator
 characters.
+
+## Map
+
+Run a sub-DAG on each element of a collection:
+
+```python
+sub_dag = Dag()
+sub_dag.node(process_fn)
+
+parent = Dag()
+s = parent.node(split_fn)
+m = parent.map(sub_dag, label="chunks")
+j = parent.node(reduce_fn)
+s >> m >> j
+```
+
+Each element is processed concurrently. Supports `list` and `dict` inputs.
 """
 
 from __future__ import annotations
