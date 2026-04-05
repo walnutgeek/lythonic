@@ -337,18 +337,31 @@ class Namespace:
         self, dag: Dag, nsref: str | None, tags: frozenset[str] | set[str] | list[str] | None = None
     ) -> NamespaceNode:
         """
-        Register a Dag as a callable NamespaceNode. If `dag.db_path` is
-        None, the runner uses NullProvenance (no persistence, no
-        restart/replay).
+        Register a Dag as a callable NamespaceNode. Copies the Dag's
+        internal namespace nodes into this namespace (skip if identical
+        callable, raise on conflict). Updates DagNode references to
+        point to this namespace.
         """
         if nsref is None:
             raise ValueError("nsref is required when registering a Dag")
 
-        assert dag.namespace != self, f"Dag:{nsref} is already registered with this namespace"
+        if dag.namespace is self:
+            raise ValueError(f"Dag '{nsref}' is already registered with this namespace")
 
+        # Copy nodes from DAG's namespace to parent, with collision handling.
         for ns_node in dag.namespace._all_leaves():
             branch_parts, leaf_name = _parse_nsref(ns_node.nsref)
             branch = self._get_or_create_branch(branch_parts)
+
+            if leaf_name in branch._leaves:
+                existing = branch._leaves[leaf_name]
+                if str(existing.method.gref) == str(ns_node.method.gref):
+                    continue  # Same callable, skip
+                raise ValueError(
+                    f"Namespace conflict for '{ns_node.nsref}': "
+                    f"existing callable {existing.method.gref} differs from {ns_node.method.gref}"
+                )
+
             node = NamespaceNode(
                 method=ns_node.method,
                 nsref=ns_node.nsref,
@@ -357,6 +370,10 @@ class Namespace:
                 tags=ns_node.tags,
             )
             branch._leaves[leaf_name] = node
+
+        # Update DagNode references to point to parent namespace copies.
+        for dag_node in dag.nodes.values():
+            dag_node.ns_node = self.get(dag_node.ns_node.nsref)
 
         dag.namespace = self
 
