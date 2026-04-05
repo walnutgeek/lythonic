@@ -353,7 +353,7 @@ class Namespace:
                 method=ns_node.method,
                 nsref=ns_node.nsref,
                 namespace=self,
-                decorated=ns_node._decorated,
+                decorated=ns_node._decorated,  # pyright: ignore[reportPrivateUsage]
                 tags=ns_node.tags,
             )
             branch._leaves[leaf_name] = node
