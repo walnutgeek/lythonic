@@ -52,6 +52,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from lythonic import GlobalRef
 from lythonic.compose import Method
 
 
@@ -343,6 +344,22 @@ class Namespace:
         if nsref is None:
             raise ValueError("nsref is required when registering a Dag")
 
+        assert dag.namespace != self, f"Dag:{nsref} is already registered with this namespace"
+
+        for ns_node in dag.namespace._all_leaves():
+            branch_parts, leaf_name = _parse_nsref(ns_node.nsref)
+            branch = self._get_or_create_branch(branch_parts)
+            node = NamespaceNode(
+                method=ns_node.method,
+                nsref=ns_node.nsref,
+                namespace=self,
+                decorated=ns_node._decorated,
+                tags=ns_node.tags,
+            )
+            branch._leaves[leaf_name] = node
+
+        dag.namespace = self
+
         from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
 
         runner = DagRunner(dag, dag.db_path)
@@ -445,14 +462,8 @@ class DagNode:
         self.label = label
         self.dag = dag
 
-    def __rshift__(self, other: DagNode | Dag) -> DagNode:
-        """
-        Register edge from self to other. If other is a Dag, merge it
-        into the parent and wire the boundary edges. Returns the
-        downstream DagNode for chaining.
-        """
-        if isinstance(other, Dag):
-            return self.dag._merge_and_wire(self, other)  # pyright: ignore[reportPrivateUsage]
+    def __rshift__(self, other: DagNode) -> DagNode:
+        """Register edge from self to other. Returns downstream for chaining."""
         self.dag.add_edge(self, other)
         return other
 
@@ -465,74 +476,14 @@ class Dag:
 
     nodes: dict[str, DagNode]
     edges: list[DagEdge]
+    namespace: Namespace
+    db_path: Path | None = None
 
     def __init__(self) -> None:
         self.nodes = {}
         self.edges = []
-        self.db_path: Path | None = None
-
-    def clone(self, prefix: str) -> Dag:
-        """
-        Return a new Dag with all node labels prefixed with `prefix/`.
-        Edges are remapped to the new labels. The original is unmodified.
-        DagNodes in the clone share the same `NamespaceNode` references.
-        """
-        if not prefix:
-            raise ValueError("prefix must be non-empty")
-
-        new_dag = Dag()
-        for old_label, old_node in self.nodes.items():
-            new_label = f"{prefix}/{old_label}"
-            dag_node = DagNode(ns_node=old_node.ns_node, label=new_label, dag=new_dag)
-            new_dag.nodes[new_label] = dag_node
-
-        for edge in self.edges:
-            new_dag.edges.append(
-                DagEdge(
-                    upstream=f"{prefix}/{edge.upstream}",
-                    downstream=f"{prefix}/{edge.downstream}",
-                )
-            )
-
-        return new_dag
-
-    def _merge_and_wire(self, upstream_node: DagNode, sub_dag: Dag) -> DagNode:
-        """
-        Merge a sub-DAG into this DAG and wire boundary edges.
-        The sub-DAG must have exactly one source and one sink.
-        Returns the sink node (for `>>` chaining).
-        """
-        if not sub_dag.nodes:
-            raise ValueError("Cannot merge an empty DAG")
-
-        sources = sub_dag.sources()
-        sinks = sub_dag.sinks()
-        if len(sources) != 1:
-            raise ValueError(f"Sub-DAG must have exactly one source, found {len(sources)}")
-        if len(sinks) != 1:
-            raise ValueError(f"Sub-DAG must have exactly one sink, found {len(sinks)}")
-
-        # Check for label collisions
-        for label in sub_dag.nodes:
-            if label in self.nodes:
-                raise ValueError(f"Label '{label}' already exists in DAG")
-
-        # Copy nodes, reparenting to this DAG
-        for label, node in sub_dag.nodes.items():
-            reparented = DagNode(ns_node=node.ns_node, label=label, dag=self)
-            self.nodes[label] = reparented
-
-        # Copy edges
-        for edge in sub_dag.edges:
-            self.edges.append(DagEdge(upstream=edge.upstream, downstream=edge.downstream))
-
-        # Wire upstream to sub-dag source
-        source_label = sources[0].label
-        self.add_edge(upstream_node, self.nodes[source_label])
-
-        # Return sub-dag sink (reparented) for chaining
-        sink_label = sinks[0].label
-        return self.nodes[sink_label]
+        self.namespace = Namespace()
+        self.db_path = None
 
     def node(
         self,
@@ -547,13 +498,11 @@ class Dag:
         if isinstance(source, NamespaceNode):
             ns_node = source
         else:
-            method = Method(source)
-            from lythonic import GlobalRef
-
             gref = GlobalRef(source)
-            ns_node = NamespaceNode(
-                method=method, nsref=f"{gref.module}:{gref.name}", namespace=Namespace()
-            )
+            try:
+                ns_node = self.namespace.get(str(gref))
+            except KeyError:
+                ns_node = self.namespace.register(source)
 
         if label is None:
             _, leaf = _parse_nsref(ns_node.nsref)
