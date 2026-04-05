@@ -628,6 +628,46 @@ def test_register_dag_double_registration_raises():
         assert "already registered" in str(e).lower()
 
 
+def test_dag_node_auto_registers_callable():
+    """dag.node(callable) auto-registers the callable in dag.namespace."""
+    from lythonic.compose.namespace import Dag
+
+    dag = Dag()
+    dag.node(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
+
+    # Should be in the DAG's internal namespace
+    node = dag.namespace.get("tests.test_namespace:_sample_fn")
+    assert node is not None
+    assert node(ticker="AAPL") == {"ticker": "AAPL", "limit": 10}
+
+
+def test_dag_node_reuses_namespace_node():
+    """Calling dag.node(same_fn) twice reuses the same NamespaceNode."""
+    from lythonic.compose.namespace import Dag
+
+    dag = Dag()
+    d1 = dag.node(this_module._sample_fn, label="first")  # pyright: ignore[reportPrivateUsage]
+    d2 = dag.node(this_module._sample_fn, label="second")  # pyright: ignore[reportPrivateUsage]
+
+    assert d1.ns_node is d2.ns_node
+    assert len(dag.nodes) == 2
+
+
+def test_dag_node_with_namespace_node_skips_registration():
+    """Passing a NamespaceNode directly does not re-register."""
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    registered = ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    d = dag.node(registered)
+
+    assert d.ns_node is registered
+    # DAG's own namespace should remain empty
+    assert dag.namespace._all_leaves() == []  # pyright: ignore[reportPrivateUsage]
+
+
 # Tags
 
 
