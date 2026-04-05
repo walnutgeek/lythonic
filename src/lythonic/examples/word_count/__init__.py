@@ -36,15 +36,17 @@ def reduce(counts_to_merge: list[dict[str, int]]) -> dict[str, int]:
 
 
 ns = Namespace()
-
 # Sub-DAG: tokenize -> count (applied to each text chunk)
 tc_dag = Dag()
+ns.register(tc_dag, nsref=f"{__name__}:tc_dag")
 tc_dag.node(tokenize) >> tc_dag.node(count)  # pyright: ignore[reportUnusedExpression]
 
 # Main DAG: get_text -> split_text -> map(tc_dag) -> reduce
 main_dag = Dag()
-g = main_dag.node(get_text)
-s = main_dag.node(split_text)
-m = main_dag.map(tc_dag, label="chunks")
-r = main_dag.node(reduce)
-g >> s >> m >> r  # pyright: ignore[reportUnusedExpression]
+ns.register(main_dag, nsref=f"{__name__}:main_dag")
+(
+    main_dag.node(get_text)
+    >> main_dag.node(split_text)
+    >> main_dag.map(tc_dag, label="chunks")
+    >> main_dag.node(reduce)
+)  # pyright: ignore[reportUnusedExpression]
