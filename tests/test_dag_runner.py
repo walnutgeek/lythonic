@@ -702,3 +702,130 @@ async def test_map_over_list():
 
         assert result.status == "completed"
         assert result.outputs["join"] == "HELLO|WORLD|FOO"
+
+
+async def _async_make_dict(text: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+    return {"us": text + "_us", "eu": text + "_eu"}
+
+
+async def _async_make_int() -> int:  # pyright: ignore[reportUnusedFunction]
+    return 42
+
+
+async def _async_fail_str(text: str) -> str:  # pyright: ignore[reportUnusedFunction, reportUnusedParameter]
+    raise RuntimeError("intentional failure")
+
+
+async def test_map_over_dict():
+    """Map a sub-DAG over each value of a dict, preserving keys."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_make_dict, nsref="t:make_dict")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:make_dict"))
+    m = parent.map(sub, label="regions")
+    s >> m  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"make_dict": {"text": "hello"}},
+            dag_nsref="t:dict_map",
+        )
+
+        assert result.status == "completed"
+        assert result.outputs["regions"] == {"us": "HELLO_US", "eu": "HELLO_EU"}
+
+
+async def test_map_provenance_override():
+    """Sub-DAG provenance can be directed to a separate DB."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_split, nsref="t:split")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sub_db = Path(tmp) / "sub_provenance.db"
+
+        parent = Dag()
+        s = parent.node(ns.get("t:split"))
+        m = parent.map(sub, label="mapped", provenance_override=sub_db)
+        s >> m  # pyright: ignore[reportUnusedExpression]
+
+        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"split": {"text": "a,b"}},
+            dag_nsref="t:prov_test",
+        )
+
+        assert result.status == "completed"
+        assert sub_db.exists()
+
+
+async def test_map_invalid_input_type_raises():
+    """MapNode raises TypeError if upstream output is not list or dict."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_make_int, nsref="t:make_int")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:make_int"))
+    m = parent.map(sub, label="mapped")
+    s >> m  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={},
+            dag_nsref="t:type_test",
+        )
+
+        assert result.status == "failed"
+        assert result.failed_node == "mapped"
+        assert "expected list or dict" in (result.error or "").lower()
+
+
+async def test_map_iteration_failure_propagates():
+    """If a sub-DAG iteration fails, MapNode reports failure."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_split, nsref="t:split")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_fail_str, nsref="t:fail_str")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:fail_str"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:split"))
+    m = parent.map(sub, label="mapped")
+    s >> m  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"split": {"text": "a,b"}},
+            dag_nsref="t:fail_map",
+        )
+
+        assert result.status == "failed"
+        assert result.failed_node == "mapped"
