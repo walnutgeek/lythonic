@@ -668,6 +668,121 @@ def test_dag_node_with_namespace_node_skips_registration():
     assert dag.namespace._all_leaves() == []  # pyright: ignore[reportPrivateUsage]
 
 
+# Dag.map()
+
+
+def test_dag_map_creates_map_node():
+    from lythonic.compose.namespace import Dag, MapNode, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:process")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:process"))
+
+    parent = Dag()
+    m = parent.map(sub_dag, label="chunks")
+
+    assert isinstance(m, MapNode)
+    assert m.label == "chunks"
+    assert m.sub_dag is sub_dag
+    assert "chunks" in parent.nodes
+
+
+def test_dag_map_wires_with_rshift():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:sink")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:sink"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:source"))
+    m = parent.map(sub_dag, label="mapped")
+    s >> m  # pyright: ignore[reportUnusedExpression]
+
+    assert len(parent.edges) == 1
+    assert parent.edges[0].upstream == "source"
+    assert parent.edges[0].downstream == "mapped"
+
+
+def test_dag_map_requires_label():
+    from lythonic.compose.namespace import Dag
+
+    sub_dag = Dag()
+    parent = Dag()
+    try:
+        parent.map(sub_dag, label="")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "label" in str(e).lower()
+
+
+def test_dag_map_duplicate_label_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:process")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:process"))
+
+    parent = Dag()
+    parent.node(ns.get("t:source"), label="chunks")
+    try:
+        parent.map(sub_dag, label="chunks")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "already exists" in str(e)
+
+
+def test_dag_map_multi_source_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:a")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:b")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:a"))
+    sub_dag.node(ns.get("t:b"))
+
+    parent = Dag()
+    try:
+        parent.map(sub_dag, label="bad")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "one source" in str(e).lower()
+
+
+def test_dag_map_multi_sink_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:src")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:sink1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="t:sink2")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    s = sub_dag.node(ns.get("t:src"))
+    s1 = sub_dag.node(ns.get("t:sink1"))
+    s2 = sub_dag.node(ns.get("t:sink2"))
+    s >> s1  # pyright: ignore[reportUnusedExpression]
+    s >> s2  # pyright: ignore[reportUnusedExpression]
+
+    parent = Dag()
+    try:
+        parent.map(sub_dag, label="bad")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "one sink" in str(e).lower()
+
+
 # Tags
 
 

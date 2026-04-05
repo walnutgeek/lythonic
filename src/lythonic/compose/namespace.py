@@ -485,6 +485,34 @@ class DagNode:
         return other
 
 
+class MapNode(DagNode):
+    """
+    A DAG node that runs a sub-DAG on each element of a collection.
+    Created via `Dag.map()`. The sub-DAG must have exactly one source
+    and one sink.
+    """
+
+    sub_dag: Dag
+    provenance_override: type | Path | None
+
+    def __init__(
+        self,
+        sub_dag: Dag,
+        label: str,
+        dag: Dag,
+        provenance_override: type | Path | None = None,
+    ) -> None:
+        # MapNode has no real callable — create a placeholder NamespaceNode.
+        placeholder = NamespaceNode(
+            method=Method(lambda: None),
+            nsref=f"__map__:{label}",
+            namespace=dag.namespace,
+        )
+        super().__init__(ns_node=placeholder, label=label, dag=dag)
+        self.sub_dag = sub_dag
+        self.provenance_override = provenance_override
+
+
 class Dag:
     """
     Directed acyclic graph of `DagNode`s with type-based validation.
@@ -534,6 +562,43 @@ class Dag:
         dag_node = DagNode(ns_node=ns_node, label=label, dag=self)
         self.nodes[label] = dag_node
         return dag_node
+
+    def map(
+        self,
+        sub_dag: Dag,
+        label: str,
+        provenance_override: type | Path | None = None,
+    ) -> MapNode:
+        """
+        Create a `MapNode` that runs `sub_dag` on each element of an
+        upstream collection. The sub-DAG must have exactly one source
+        and one sink. `label` is required.
+        """
+        if not label:
+            raise ValueError("label is required for map()")
+
+        sources = sub_dag.sources()
+        sinks = sub_dag.sinks()
+        if len(sources) != 1:
+            raise ValueError(
+                f"Sub-DAG must have exactly one source for map(), found {len(sources)}"
+            )
+        if len(sinks) != 1:
+            raise ValueError(f"Sub-DAG must have exactly one sink for map(), found {len(sinks)}")
+
+        if label in self.nodes:
+            raise ValueError(
+                f"Label '{label}' already exists in DAG. Use a unique label for map nodes."
+            )
+
+        map_node = MapNode(
+            sub_dag=sub_dag,
+            label=label,
+            dag=self,
+            provenance_override=provenance_override,
+        )
+        self.nodes[label] = map_node
+        return map_node
 
     def add_edge(self, upstream: DagNode, downstream: DagNode) -> DagEdge:
         """Register a directed edge between two nodes."""
