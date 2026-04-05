@@ -156,6 +156,18 @@ async def _async_format(value: float) -> str:  # pyright: ignore[reportUnusedFun
     return f"result={value}"
 
 
+async def _async_split(text: str) -> list[str]:  # pyright: ignore[reportUnusedFunction]
+    return text.split(",")
+
+
+async def _async_upper(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
+    return text.upper()
+
+
+async def _async_join(values: list[str]) -> str:  # pyright: ignore[reportUnusedFunction]
+    return "|".join(values)
+
+
 async def test_linear_dag_execution():
     """Three nodes in a line: source -> double -> format."""
     from lythonic.compose.dag_runner import DagRunner
@@ -658,3 +670,35 @@ async def test_runner_without_persistence_replay_raises():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "not found" in str(e)
+
+
+async def test_map_over_list():
+    """Map a sub-DAG over each element of a list."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_split, nsref="t:split")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_join, nsref="t:join")  # pyright: ignore[reportPrivateUsage]
+
+    # Sub-DAG: upper each element
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    # Parent: split -> map(upper) -> join
+    parent = Dag()
+    s = parent.node(ns.get("t:split"))
+    m = parent.map(sub, label="mapped")
+    j = parent.node(ns.get("t:join"))
+    s >> m >> j  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        result = await runner.run(
+            source_inputs={"split": {"text": "hello,world,foo"}},
+            dag_nsref="t:map_test",
+        )
+
+        assert result.status == "completed"
+        assert result.outputs["join"] == "HELLO|WORLD|FOO"

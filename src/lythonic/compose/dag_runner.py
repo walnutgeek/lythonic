@@ -12,12 +12,25 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
-from lythonic.compose.namespace import Dag, DagContext, DagNode
+from lythonic.compose.namespace import Dag, DagContext, DagNode, MapNode
+
+
+def _single_element_inputs(dag: Dag, source_label: str, element: Any) -> dict[str, Any]:
+    """Build source_inputs dict for a single sub-DAG source from one element."""
+    source_node = dag.nodes[source_label]
+    args = source_node.ns_node.method.args
+    if source_node.ns_node.expects_dag_context() and len(args) > 0:
+        args = args[1:]
+    if len(args) == 1:
+        return {args[0].name: element}
+    if isinstance(element, dict):
+        return element  # pyright: ignore[reportUnknownVariableType]
+    return {args[0].name: element} if args else {}
 
 
 class DagPause(Exception):
@@ -88,6 +101,38 @@ class DagRunner:
             if dag_node.label in node_outputs:
                 continue
 
+            if isinstance(dag_node, MapNode):
+                self.provenance.record_node_start(
+                    run_id, dag_node.label, json.dumps({"map": True}, default=str)
+                )
+                try:
+                    result = await self._execute_map_node(
+                        dag_node, run_id, dag_nsref, node_outputs, source_inputs
+                    )
+                    node_outputs[dag_node.label] = result
+                    self.provenance.record_node_complete(
+                        run_id, dag_node.label, json.dumps(result, default=str)
+                    )
+                except Exception as e:
+                    self.provenance.record_node_failed(run_id, dag_node.label, str(e))
+                    self.provenance.finish_run(run_id, "failed")
+                    return DagRunResult(
+                        run_id=run_id,
+                        status="failed",
+                        outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
+                        failed_node=dag_node.label,
+                        error=str(e),
+                    )
+
+                if self._pause_requested:
+                    self.provenance.update_run_status(run_id, "paused")
+                    return DagRunResult(
+                        run_id=run_id,
+                        status="paused",
+                        outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
+                    )
+                continue
+
             kwargs = self._wire_inputs(dag_node, node_outputs, source_inputs)
             self.provenance.record_node_start(
                 run_id, dag_node.label, json.dumps(kwargs, default=str)
@@ -131,6 +176,67 @@ class DagRunner:
             status="completed",
             outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
         )
+
+    async def _execute_map_node(
+        self,
+        map_node: MapNode,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        dag_nsref: str,
+        node_outputs: dict[str, Any],
+        source_inputs: dict[str, dict[str, Any]],  # pyright: ignore[reportUnusedParameter]
+    ) -> Any:
+        """Execute a MapNode by running sub-DAG on each collection element."""
+        upstream_edges = [e for e in self.dag.edges if e.downstream == map_node.label]
+        if len(upstream_edges) != 1:
+            raise ValueError(
+                f"MapNode '{map_node.label}' must have exactly one upstream edge, "
+                f"found {len(upstream_edges)}"
+            )
+        upstream_label = upstream_edges[0].upstream
+        collection = node_outputs[upstream_label]
+
+        if isinstance(collection, list):
+            items: list[tuple[str, Any]] = [
+                (str(i), v) for i, v in enumerate(cast(list[Any], collection))
+            ]
+            is_dict = False
+        elif isinstance(collection, dict):
+            items = [(str(k), v) for k, v in cast(dict[str, Any], collection).items()]
+            is_dict = True
+        else:
+            raise TypeError(
+                f"MapNode '{map_node.label}' received {type(collection).__name__}, "
+                f"expected list or dict"
+            )
+
+        sub_sources = map_node.sub_dag.sources()
+        sub_sinks = map_node.sub_dag.sinks()
+        source_label = sub_sources[0].label
+        sink_label = sub_sinks[0].label
+
+        if isinstance(map_node.provenance_override, Path):
+            sub_db_path: Path | None = map_node.provenance_override
+        else:
+            sub_db_path = None
+
+        async def run_iteration(key: str, element: Any) -> Any:
+            sub_runner = DagRunner(map_node.sub_dag, sub_db_path)
+            iter_nsref = f"{dag_nsref}/{map_node.label}[{key}]"
+            sub_result = await sub_runner.run(
+                source_inputs={
+                    source_label: _single_element_inputs(map_node.sub_dag, source_label, element)
+                },
+                dag_nsref=iter_nsref,
+            )
+            if sub_result.status != "completed":
+                raise RuntimeError(f"Map iteration [{key}] failed: {sub_result.error}")
+            return sub_result.outputs[sink_label]
+
+        results = await asyncio.gather(*(run_iteration(k, v) for k, v in items))
+
+        if is_dict:
+            return {items[i][0]: results[i] for i in range(len(items))}
+        return list(results)
 
     async def _call_node(
         self,
@@ -251,6 +357,18 @@ class DagRunner:
             args = args[1:]
 
         kwargs: dict[str, Any] = {}
+
+        # MapNode upstreams have no return annotation; wire by position
+        map_edges = [
+            e
+            for e in upstream_edges
+            if isinstance(self.dag.nodes[e.upstream], MapNode) and e.upstream in node_outputs
+        ]
+        if map_edges and args:
+            for edge, arg in zip(map_edges, args, strict=False):
+                kwargs[arg.name] = node_outputs[edge.upstream]
+            return kwargs
+
         for arg in args:
             # Check if parameter expects a list (fan-in collection)
             list_elem_type = self._extract_list_element_type(arg.annotation)
