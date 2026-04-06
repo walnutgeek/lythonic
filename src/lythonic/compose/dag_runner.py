@@ -17,7 +17,7 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
-from lythonic.compose.namespace import Dag, DagContext, DagNode, MapNode
+from lythonic.compose.namespace import CallNode, CompositeDagNode, Dag, DagContext, DagNode, MapNode
 
 
 def _single_element_inputs(dag: Dag, source_label: str, element: Any) -> dict[str, Any]:
@@ -98,14 +98,19 @@ class DagRunner:
             if dag_node.label in node_outputs:
                 continue
 
-            if isinstance(dag_node, MapNode):
+            if isinstance(dag_node, CompositeDagNode):
                 self.provenance.record_node_start(
-                    run_id, dag_node.label, json.dumps({"map": True}, default=str)
+                    run_id,
+                    dag_node.label,
+                    json.dumps({"composite": type(dag_node).__name__}, default=str),
                 )
                 try:
-                    result = await self._execute_map_node(
-                        dag_node, run_id, dag_nsref, node_outputs, source_inputs
-                    )
+                    if isinstance(dag_node, MapNode):
+                        result = await self._execute_map_node(dag_node, dag_nsref, node_outputs)
+                    elif isinstance(dag_node, CallNode):
+                        result = await self._execute_call_node(dag_node, dag_nsref, node_outputs)
+                    else:
+                        raise ValueError(f"Unknown composite node type: {type(dag_node)}")
                     node_outputs[dag_node.label] = result
                     self.provenance.record_node_complete(
                         run_id, dag_node.label, json.dumps(result, default=str)
@@ -174,23 +179,53 @@ class DagRunner:
             outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
         )
 
+    def _get_upstream_output(
+        self,
+        composite_node: CompositeDagNode,
+        node_outputs: dict[str, Any],
+    ) -> Any:
+        """Get the single upstream output for a composite node."""
+        upstream_edges = [e for e in self.dag.edges if e.downstream == composite_node.label]
+        if len(upstream_edges) != 1:
+            raise ValueError(
+                f"CompositeDagNode '{composite_node.label}' must have exactly one upstream edge, "
+                f"found {len(upstream_edges)}"
+            )
+        return node_outputs[upstream_edges[0].upstream]
+
+    async def _run_sub_dag(
+        self,
+        composite_node: CompositeDagNode,
+        element: Any,
+        key: str,
+        dag_nsref: str,
+    ) -> Any:
+        """Run a sub-DAG once with a single element as input."""
+        sub_sources = composite_node.sub_dag.sources()
+        sub_sinks = composite_node.sub_dag.sinks()
+        source_label = sub_sources[0].label
+        sink_label = sub_sinks[0].label
+
+        sub_runner = DagRunner(composite_node.sub_dag, provenance=self.provenance)
+        iter_nsref = f"{dag_nsref}/{composite_node.label}[{key}]"
+        sub_result = await sub_runner.run(
+            source_inputs={
+                source_label: _single_element_inputs(composite_node.sub_dag, source_label, element)
+            },
+            dag_nsref=iter_nsref,
+        )
+        if sub_result.status != "completed":
+            raise RuntimeError(f"Sub-DAG [{key}] failed: {sub_result.error}")
+        return sub_result.outputs[sink_label]
+
     async def _execute_map_node(
         self,
         map_node: MapNode,
-        run_id: str,  # pyright: ignore[reportUnusedParameter]
         dag_nsref: str,
         node_outputs: dict[str, Any],
-        source_inputs: dict[str, dict[str, Any]],  # pyright: ignore[reportUnusedParameter]
     ) -> Any:
         """Execute a MapNode by running sub-DAG on each collection element."""
-        upstream_edges = [e for e in self.dag.edges if e.downstream == map_node.label]
-        if len(upstream_edges) != 1:
-            raise ValueError(
-                f"MapNode '{map_node.label}' must have exactly one upstream edge, "
-                f"found {len(upstream_edges)}"
-            )
-        upstream_label = upstream_edges[0].upstream
-        collection = node_outputs[upstream_label]
+        collection = self._get_upstream_output(map_node, node_outputs)
 
         if isinstance(collection, list):
             items: list[tuple[str, Any]] = [
@@ -206,29 +241,23 @@ class DagRunner:
                 f"expected list or dict"
             )
 
-        sub_sources = map_node.sub_dag.sources()
-        sub_sinks = map_node.sub_dag.sinks()
-        source_label = sub_sources[0].label
-        sink_label = sub_sinks[0].label
-
-        async def run_iteration(key: str, element: Any) -> Any:
-            sub_runner = DagRunner(map_node.sub_dag, provenance=self.provenance)
-            iter_nsref = f"{dag_nsref}/{map_node.label}[{key}]"
-            sub_result = await sub_runner.run(
-                source_inputs={
-                    source_label: _single_element_inputs(map_node.sub_dag, source_label, element)
-                },
-                dag_nsref=iter_nsref,
-            )
-            if sub_result.status != "completed":
-                raise RuntimeError(f"Map iteration [{key}] failed: {sub_result.error}")
-            return sub_result.outputs[sink_label]
-
-        results = await asyncio.gather(*(run_iteration(k, v) for k, v in items))
+        results = await asyncio.gather(
+            *(self._run_sub_dag(map_node, v, k, dag_nsref) for k, v in items)
+        )
 
         if is_dict:
             return {items[i][0]: results[i] for i in range(len(items))}
         return list(results)
+
+    async def _execute_call_node(
+        self,
+        call_node: CallNode,
+        dag_nsref: str,
+        node_outputs: dict[str, Any],
+    ) -> Any:
+        """Execute a CallNode by running sub-DAG once with upstream output."""
+        upstream = self._get_upstream_output(call_node, node_outputs)
+        return await self._run_sub_dag(call_node, upstream, "call", dag_nsref)
 
     async def _call_node(
         self,
@@ -358,14 +387,14 @@ class DagRunner:
 
         kwargs: dict[str, Any] = {}
 
-        # MapNode upstreams have no return annotation; wire by position
-        map_edges = [
+        composite_edges = [
             e
             for e in upstream_edges
-            if isinstance(self.dag.nodes[e.upstream], MapNode) and e.upstream in node_outputs
+            if isinstance(self.dag.nodes[e.upstream], CompositeDagNode)
+            and e.upstream in node_outputs
         ]
-        if map_edges and args:
-            for edge, arg in zip(map_edges, args, strict=False):
+        if composite_edges and args:
+            for edge, arg in zip(composite_edges, args, strict=False):
                 kwargs[arg.name] = node_outputs[edge.upstream]
             return kwargs
 

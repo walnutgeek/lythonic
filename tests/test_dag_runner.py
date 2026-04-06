@@ -170,6 +170,14 @@ async def _async_join(values: list[str]) -> str:  # pyright: ignore[reportUnused
     return "|".join(values)
 
 
+async def _async_double_str(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
+    return text + text
+
+
+async def _async_make_text() -> str:  # pyright: ignore[reportUnusedFunction]
+    return "hello"
+
+
 def _capture_thread(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
     """Sync node that captures which thread it runs on."""
     return f"{threading.current_thread().name}:{value * 2}"
@@ -918,3 +926,79 @@ async def test_sync_node_with_dag_context_runs_in_executor_thread():
     assert label == "capture_ctx"
     assert value == "10"
     assert thread_name != threading.current_thread().name
+
+
+async def test_call_node_execution():
+    """CallNode runs a sub-DAG once with upstream output."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_double_str, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_make_text, nsref="t:make_text")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:double"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:make_text"))
+    c = parent.node(sub, label="doubler")
+    s >> c  # pyright: ignore[reportUnusedExpression]
+
+    runner = DagRunner(parent)
+    result = await runner.run(dag_nsref="t:call_test")
+
+    assert result.status == "completed"
+    assert result.outputs["doubler"] == "hellohello"
+
+
+async def test_call_node_in_chain():
+    """CallNode works in a multi-step chain: source -> call -> sink."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double_str, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_make_text, nsref="t:make_text")  # pyright: ignore[reportPrivateUsage]
+
+    # Sub-DAG: upper
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    # Parent: make_text -> call(upper) -> double
+    parent = Dag()
+    s = parent.node(ns.get("t:make_text"))
+    c = parent.node(sub, label="shout")
+    d = parent.node(ns.get("t:double"))
+    s >> c >> d  # pyright: ignore[reportUnusedExpression]
+
+    runner = DagRunner(parent)
+    result = await runner.run(dag_nsref="t:chain_test")
+
+    assert result.status == "completed"
+    assert result.outputs["double"] == "HELLOHELLO"
+
+
+async def test_call_node_error_propagation():
+    """If call sub-DAG fails, parent reports failure."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_fail_str, nsref="t:fail")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_make_text, nsref="t:make_text")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:fail"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:make_text"))
+    c = parent.node(sub, label="broken")
+    s >> c  # pyright: ignore[reportUnusedExpression]
+
+    runner = DagRunner(parent)
+    result = await runner.run(dag_nsref="t:fail_call")
+
+    assert result.status == "failed"
+    assert result.failed_node == "broken"
