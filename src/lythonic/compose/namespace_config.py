@@ -105,7 +105,6 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
 
     # Resolve storage paths
     cache_db = (config_dir / config.storage.cache_db) if config.storage.cache_db else None
-    dag_db = (config_dir / config.storage.dag_db) if config.storage.dag_db else None
 
     # Pass 1: register callable entries
     for entry in config.entries:
@@ -153,9 +152,6 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
                 dag.add_edge(upstream, downstream)
 
         dag.validate()
-
-        if dag_db is not None:
-            dag.db_path = dag_db
 
         ns.register(dag, nsref=entry.nsref, tags=entry.tags)
 

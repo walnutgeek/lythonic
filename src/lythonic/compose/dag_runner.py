@@ -12,7 +12,6 @@ import asyncio
 import functools
 import json
 import uuid
-from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -61,12 +60,9 @@ class DagRunner:
     provenance: DagProvenance | NullProvenance
     _pause_requested: bool
 
-    def __init__(self, dag: Dag, db_path: Path | None = None) -> None:
+    def __init__(self, dag: Dag, provenance: DagProvenance | NullProvenance | None = None) -> None:
         self.dag = dag
-        if db_path is not None:
-            self.provenance = DagProvenance(db_path)
-        else:
-            self.provenance = NullProvenance()
+        self.provenance = provenance or NullProvenance()
         self._pause_requested = False
 
     def pause(self) -> None:
@@ -215,13 +211,8 @@ class DagRunner:
         source_label = sub_sources[0].label
         sink_label = sub_sinks[0].label
 
-        if isinstance(map_node.provenance_override, Path):
-            sub_db_path: Path | None = map_node.provenance_override
-        else:
-            sub_db_path = None
-
         async def run_iteration(key: str, element: Any) -> Any:
-            sub_runner = DagRunner(map_node.sub_dag, sub_db_path)
+            sub_runner = DagRunner(map_node.sub_dag, provenance=self.provenance)
             iter_nsref = f"{dag_nsref}/{map_node.label}[{key}]"
             sub_result = await sub_runner.run(
                 source_inputs={

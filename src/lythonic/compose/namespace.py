@@ -64,7 +64,6 @@ import inspect as _inspect
 import logging
 import typing
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -398,9 +397,12 @@ class Namespace:
 
         dag.namespace = self
 
+        from lythonic.compose.dag_provenance import (
+            NullProvenance,  # pyright: ignore[reportImportCycles]
+        )
         from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
 
-        runner = DagRunner(dag, dag.db_path)
+        runner = DagRunner(dag, provenance=NullProvenance())
 
         async def dag_wrapper(**kwargs: Any) -> Any:
             source_labels = {n.label for n in dag.sources()}
@@ -514,14 +516,12 @@ class MapNode(DagNode):
     """
 
     sub_dag: Dag
-    provenance_override: type | Path | None
 
     def __init__(
         self,
         sub_dag: Dag,
         label: str,
         dag: Dag,
-        provenance_override: type | Path | None = None,
     ) -> None:
         # MapNode has no real callable — create a placeholder NamespaceNode.
         placeholder = NamespaceNode(
@@ -531,7 +531,6 @@ class MapNode(DagNode):
         )
         super().__init__(ns_node=placeholder, label=label, dag=dag)
         self.sub_dag = sub_dag
-        self.provenance_override = provenance_override
 
 
 class Dag:
@@ -543,13 +542,11 @@ class Dag:
     nodes: dict[str, DagNode]
     edges: list[DagEdge]
     namespace: Namespace
-    db_path: Path | None = None
 
     def __init__(self) -> None:
         self.nodes = {}
         self.edges = []
         self.namespace = Namespace()
-        self.db_path = None
 
     def node(
         self,
@@ -588,7 +585,6 @@ class Dag:
         self,
         sub_dag: Dag,
         label: str,
-        provenance_override: type | Path | None = None,
     ) -> MapNode:
         """
         Create a `MapNode` that runs `sub_dag` on each element of an
@@ -616,7 +612,6 @@ class Dag:
             sub_dag=sub_dag,
             label=label,
             dag=self,
-            provenance_override=provenance_override,
         )
         self.nodes[label] = map_node
         return map_node
@@ -743,7 +738,7 @@ class Dag:
             if node_kwargs:
                 source_inputs[node.label] = node_kwargs
 
-        runner = DagRunner(self, db_path=None)
+        runner = DagRunner(self)
         return await runner.run(source_inputs=source_inputs)
 
     def __enter__(self) -> Dag:
