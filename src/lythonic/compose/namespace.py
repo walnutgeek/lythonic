@@ -71,6 +71,7 @@ from pydantic import BaseModel
 
 from lythonic import GlobalRef
 from lythonic.compose import Method
+from lythonic.compose._inline import inline as inline
 
 
 class DagContext(BaseModel):

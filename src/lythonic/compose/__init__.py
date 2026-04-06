@@ -29,6 +29,7 @@ from typing import Any, Generic, NamedTuple, TypeVar
 from pydantic import BaseModel
 
 from lythonic import GlobalRef
+from lythonic.compose._inline import inline as inline
 from lythonic.types import KNOWN_TYPES
 
 
