@@ -397,12 +397,9 @@ class Namespace:
 
         dag.namespace = self
 
-        from lythonic.compose.dag_provenance import (
-            NullProvenance,  # pyright: ignore[reportImportCycles]
-        )
         from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
 
-        runner = DagRunner(dag, provenance=NullProvenance())
+        runner = DagRunner(dag)
 
         async def dag_wrapper(**kwargs: Any) -> Any:
             source_labels = {n.label for n in dag.sources()}
@@ -719,7 +716,7 @@ class Dag:
 
     async def __call__(self, **kwargs: Any) -> DagRunResult:
         """
-        Run the DAG directly with NullProvenance. Kwargs are matched
+        Run the DAG directly with DagRunner's default - NullProvenance. Kwargs are matched
         to source node parameters by name.
         """
         from lythonic.compose.dag_runner import (  # pyright: ignore[reportImportCycles]
