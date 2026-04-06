@@ -185,6 +185,11 @@ async def _capture_thread_async(value: int) -> str:  # pyright: ignore[reportUnu
     return f"{threading.current_thread().name}:{value * 2}"
 
 
+def _capture_thread_with_ctx(ctx: DagContext, value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Sync node with DagContext that captures which thread it runs on."""
+    return f"{threading.current_thread().name}:{ctx.node_label}:{value * 2}"
+
+
 async def test_linear_dag_execution():
     """Three nodes in a line: source -> double -> format."""
     from lythonic.compose.dag_runner import DagRunner
@@ -920,3 +925,28 @@ async def test_async_node_runs_on_event_loop_thread():
     thread_name, value = output.rsplit(":", 1)
     assert value == "10"
     assert thread_name == threading.current_thread().name
+
+
+async def test_sync_node_with_dag_context_runs_in_executor_thread():
+    """Sync DAG node with DagContext should also run in a separate thread."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._capture_thread_with_ctx, nsref="t:capture_ctx")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:capture_ctx"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"capture_ctx": {"value": 5}},
+        dag_nsref="test:executor_ctx",
+    )
+
+    assert result.status == "completed"
+    output = result.outputs["capture_ctx"]
+    thread_name, label, value = output.rsplit(":", 2)
+    assert label == "capture_ctx"
+    assert value == "10"
+    assert thread_name != threading.current_thread().name
