@@ -215,7 +215,7 @@ class DagProvenance:
 class NullProvenance:
     """
     No-op provenance -- discards writes, returns None/empty on reads.
-    Used when `DagRunner` is created without a `db_path`.
+    Used when `DagRunner` is created without explicit provenance.
     """
 
     def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:  # pyright: ignore[reportUnusedParameter]

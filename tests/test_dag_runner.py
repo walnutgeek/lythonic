@@ -601,8 +601,8 @@ async def test_dag_registered_in_namespace():
     assert result.outputs["double"] == 200.0  # pyright: ignore
 
 
-async def test_dag_registered_without_db_path():
-    """Dag registered in Namespace without explicit provenance uses NullProvenance."""
+async def test_dag_registered_without_provenance():
+    """Dag registered in Namespace uses NullProvenance."""
     from lythonic.compose.namespace import Dag, Namespace
 
     ns = Namespace()
@@ -614,7 +614,6 @@ async def test_dag_registered_without_db_path():
         d = dag.node(ns.get("t:double"))
         s >> d  # pyright: ignore[reportUnusedExpression]
 
-    # No db_path set
     ns.register(dag, nsref="pipelines:no_persist")
 
     node = ns.get("pipelines:no_persist")
@@ -625,7 +624,7 @@ async def test_dag_registered_without_db_path():
 
 
 async def test_runner_without_persistence():
-    """DagRunner with db_path=None executes successfully."""
+    """DagRunner without explicit provenance executes successfully."""
     from lythonic.compose.dag_runner import DagRunner
     from lythonic.compose.namespace import Dag, Namespace
 
