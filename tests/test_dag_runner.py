@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 import tests.test_dag_runner as this_module
+from lythonic.compose.dag_provenance import DagProvenance
 from lythonic.compose.namespace import DagContext, inline
 
 
@@ -207,7 +208,7 @@ async def test_linear_dag_execution():
         _ = s >> d >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "AAPL"}},
             dag_nsref="test:pipeline",
@@ -234,7 +235,7 @@ async def test_provenance_recorded_during_run():
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "runs.db"
-        runner = DagRunner(dag, db_path)
+        runner = DagRunner(dag, provenance=DagProvenance(db_path))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
             dag_nsref="t:pipe",
@@ -268,7 +269,7 @@ async def test_dag_context_injection():
         _ = s >> c
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
             dag_nsref="test:ctx_pipe",
@@ -300,7 +301,7 @@ async def test_fan_out_fan_in():
         _ = s >> a >> m
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
             dag_nsref="t:fanio",
@@ -328,7 +329,7 @@ async def test_node_failure():
         _ = s >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
             dag_nsref="t:fail_pipe",
@@ -365,7 +366,7 @@ async def test_node_driven_pause():
         _ = s >> p >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
             dag_nsref="t:pause_pipe",
@@ -420,7 +421,7 @@ async def test_external_pause():
         _ = s1 >> s2
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         async def pause_when_step1_starts():
             assert _ext_pause_event is not None
@@ -479,7 +480,7 @@ async def test_restart_paused_run():
         _ = s >> p >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         # First run pauses
         result1 = await runner.run(
@@ -512,7 +513,7 @@ async def test_restart_failed_run():
         _ = s >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         result1 = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
@@ -552,7 +553,7 @@ async def test_replay_selective_reexecution():
         _ = s >> d >> f
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(dag, Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         # First run
         result1 = await runner.run(
@@ -590,20 +591,18 @@ async def test_dag_registered_in_namespace():
         d = dag.node(ns.get("t:double"))
         _ = s >> d
 
-    with tempfile.TemporaryDirectory() as tmp:
-        dag.db_path = Path(tmp) / "runs.db"
-        ns.register(dag, nsref="pipelines:my_pipe")
+    ns.register(dag, nsref="pipelines:my_pipe")
 
-        node = ns.get("pipelines:my_pipe")
-        result = await node(source={"ticker": "X"})
+    node = ns.get("pipelines:my_pipe")
+    result = await node(source={"ticker": "X"})
 
-        assert result.run_id is not None  # pyright: ignore
-        assert result.status == "completed"  # pyright: ignore
-        assert result.outputs["double"] == 200.0  # pyright: ignore
+    assert result.run_id is not None  # pyright: ignore
+    assert result.status == "completed"  # pyright: ignore
+    assert result.outputs["double"] == 200.0  # pyright: ignore
 
 
 async def test_dag_registered_without_db_path():
-    """Dag with no db_path registered in Namespace uses NullProvenance."""
+    """Dag registered in Namespace without explicit provenance uses NullProvenance."""
     from lythonic.compose.namespace import Dag, Namespace
 
     ns = Namespace()
@@ -716,7 +715,7 @@ async def test_map_over_list():
     s >> m >> j  # pyright: ignore[reportUnusedExpression]
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"split": {"text": "hello,world,foo"}},
             dag_nsref="t:map_test",
@@ -756,7 +755,7 @@ async def test_map_over_dict():
     s >> m  # pyright: ignore[reportUnusedExpression]
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"make_dict": {"text": "hello"}},
             dag_nsref="t:dict_map",
@@ -764,36 +763,6 @@ async def test_map_over_dict():
 
         assert result.status == "completed"
         assert result.outputs["regions"] == {"us": "HELLO_US", "eu": "HELLO_EU"}
-
-
-async def test_map_provenance_override():
-    """Sub-DAG provenance can be directed to a separate DB."""
-    from lythonic.compose.dag_runner import DagRunner
-    from lythonic.compose.namespace import Dag, Namespace
-
-    ns = Namespace()
-    ns.register(this_module._async_split, nsref="t:split")  # pyright: ignore[reportPrivateUsage]
-    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
-
-    sub = Dag()
-    sub.node(ns.get("t:upper"))
-
-    with tempfile.TemporaryDirectory() as tmp:
-        sub_db = Path(tmp) / "sub_provenance.db"
-
-        parent = Dag()
-        s = parent.node(ns.get("t:split"))
-        m = parent.map(sub, label="mapped", provenance_override=sub_db)
-        s >> m  # pyright: ignore[reportUnusedExpression]
-
-        runner = DagRunner(parent, Path(tmp) / "runs.db")
-        result = await runner.run(
-            source_inputs={"split": {"text": "a,b"}},
-            dag_nsref="t:prov_test",
-        )
-
-        assert result.status == "completed"
-        assert sub_db.exists()
 
 
 async def test_map_invalid_input_type_raises():
@@ -814,7 +783,7 @@ async def test_map_invalid_input_type_raises():
     s >> m  # pyright: ignore[reportUnusedExpression]
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={},
             dag_nsref="t:type_test",
@@ -843,7 +812,7 @@ async def test_map_iteration_failure_propagates():
     s >> m  # pyright: ignore[reportUnusedExpression]
 
     with tempfile.TemporaryDirectory() as tmp:
-        runner = DagRunner(parent, Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"split": {"text": "a,b"}},
             dag_nsref="t:fail_map",
