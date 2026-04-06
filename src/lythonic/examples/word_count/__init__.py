@@ -20,7 +20,7 @@ def split_text(text: str) -> list[str]:
 
 
 def tokenize(text: str) -> list[str]:
-    return re.split(r'[\s:(){}\[\]"\'\-\.,]+', text)
+    return re.split(r'[\s:(){}\[\]"\'\-\.,|#`=]+', text.lower())
 
 
 def count(words: list[str]) -> dict[str, int]:
@@ -35,15 +35,15 @@ def reduce(counts_to_merge: list[dict[str, int]]) -> dict[str, int]:
     return dict(cc.most_common(10))
 
 
-ns = Namespace()
+# ns = Namespace()
 # Sub-DAG: tokenize -> count (applied to each text chunk)
 tc_dag = Dag()
-ns.register(tc_dag, nsref=f"{__name__}:tc_dag")
+# ns.register(tc_dag, nsref=f"{__name__}:tc_dag")
 tc_dag.node(tokenize) >> tc_dag.node(count)  # pyright: ignore[reportUnusedExpression]
 
 # Main DAG: get_text -> split_text -> map(tc_dag) -> reduce
 main_dag = Dag()
-ns.register(main_dag, nsref=f"{__name__}:main_dag")
+# ns.register(main_dag, nsref=f"{__name__}:main_dag")
 (
     main_dag.node(get_text)
     >> main_dag.node(split_text)
