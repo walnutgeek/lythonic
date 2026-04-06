@@ -3,7 +3,7 @@ import re
 from collections import Counter
 
 import lythonic.state as ls
-from lythonic.compose.namespace import Dag, Namespace
+from lythonic.compose.namespace import Dag
 
 
 def get_text() -> str:
