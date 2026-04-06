@@ -67,6 +67,7 @@ nav:
   - How-To Guides:
       - Define a Schema: how-to/define-schema.md
       - Multi-Tenant Apps: how-to/multi-tenant.md
+      - Composable DAGs: how-to/composable-dags.md
   - API Reference:
       - lythonic: reference/core.md
       - compose:

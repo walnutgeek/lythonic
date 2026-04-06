@@ -7,11 +7,10 @@ DAGs, and **state** for structured data persistence with SQLite and Pydantic.
 
 ## Compose: Callable Pipelines
 
-Register functions in a namespace, wire them into a DAG, and execute:
+Define functions, wire them into a DAG, and execute:
 
 ```python
-from lythonic.compose.namespace import Namespace, Dag
-from lythonic.compose.dag_runner import DagRunner
+from lythonic.compose.namespace import Dag
 import asyncio
 
 def fetch(url: str) -> dict:
@@ -20,17 +19,24 @@ def fetch(url: str) -> dict:
 def transform(data: dict) -> dict:
     return {"source": data["source"], "values": [v * 2 for v in data["raw"]]}
 
-ns = Namespace()
-ns.register(fetch, nsref="pipeline:fetch")
-ns.register(transform, nsref="pipeline:transform")
+dag = Dag()
+dag.node(fetch) >> dag.node(transform)
 
-with Dag() as dag:
-    dag.node(ns.get("pipeline:fetch")) >> dag.node(ns.get("pipeline:transform"))
-
-runner = DagRunner(dag)
-result = asyncio.run(runner.run(source_inputs={"fetch": {"url": "https://example.com"}}))
+# Call the DAG directly (uses NullProvenance)
+result = asyncio.run(dag(url="https://example.com"))
 print(result.status)   # "completed"
 print(result.outputs)  # {"transform": {"source": "https://example.com", "values": [2, 4, 6]}}
+```
+
+For production use with provenance tracking:
+
+```python
+from pathlib import Path
+from lythonic.compose.dag_runner import DagRunner
+from lythonic.compose.dag_provenance import DagProvenance
+
+runner = DagRunner(dag, provenance=DagProvenance(Path("pipeline.db")))
+result = asyncio.run(runner.run(source_inputs={"fetch": {"url": "https://example.com"}}))
 ```
 
 ## State: Structured Persistence

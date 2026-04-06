@@ -3,7 +3,20 @@
 DagRunner: Async execution engine for DAGs with provenance tracking.
 
 Executes DAG nodes in topological order, wiring outputs to inputs by type.
-Supports DagContext injection, pause/restart, and selective replay.
+Supports `DagContext` injection, pause/restart, and selective replay.
+
+Constructor: `DagRunner(dag, provenance=...)`. When `provenance` is omitted,
+defaults to `NullProvenance` (no persistence). Pass a `DagProvenance(path)`
+for SQLite-backed run history.
+
+Sync node functions are dispatched to a thread executor by default so they
+don't block the async event loop. Use the `@inline` decorator
+(`lythonic.compose._inline.inline`) to opt out for lightweight pure-computation
+functions.
+
+Handles `CompositeDagNode` subtypes: `MapNode` runs a sub-DAG on each element
+of a collection (concurrent via `asyncio.gather`), and `CallNode` runs a
+sub-DAG once as a single pipeline step.
 """
 
 from __future__ import annotations

@@ -13,14 +13,24 @@ Includes `DagContext` as base context for DAG-participating callables.
 
 ## Usage
 
-```python
-from lythonic.compose.namespace import Namespace
+Each `Dag` owns a `Namespace`. Passing a callable to `dag.node()` auto-registers
+it in the DAG's namespace (derived from the callable's module and name):
 
-ns = Namespace()
-ns.register(fetch_prices, nsref="market:fetch_prices")
-node = ns.get("market:fetch_prices")
-result = node(ticker="AAPL")
+```python
+from lythonic.compose.namespace import Dag
+
+def fetch(url: str) -> dict:
+    return {"source": url, "raw": [1, 2, 3]}
+
+def transform(data: dict) -> dict:
+    return {"source": data["source"], "values": [v * 2 for v in data["raw"]]}
+
+dag = Dag()
+dag.node(fetch) >> dag.node(transform)
 ```
+
+You can also register callables in a standalone `Namespace` and look them up
+by path or dot-access (e.g. `ns.get("market:fetch")` or `ns.market.fetch`).
 
 ## Tags
 
@@ -42,20 +52,43 @@ characters.
 
 ## Map
 
-Run a sub-DAG on each element of a collection:
+`Dag.map(sub_dag, label)` creates a `MapNode` that runs a sub-DAG on each
+element of an upstream `list` or `dict`, concurrently via `asyncio.gather`:
 
 ```python
 sub_dag = Dag()
-sub_dag.node(process_fn)
+sub_dag.node(tokenize) >> sub_dag.node(count)
 
 parent = Dag()
-s = parent.node(split_fn)
-m = parent.map(sub_dag, label="chunks")
-j = parent.node(reduce_fn)
-s >> m >> j
+parent.node(split_text) >> parent.map(sub_dag, label="chunks") >> parent.node(reduce)
 ```
 
-Each element is processed concurrently. Supports `list` and `dict` inputs.
+The sub-DAG must have exactly one source and one sink.
+
+## Composable DAGs
+
+`dag.node(sub_dag, label="enrich")` creates a `CallNode` that runs a sub-DAG
+once as a single step, passing the upstream output to the sub-DAG's source:
+
+```python
+enrich_dag = Dag()
+enrich_dag.node(lookup) >> enrich_dag.node(annotate)
+
+parent = Dag()
+parent.node(fetch) >> parent.node(enrich_dag, label="enrich") >> parent.node(save)
+```
+
+## Callable DAGs
+
+A `Dag` is directly callable. `await dag(**kwargs)` creates a `DagRunner`
+with `NullProvenance` and returns a `DagRunResult`. Kwargs are matched to
+source node parameters by name:
+
+```python
+result = await dag(url="https://example.com")
+print(result.status)   # "completed"
+print(result.outputs)  # sink node outputs
+```
 """
 
 from __future__ import annotations

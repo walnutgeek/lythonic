@@ -12,3 +12,6 @@ Hierarchical registry of callables with metadata and DAG composition.
         - Dag
         - DagNode
         - DagEdge
+        - CompositeDagNode
+        - MapNode
+        - CallNode

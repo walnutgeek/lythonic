@@ -1,15 +1,18 @@
 # Build a Pipeline
 
 This tutorial walks through building a data-enrichment pipeline using
-lythonic's compose stack. You'll register callables in a namespace, wire
-them into a DAG, execute it, add provenance tracking, and layer on caching.
+lythonic's compose stack. You'll register callables in a DAG, wire
+them into a pipeline, execute it, add provenance tracking, and layer on caching.
 
 ## Register Callables in a Namespace
 
 A `Namespace` is a hierarchical registry for callables. Paths use `.` for
 branches and `:` for the leaf name — like `"pipeline.data:fetch"`.
 
-Start by defining two plain functions and registering them:
+Each `Dag` owns its own `Namespace`. When you pass a plain callable to
+`dag.node()`, it is auto-registered in the DAG's namespace using the
+callable's module and name. You can also register callables in a standalone
+`Namespace` for sharing across DAGs:
 
 ```python
 from lythonic.compose.namespace import Namespace
@@ -47,18 +50,23 @@ optional decorator.
 
 ## Define a DAG
 
-A `Dag` connects namespace nodes into a directed acyclic graph using the
-`>>` operator. Nodes are created from registered `NamespaceNode`s, and
-edges declare data flow.
+A `Dag` connects callables into a directed acyclic graph using the
+`>>` operator. The simplest way is to pass callables directly to
+`dag.node()` — they are auto-registered in the DAG's own namespace:
 
 ```python
 from lythonic.compose.namespace import Dag
 
 dag = Dag()
+dag.node(fetch) >> dag.node(transform)
+```
 
+You can also pass pre-registered `NamespaceNode`s:
+
+```python
+dag = Dag()
 fetch_node = dag.node(ns.get("pipeline.data:fetch"))
 transform_node = dag.node(ns.get("pipeline.data:transform"))
-
 fetch_node >> transform_node
 ```
 
@@ -71,9 +79,7 @@ You can also use a context manager, which validates the DAG on exit
 
 ```python
 with Dag() as dag:
-    f = dag.node(ns.get("pipeline.data:fetch"))
-    t = dag.node(ns.get("pipeline.data:transform"))
-    f >> t
+    dag.node(fetch) >> dag.node(transform)
 # Validation runs automatically here
 ```
 
@@ -85,12 +91,10 @@ def validate(data: dict) -> dict:
     assert all(v > 0 for v in data["values"]), "Negative value found"
     return data
 
-ns.register(validate, nsref="pipeline.data:validate")
-
 with Dag() as dag:
-    f = dag.node(ns.get("pipeline.data:fetch"))
-    t = dag.node(ns.get("pipeline.data:transform"))
-    v = dag.node(ns.get("pipeline.data:validate"))
+    f = dag.node(fetch)
+    t = dag.node(transform)
+    v = dag.node(validate)
     f >> t >> v
 ```
 
@@ -123,13 +127,62 @@ The runner:
 2. Wires each node's return value to the next node's parameters by matching types
 3. Collects sink node outputs (nodes with no downstream edges) into `result.outputs`
 
-Without a `db_path`, the runner uses `NullProvenance` — no persistence,
-just in-memory execution.
+Without provenance, the runner uses `NullProvenance` — no persistence,
+just in-memory execution. Sync node functions are dispatched to a thread
+executor by default so they don't block the event loop; use the `@inline`
+decorator to opt out for lightweight pure functions.
+
+## Callable DAGs
+
+A `Dag` is directly callable — `await dag(**kwargs)` creates a `DagRunner`
+with `NullProvenance`, matches kwargs to source node parameters by name,
+and returns a `DagRunResult`:
+
+```python
+async def main():
+    result = await dag(url="https://example.com/data")
+    print(result.status)    # "completed"
+    print(result.outputs)   # {"validate": ...}
+
+asyncio.run(main())
+```
+
+This is convenient for quick execution without explicit runner setup.
+
+## Composable DAGs
+
+### MapNode: Process Collections
+
+`Dag.map(sub_dag, label)` creates a `MapNode` that runs a sub-DAG on each
+element of an upstream `list` or `dict`, concurrently via `asyncio.gather`.
+The sub-DAG must have exactly one source and one sink:
+
+```python
+sub_dag = Dag()
+sub_dag.node(tokenize) >> sub_dag.node(count)
+
+parent = Dag()
+parent.node(split_text) >> parent.map(sub_dag, label="chunks") >> parent.node(reduce)
+```
+
+### CallNode: Inline Sub-DAGs
+
+`dag.node(sub_dag, label="enrich")` creates a `CallNode` that runs a
+sub-DAG once as a single step, passing the upstream output to the
+sub-DAG's source:
+
+```python
+enrich_dag = Dag()
+enrich_dag.node(lookup) >> enrich_dag.node(annotate)
+
+parent = Dag()
+parent.node(fetch) >> parent.node(enrich_dag, label="enrich") >> parent.node(save)
+```
 
 ## Add Provenance
 
-To track run history, pass a `db_path` to `DagRunner`. This creates a
-SQLite database with two tables: `dag_runs` (run lifecycle) and
+To track run history, pass a `DagProvenance` instance to `DagRunner`. This
+creates a SQLite database with two tables: `dag_runs` (run lifecycle) and
 `node_executions` (per-node inputs, outputs, timing, errors).
 
 ```python
@@ -137,7 +190,7 @@ from pathlib import Path
 from lythonic.compose.dag_runner import DagRunner
 from lythonic.compose.dag_provenance import DagProvenance
 
-runner = DagRunner(dag, db_path=Path("pipeline.db"))
+runner = DagRunner(dag, provenance=DagProvenance(Path("pipeline.db")))
 
 async def main():
     result = await runner.run(
