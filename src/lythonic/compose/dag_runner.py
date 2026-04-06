@@ -9,6 +9,7 @@ Supports DagContext injection, pause/restart, and selective replay.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import uuid
 from pathlib import Path
@@ -248,6 +249,8 @@ class DagRunner:
         """Call a node's function, injecting DagContext if expected."""
         fn = dag_node.ns_node._decorated or dag_node.ns_node.method.o  # pyright: ignore[reportPrivateUsage]
 
+        is_inline = getattr(fn, "_lythonic_inline", False)
+
         if dag_node.ns_node.expects_dag_context():
             ctx_type = dag_node.ns_node.dag_context_type() or DagContext
             ctx = ctx_type(
@@ -257,11 +260,17 @@ class DagRunner:
             )
             if asyncio.iscoroutinefunction(fn):
                 return await fn(ctx, **kwargs)
-            return fn(ctx, **kwargs)
+            if is_inline:
+                return fn(ctx, **kwargs)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, functools.partial(fn, ctx, **kwargs))
 
         if asyncio.iscoroutinefunction(fn):
             return await fn(**kwargs)
-        return fn(**kwargs)
+        if is_inline:
+            return fn(**kwargs)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, functools.partial(fn, **kwargs))
 
     async def restart(self, run_id: str) -> DagRunResult:
         """Restart a paused or failed run from where it left off."""

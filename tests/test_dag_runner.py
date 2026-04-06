@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import threading
 from pathlib import Path
 
 import tests.test_dag_runner as this_module
-from lythonic.compose.namespace import DagContext
+from lythonic.compose.namespace import DagContext, inline
 
 
 def test_provenance_create_and_get_run():
@@ -166,6 +167,22 @@ async def _async_upper(text: str) -> str:  # pyright: ignore[reportUnusedFunctio
 
 async def _async_join(values: list[str]) -> str:  # pyright: ignore[reportUnusedFunction]
     return "|".join(values)
+
+
+def _capture_thread(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Sync node that captures which thread it runs on."""
+    return f"{threading.current_thread().name}:{value * 2}"
+
+
+@inline
+def _capture_thread_inline(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Inline sync node that captures which thread it runs on."""
+    return f"{threading.current_thread().name}:{value * 2}"
+
+
+async def _capture_thread_async(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Async node that captures which thread it runs on."""
+    return f"{threading.current_thread().name}:{value * 2}"
 
 
 async def test_linear_dag_execution():
@@ -829,3 +846,77 @@ async def test_map_iteration_failure_propagates():
 
         assert result.status == "failed"
         assert result.failed_node == "mapped"
+
+
+async def test_sync_node_runs_in_executor_thread():
+    """Sync DAG node should run in a separate thread, not the event loop thread."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._capture_thread, nsref="t:capture")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:capture"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"capture": {"value": 5}},
+        dag_nsref="test:executor",
+    )
+
+    assert result.status == "completed"
+    output = result.outputs["capture"]
+    thread_name, value = output.rsplit(":", 1)
+    assert value == "10"
+    # Must NOT be the main thread (MainThread) -- should be a ThreadPoolExecutor thread
+    assert thread_name != threading.current_thread().name
+
+
+async def test_inline_sync_node_runs_on_event_loop_thread():
+    """@inline sync DAG node should run on the event loop thread."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._capture_thread_inline, nsref="t:capture_inline")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:capture_inline"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"capture_inline": {"value": 5}},
+        dag_nsref="test:inline",
+    )
+
+    assert result.status == "completed"
+    output = result.outputs["capture_inline"]
+    thread_name, value = output.rsplit(":", 1)
+    assert value == "10"
+    # Must be the same thread as the event loop
+    assert thread_name == threading.current_thread().name
+
+
+async def test_async_node_runs_on_event_loop_thread():
+    """Async DAG node should always run on the event loop thread (regression guard)."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._capture_thread_async, nsref="t:capture_async")  # pyright: ignore[reportPrivateUsage]
+
+    with Dag() as dag:
+        dag.node(ns.get("t:capture_async"))
+
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"capture_async": {"value": 5}},
+        dag_nsref="test:async",
+    )
+
+    assert result.status == "completed"
+    output = result.outputs["capture_async"]
+    thread_name, value = output.rsplit(":", 1)
+    assert value == "10"
+    assert thread_name == threading.current_thread().name
