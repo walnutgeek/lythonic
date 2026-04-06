@@ -65,7 +65,10 @@ import logging
 import typing
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lythonic.compose.dag_runner import DagRunResult  # pyright: ignore[reportImportCycles]
 
 from pydantic import BaseModel
 
@@ -718,6 +721,30 @@ class Dag:
         """Return nodes with no downstream edges."""
         has_downstream = {edge.upstream for edge in self.edges}
         return [self.nodes[label] for label in self.nodes if label not in has_downstream]
+
+    async def __call__(self, **kwargs: Any) -> DagRunResult:
+        """
+        Run the DAG directly with NullProvenance. Kwargs are matched
+        to source node parameters by name.
+        """
+        from lythonic.compose.dag_runner import (  # pyright: ignore[reportImportCycles]
+            DagRunner,
+        )
+
+        source_inputs: dict[str, dict[str, Any]] = {}
+        for node in self.sources():
+            if node.label in kwargs and isinstance(kwargs[node.label], dict):
+                source_inputs[node.label] = kwargs[node.label]
+                continue
+            node_args = node.ns_node.method.args
+            if node.ns_node.expects_dag_context():
+                node_args = node_args[1:]
+            node_kwargs = {a.name: kwargs[a.name] for a in node_args if a.name in kwargs}
+            if node_kwargs:
+                source_inputs[node.label] = node_kwargs
+
+        runner = DagRunner(self, db_path=None)
+        return await runner.run(source_inputs=source_inputs)
 
     def __enter__(self) -> Dag:
         return self

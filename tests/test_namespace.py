@@ -29,6 +29,14 @@ def _ctx_fn(ctx: DagContext, value: float) -> float:  # pyright: ignore[reportUn
     return value * 2
 
 
+def _constant() -> str:
+    return "hello"
+
+
+def _boom() -> str:
+    raise RuntimeError("intentional failure")
+
+
 def _get_sample_fn():  # pyright: ignore[reportUnusedFunction]
     return this_module._sample_fn  # pyright: ignore[reportPrivateUsage]
 
@@ -781,6 +789,51 @@ def test_dag_map_multi_sink_raises():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "one sink" in str(e).lower()
+
+
+# Dag.__call__
+
+
+async def test_dag_callable_no_inputs():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._constant, nsref="t:constant")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:constant"))
+
+    result = await dag()
+    assert result.status == "completed"
+    assert result.outputs["constant"] == "hello"
+
+
+async def test_dag_callable_with_kwargs():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:fetch")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:fetch"))
+
+    result = await dag(ticker="AAPL")
+    assert result.status == "completed"
+    assert result.outputs["fetch"] == {"ticker": "AAPL", "limit": 10}
+
+
+async def test_dag_callable_error_propagation():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._boom, nsref="t:boom")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:boom"))
+
+    result = await dag()
+    assert result.status == "failed"
+    assert "intentional failure" in (result.error or "")
 
 
 # Tags
