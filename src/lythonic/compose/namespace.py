@@ -505,29 +505,41 @@ class DagNode:
         return other
 
 
-class MapNode(DagNode):
+class CompositeDagNode(DagNode):
     """
-    A DAG node that runs a sub-DAG on each element of a collection.
-    Created via `Dag.map()`. The sub-DAG must have exactly one source
-    and one sink.
+    Base class for DAG nodes that contain a sub-DAG. Validates the
+    sub-DAG has exactly one source and one sink.
     """
 
     sub_dag: Dag
 
-    def __init__(
-        self,
-        sub_dag: Dag,
-        label: str,
-        dag: Dag,
-    ) -> None:
-        # MapNode has no real callable — create a placeholder NamespaceNode.
+    def __init__(self, sub_dag: Dag, label: str, dag: Dag) -> None:
+        sources = sub_dag.sources()
+        sinks = sub_dag.sinks()
+        if len(sources) != 1:
+            raise ValueError(f"Sub-DAG must have exactly one source, found {len(sources)}")
+        if len(sinks) != 1:
+            raise ValueError(f"Sub-DAG must have exactly one sink, found {len(sinks)}")
+
         placeholder = NamespaceNode(
             method=Method(lambda: None),
-            nsref=f"__map__:{label}",
+            nsref=f"__composite__:{label}",
             namespace=dag.namespace,
         )
         super().__init__(ns_node=placeholder, label=label, dag=dag)
         self.sub_dag = sub_dag
+
+
+class MapNode(CompositeDagNode):
+    """Runs a sub-DAG on each element of a collection."""
+
+    pass
+
+
+class CallNode(CompositeDagNode):
+    """Runs a sub-DAG once as a single step."""
+
+    pass
 
 
 class Dag:
@@ -547,14 +559,29 @@ class Dag:
 
     def node(
         self,
-        source: NamespaceNode | Callable[..., Any],
+        source: NamespaceNode | Callable[..., Any] | Dag,
         label: str | None = None,
     ) -> DagNode:
         """
         Create a unique `DagNode` in this graph. If `label` is `None`,
         derived from the source's nsref leaf name. Raises `ValueError`
         if the label already exists.
+
+        When `source` is a `Dag`, creates a `CallNode` that runs the
+        sub-DAG as a single step. `label` is required in this case.
         """
+        if isinstance(source, Dag):
+            if label is None:
+                raise ValueError("label is required when passing a Dag to node()")
+            if label in self.nodes:
+                raise ValueError(
+                    f"Label '{label}' already exists in DAG. "
+                    f"Use an explicit label for duplicate callables."
+                )
+            call_node = CallNode(sub_dag=source, label=label, dag=self)
+            self.nodes[label] = call_node
+            return call_node
+
         if isinstance(source, NamespaceNode):
             ns_node = source
         else:
@@ -590,15 +617,6 @@ class Dag:
         """
         if not label:
             raise ValueError("label is required for map()")
-
-        sources = sub_dag.sources()
-        sinks = sub_dag.sinks()
-        if len(sources) != 1:
-            raise ValueError(
-                f"Sub-DAG must have exactly one source for map(), found {len(sources)}"
-            )
-        if len(sinks) != 1:
-            raise ValueError(f"Sub-DAG must have exactly one sink for map(), found {len(sinks)}")
 
         if label in self.nodes:
             raise ValueError(

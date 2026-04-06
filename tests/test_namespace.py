@@ -791,6 +791,109 @@ def test_dag_map_multi_sink_raises():
         assert "one sink" in str(e).lower()
 
 
+# CallNode
+
+
+def test_dag_node_with_sub_dag_creates_call_node():
+    from lythonic.compose.namespace import CallNode, Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:process")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:process"))
+
+    parent = Dag()
+    c = parent.node(sub_dag, label="enrich")
+
+    assert isinstance(c, CallNode)
+    assert c.label == "enrich"
+    assert c.sub_dag is sub_dag
+    assert "enrich" in parent.nodes
+
+
+def test_dag_node_with_sub_dag_requires_label():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:process")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:process"))
+
+    parent = Dag()
+    try:
+        parent.node(sub_dag)
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "label" in str(e).lower()
+
+
+def test_dag_node_with_sub_dag_multi_source_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:a")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:b")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:a"))
+    sub_dag.node(ns.get("t:b"))
+
+    parent = Dag()
+    try:
+        parent.node(sub_dag, label="bad")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "one source" in str(e).lower()
+
+
+def test_dag_node_with_sub_dag_multi_sink_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:src")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:sink1")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="t:sink2")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    s = sub_dag.node(ns.get("t:src"))
+    s1 = sub_dag.node(ns.get("t:sink1"))
+    s2 = sub_dag.node(ns.get("t:sink2"))
+    s >> s1  # pyright: ignore[reportUnusedExpression]
+    s >> s2  # pyright: ignore[reportUnusedExpression]
+
+    parent = Dag()
+    try:
+        parent.node(sub_dag, label="bad")
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "one sink" in str(e).lower()
+
+
+def test_call_node_wires_with_rshift():
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="t:process")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._sample_fn, nsref="t:sink")  # pyright: ignore[reportPrivateUsage]
+
+    sub_dag = Dag()
+    sub_dag.node(ns.get("t:process"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:source"))
+    c = parent.node(sub_dag, label="enrich")
+    k = parent.node(ns.get("t:sink"), label="sink")
+    s >> c >> k  # pyright: ignore[reportUnusedExpression]
+
+    assert len(parent.edges) == 2
+    edge_pairs = [(e.upstream, e.downstream) for e in parent.edges]
+    assert ("source", "enrich") in edge_pairs
+    assert ("enrich", "sink") in edge_pairs
+
+
 # Dag.__call__
 
 
