@@ -321,6 +321,7 @@ class Namespace:
     def __init__(self) -> None:
         self._branches = {}
         self._leaves = {}
+        self._triggers: dict[str, Any] = {}
 
     def _get_or_create_branch(self, parts: list[str]) -> Namespace:
         """Navigate to a branch, creating intermediate branches as needed."""
@@ -499,9 +500,39 @@ class Namespace:
         tokens = _parse_tag_expr(expr)
         return [node for node in self._all_leaves() if _eval_tag_expr(tokens, node.tags)]
 
+    def register_trigger(
+        self,
+        name: str,
+        dag_nsref: str,
+        trigger_type: str,
+        interval: Any | None = None,
+        poll_fn: Callable[[], Any] | None = None,
+    ) -> Any:
+        """Register a trigger definition. Purely declarative."""
+        from lythonic.compose.trigger import TriggerDef
+
+        if name in self._triggers:
+            raise ValueError(f"Trigger '{name}' already registered")
+
+        td = TriggerDef(
+            name=name,
+            dag_nsref=dag_nsref,
+            trigger_type=trigger_type,
+            interval=interval,
+            poll_fn=poll_fn,
+        )
+        self._triggers[name] = td
+        return td
+
+    def get_trigger(self, name: str) -> Any:
+        """Retrieve a trigger definition by name. Raises `KeyError` if not found."""
+        if name not in self._triggers:
+            raise KeyError(f"Trigger '{name}' not found")
+        return self._triggers[name]
+
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
-        if name in ("_branches", "_leaves"):
+        if name in ("_branches", "_leaves", "_triggers"):
             raise AttributeError(name)
         if name in self._branches:
             return self._branches[name]
