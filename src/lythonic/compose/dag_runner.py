@@ -31,10 +31,7 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
-from lythonic.compose.log_context import (
-    NodeRunContext,
-    _current_node_run,  # pyright: ignore[reportPrivateUsage]
-)
+from lythonic.compose.log_context import reset_node_run_context, set_node_run_context
 from lythonic.compose.namespace import CallNode, CompositeDagNode, Dag, DagContext, DagNode, MapNode
 
 
@@ -289,7 +286,7 @@ class DagRunner:
 
         is_inline = getattr(fn, "_lythonic_inline", False)
 
-        token = _current_node_run.set(NodeRunContext(run_id=run_id, node_label=dag_node.label))
+        token = set_node_run_context(run_id=run_id, node_label=dag_node.label)
         try:
             if dag_node.ns_node.expects_dag_context():
                 ctx_type = dag_node.ns_node.dag_context_type() or DagContext
@@ -318,7 +315,7 @@ class DagRunner:
             copied = contextvars.copy_context()
             return await loop.run_in_executor(None, copied.run, functools.partial(fn, **kwargs))
         finally:
-            _current_node_run.reset(token)
+            reset_node_run_context(token)
 
     async def restart(self, run_id: str) -> DagRunResult:
         """Restart a paused or failed run from where it left off."""

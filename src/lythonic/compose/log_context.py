@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
 
@@ -29,6 +29,16 @@ _current_node_run: ContextVar[NodeRunContext | None] = ContextVar("_current_node
 def get_node_run_context() -> NodeRunContext | None:
     """Return the current node run context, or `None` if not inside a node."""
     return _current_node_run.get()
+
+
+def set_node_run_context(run_id: str, node_label: str) -> Token[NodeRunContext | None]:
+    """Set the node run context. Returns a token for `reset_node_run_context`."""
+    return _current_node_run.set(NodeRunContext(run_id=run_id, node_label=node_label))
+
+
+def reset_node_run_context(token: Token[NodeRunContext | None]) -> None:
+    """Reset the node run context to the state before the matching `set` call."""
+    _current_node_run.reset(token)
 
 
 @contextmanager

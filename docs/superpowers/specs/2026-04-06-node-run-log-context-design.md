@@ -66,8 +66,9 @@ finally:
 
 This works across all three execution paths:
 - **async**: `ContextVar` is native to asyncio task context
-- **executor**: `run_in_executor` copies the current context to the worker
-  thread (Python 3.7+)
+- **executor**: `contextvars.copy_context().run()` wraps the call to propagate
+  `ContextVar` values to the worker thread (`run_in_executor` does not do
+  this automatically)
 - **inline**: same thread, same context
 
 ### Exports
