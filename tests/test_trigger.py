@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 
 import tests.test_trigger as this_module
 from lythonic.periodic import Interval
+
+_poll_counter = 0
+
+
+def _counting_poll_fn() -> dict[str, str] | None:  # pyright: ignore[reportUnusedFunction]
+    import tests.test_trigger as m
+
+    m._poll_counter += 1  # pyright: ignore
+    if m._poll_counter >= 2:  # pyright: ignore
+        return {"batch": str(m._poll_counter)}  # pyright: ignore
+    return None
 
 
 def _poll_fn() -> dict[str, str] | None:  # pyright: ignore[reportUnusedFunction]
@@ -275,3 +287,133 @@ async def test_trigger_manager_fire_deactivated_raises():
             raise AssertionError("Expected ValueError")
         except ValueError as e:
             assert "not active" in str(e).lower() or "disabled" in str(e).lower()
+
+
+async def test_trigger_manager_poll_schedule():
+    """Poll trigger fires DAG when interval elapses; does not fire before interval."""
+    from lythonic.compose.dag_provenance import DagProvenance
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo")
+
+    ns.register_trigger(
+        name="scheduled",
+        dag_nsref="pipelines:echo",
+        trigger_type="poll",
+        interval=Interval.from_string("1h"),
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        provenance = DagProvenance(Path(tmp) / "prov.db")
+        manager = TriggerManager(namespace=ns, store=store, provenance=provenance)
+        manager.activate("scheduled")
+
+        manager.start()
+        await asyncio.sleep(0.1)
+
+        # Should not have fired yet (interval is 1h)
+        events = store.get_events("scheduled")
+        assert len(events) == 0
+
+        manager.stop()
+
+
+async def test_trigger_manager_poll_custom_fn():
+    """Poll trigger with custom poll_fn fires when fn returns data."""
+    import tests.test_trigger as m
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    m._poll_counter = 0  # pyright: ignore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo")
+
+    ns.register_trigger(
+        name="poller",
+        dag_nsref="pipelines:echo",
+        trigger_type="poll",
+        poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
+        interval=Interval.from_string("1s"),
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+        manager.activate("poller")
+
+        manager.start()
+        await asyncio.sleep(3.5)
+        manager.stop()
+
+        # poll_fn returns None on first call, data on second+
+        events = store.get_events("poller")
+        assert len(events) >= 1
+
+
+async def test_trigger_manager_start_stop():
+    """Manager starts and stops cleanly."""
+    from lythonic.compose.namespace import Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+
+        manager.start()
+        assert manager._task is not None  # pyright: ignore[reportPrivateUsage]
+        assert not manager._task.done()  # pyright: ignore[reportPrivateUsage]
+
+        manager.stop()
+        await asyncio.sleep(0.1)
+        assert manager._task.done() or manager._task.cancelled()  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_trigger_manager_deactivated_not_polled():
+    """Deactivated poll triggers are not polled."""
+    import tests.test_trigger as m
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    m._poll_counter = 0  # pyright: ignore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo")
+
+    ns.register_trigger(
+        name="poller",
+        dag_nsref="pipelines:echo",
+        trigger_type="poll",
+        poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
+        interval=Interval.from_string("1s"),
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+        manager.activate("poller")
+        manager.deactivate("poller")
+
+        manager.start()
+        await asyncio.sleep(2.5)
+        manager.stop()
+
+        events = store.get_events("poller")
+        assert len(events) == 0

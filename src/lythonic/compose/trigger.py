@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
@@ -92,20 +95,26 @@ class TriggerStore:
         config: dict[str, Any] = {}
         if trigger_def.interval is not None:
             config["interval"] = str(trigger_def.interval)
+        if trigger_def.poll_fn is not None:
+            from lythonic import GlobalRef
 
+            config["poll_fn"] = str(GlobalRef(trigger_def.poll_fn))
+
+        now = time.time()
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
                 "INSERT OR REPLACE INTO trigger_activations "
-                "(name, dag_nsref, trigger_type, status, created_at, config_json) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(name, dag_nsref, trigger_type, status, last_run_at, created_at, config_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     trigger_def.name,
                     trigger_def.dag_nsref,
                     trigger_def.trigger_type,
                     "active",
-                    time.time(),
+                    now,  # treat activation time as the reference; first fire after one interval
+                    now,
                     json.dumps(config),
                 ),
             )
@@ -261,3 +270,62 @@ class TriggerManager:
         )
         self.store.update_last_run(name, result.run_id)
         return result
+
+    def start(self) -> None:
+        """Start the background asyncio task for polling active poll triggers."""
+        if self._task is not None and not self._task.done():
+            return
+        self._shutdown = asyncio.Event()
+        self._task = asyncio.create_task(self._poll_loop())
+
+    def stop(self) -> None:
+        """Signal the poll loop to stop and cancel the background task."""
+        if self._task is not None and not self._task.done():
+            self._shutdown.set()
+            self._task.cancel()
+
+    async def _poll_loop(self) -> None:
+        """Background loop that checks active poll triggers on their intervals."""
+        while not self._shutdown.is_set():
+            try:
+                active_polls = self.store.get_active_poll_triggers()
+                now = time.time()
+
+                for activation in active_polls:
+                    config = json.loads(activation.get("config_json") or "{}")
+                    interval_str = config.get("interval")
+                    if not interval_str:
+                        continue
+
+                    interval = Interval.from_string(interval_str)
+                    interval_seconds = interval.timedelta().total_seconds()
+                    last_run = activation.get("last_run_at") or 0
+
+                    if now - last_run < interval_seconds:
+                        continue
+
+                    poll_fn_gref = config.get("poll_fn")
+                    payload: dict[str, Any] | None
+                    if poll_fn_gref:
+                        from lythonic import GlobalRef
+
+                        fn = GlobalRef(poll_fn_gref).get_instance()
+                        result: Any = fn()
+                        if result is None:
+                            # poll_fn signals no data available; skip this cycle
+                            continue
+                        payload = dict(result) if isinstance(result, dict) else {"data": result}  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+                    else:
+                        payload = {}
+
+                    try:
+                        await self.fire(activation["name"], payload=payload)
+                    except Exception:
+                        _log.exception("Error firing poll trigger '%s'", activation["name"])
+
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                _log.exception("Error in poll loop")
+                await asyncio.sleep(1)
