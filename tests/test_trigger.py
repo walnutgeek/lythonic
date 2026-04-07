@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import tests.test_trigger as this_module
 from lythonic.periodic import Interval
 
@@ -86,10 +89,6 @@ def test_register_trigger_poll_requires_interval():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "interval" in str(e).lower()
-
-
-import tempfile
-from pathlib import Path
 
 
 def test_trigger_store_activate():
@@ -187,3 +186,92 @@ def test_trigger_store_update_last_run():
         assert activation is not None
         assert activation["last_run_id"] == "run-1"
         assert activation["last_run_at"] is not None
+
+
+async def _async_echo(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
+    return f"echo:{text}"
+
+
+async def test_trigger_manager_fire_push():
+    from lythonic.compose.dag_provenance import DagProvenance
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo_pipe")
+
+    ns.register_trigger(
+        name="webhook",
+        dag_nsref="pipelines:echo_pipe",
+        trigger_type="push",
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        provenance = DagProvenance(Path(tmp) / "provenance.db")
+        manager = TriggerManager(namespace=ns, store=store, provenance=provenance)
+        manager.activate("webhook")
+
+        result = await manager.fire("webhook", payload={"text": "hello"})
+
+        assert result.status == "completed"
+        # The node label is derived from the nsref leaf ("t:echo" -> "echo")
+        assert result.outputs["echo"] == "echo:hello"
+
+        events = store.get_events("webhook")
+        assert len(events) == 1
+        assert events[0]["status"] == "completed"
+        assert events[0]["run_id"] == result.run_id
+
+
+async def test_trigger_manager_fire_without_start():
+    """Push triggers work without calling start()."""
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo")
+
+    ns.register_trigger(name="push1", dag_nsref="pipelines:echo", trigger_type="push")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+        manager.activate("push1")
+
+        result = await manager.fire("push1", payload={"text": "test"})
+        assert result.status == "completed"
+
+
+async def test_trigger_manager_fire_deactivated_raises():
+    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    ns.register(dag, nsref="pipelines:echo")
+
+    ns.register_trigger(name="push1", dag_nsref="pipelines:echo", trigger_type="push")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+        manager.activate("push1")
+        manager.deactivate("push1")
+
+        try:
+            await manager.fire("push1", payload={"text": "test"})
+            raise AssertionError("Expected ValueError")
+        except ValueError as e:
+            assert "not active" in str(e).lower() or "disabled" in str(e).lower()

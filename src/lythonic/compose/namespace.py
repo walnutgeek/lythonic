@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """
 Namespace: Hierarchical registry of callables with metadata and DAG composition.
 

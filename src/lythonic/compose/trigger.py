@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """
 Trigger: Event-driven DAG execution.
 
@@ -8,12 +9,18 @@ Provides `TriggerDef` for declarative trigger definitions,
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
+    from lythonic.compose.dag_runner import DagRunResult
+    from lythonic.compose.namespace import Namespace
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -192,3 +199,65 @@ class TriggerStore:
                 (time.time(), run_id, name),
             )
             conn.commit()
+
+
+class TriggerManager:
+    """
+    Runtime coordinator for triggers. Bridges namespace definitions to
+    execution: `activate()` creates DB records, `fire()` runs push triggers,
+    `start()`/`stop()` runs a background loop for poll triggers.
+    """
+
+    namespace: Namespace
+    store: TriggerStore
+    provenance: DagProvenance | NullProvenance
+
+    def __init__(
+        self,
+        namespace: Namespace,
+        store: TriggerStore,
+        provenance: DagProvenance | NullProvenance | None = None,
+    ) -> None:
+        from lythonic.compose.dag_provenance import NullProvenance
+
+        self.namespace = namespace
+        self.store = store
+        self.provenance = provenance or NullProvenance()
+        self._task: asyncio.Task[None] | None = None
+        self._shutdown: asyncio.Event = asyncio.Event()
+
+    def activate(self, name: str) -> None:
+        """Activate a trigger from its namespace definition."""
+        td = self.namespace.get_trigger(name)
+        self.store.activate(td)
+
+    def deactivate(self, name: str) -> None:
+        """Deactivate a trigger."""
+        self.store.deactivate(name)
+
+    async def fire(self, name: str, payload: dict[str, Any] | None = None) -> DagRunResult:
+        """
+        Fire a push trigger: run the associated DAG with payload as inputs.
+        Checks that the trigger is active, then awaits the dag_wrapper closure
+        registered in the namespace. Records the event in the store.
+        """
+        activation = self.store.get_activation(name)
+        if activation is None or activation["status"] != "active":
+            raise ValueError(
+                f"Trigger '{name}' is not active (status: {activation['status'] if activation else 'not found'})"
+            )
+
+        dag_nsref = activation["dag_nsref"]
+        dag_node = self.namespace.get(dag_nsref)
+
+        # dag_node wraps the dag_wrapper closure from _register_dag, which is async.
+        result: DagRunResult = await dag_node(**(payload or {}))
+
+        self.store.record_event(
+            trigger_name=name,
+            payload=payload,
+            run_id=result.run_id,
+            status=result.status,
+        )
+        self.store.update_last_run(name, result.run_id)
+        return result
