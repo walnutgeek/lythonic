@@ -38,6 +38,7 @@ classifiers = [
 # ---- Main dependencies ----
 
 dependencies = [
+    "croniter>=6.2.2",
     "pydantic",
     "pyyaml>=6.0.3",
 ]

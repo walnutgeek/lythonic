@@ -37,18 +37,21 @@ A trigger definition is declarative metadata — it describes *what* should
 happen but doesn't start anything:
 
 ```python
-from lythonic.periodic import Interval
-
 ns.register_trigger(
     name="hourly_market",
     dag_nsref="pipelines:market_summary",
     trigger_type="poll",
-    interval=Interval.from_string("1h"),
+    schedule="0 * * * *",
 )
 ```
 
-The `interval` uses lythonic's `Interval` format: `"1h"` (hourly),
-`"30m"` (every 30 minutes), `"1D"` (daily), `"1W"` (weekly).
+The `schedule` is a standard cron expression. Common patterns:
+
+- `"0 * * * *"` — every hour
+- `"*/5 * * * *"` — every 5 minutes
+- `"0 9 * * MON-FRI"` — weekdays at 9am
+- `"0 0 * * *"` — daily at midnight
+- `"0 0 * * 0"` — weekly on Sunday
 
 ## Activate and Run
 
@@ -135,8 +138,8 @@ manager = TriggerManager(namespace=ns, store=store)
 ## Custom Poll Functions
 
 For triggers that check an external source instead of running on a fixed
-schedule, provide a `poll_fn`. It's called on each interval — return data
-to fire the DAG, or `None` to skip:
+schedule, provide a `poll_fn`. It's called on each schedule tick — return
+data to fire the DAG, or `None` to skip:
 
 ```python
 def check_queue() -> dict[str, str] | None:
@@ -149,7 +152,7 @@ ns.register_trigger(
     dag_nsref="pipelines:process_order",
     trigger_type="poll",
     poll_fn=check_queue,
-    interval=Interval.from_string("10s"),
+    schedule="*/10 * * * * *",  # every 10 seconds
 )
 ```
 

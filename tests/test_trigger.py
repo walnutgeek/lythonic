@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 
 import tests.test_trigger as this_module
-from lythonic.periodic import Interval
 
 _poll_counter = 0
 
@@ -31,13 +30,13 @@ def test_register_trigger_poll():
         name="daily_etl",
         dag_nsref="pipelines:etl",
         trigger_type="poll",
-        interval=Interval.from_string("1D"),
+        schedule="0 0 * * *",
     )
     td = ns.get_trigger("daily_etl")
     assert td.name == "daily_etl"
     assert td.dag_nsref == "pipelines:etl"
     assert td.trigger_type == "poll"
-    assert td.interval is not None
+    assert td.schedule is not None
 
 
 def test_register_trigger_push():
@@ -51,7 +50,7 @@ def test_register_trigger_push():
     )
     td = ns.get_trigger("webhook")
     assert td.trigger_type == "push"
-    assert td.interval is None
+    assert td.schedule is None
 
 
 def test_register_trigger_poll_with_fn():
@@ -63,7 +62,7 @@ def test_register_trigger_poll_with_fn():
         dag_nsref="pipelines:orders",
         trigger_type="poll",
         poll_fn=this_module._poll_fn,  # pyright: ignore[reportPrivateUsage]
-        interval=Interval.from_string("5m"),
+        schedule="*/5 * * * *",
     )
     td = ns.get_trigger("new_orders")
     assert td.poll_fn is not None
@@ -92,7 +91,7 @@ def test_get_trigger_missing_raises():
         pass
 
 
-def test_register_trigger_poll_requires_interval():
+def test_register_trigger_poll_requires_schedule():
     from lythonic.compose.namespace import Namespace
 
     ns = Namespace()
@@ -100,7 +99,7 @@ def test_register_trigger_poll_requires_interval():
         ns.register_trigger(name="bad", dag_nsref="p:d", trigger_type="poll")
         raise AssertionError("Expected ValueError")
     except ValueError as e:
-        assert "interval" in str(e).lower()
+        assert "schedule" in str(e).lower()
 
 
 def test_trigger_store_activate():
@@ -112,7 +111,7 @@ def test_trigger_store_activate():
             name="daily",
             dag_nsref="p:etl",
             trigger_type="poll",
-            interval=Interval.from_string("1D"),
+            schedule="0 0 * * *",
         )
         store.activate(td)
 
@@ -164,7 +163,7 @@ def test_trigger_store_get_active_poll_triggers():
                 name="poll1",
                 dag_nsref="p:a",
                 trigger_type="poll",
-                interval=Interval.from_string("1D"),
+                schedule="0 0 * * *",
             )
         )
         store.activate(TriggerDef(name="push1", dag_nsref="p:b", trigger_type="push"))
@@ -173,7 +172,7 @@ def test_trigger_store_get_active_poll_triggers():
                 name="poll2",
                 dag_nsref="p:c",
                 trigger_type="poll",
-                interval=Interval.from_string("1h"),
+                schedule="0 * * * *",
             )
         )
         store.deactivate("poll2")
@@ -188,9 +187,7 @@ def test_trigger_store_update_last_run():
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
-        td = TriggerDef(
-            name="t1", dag_nsref="p:d", trigger_type="poll", interval=Interval.from_string("1D")
-        )
+        td = TriggerDef(name="t1", dag_nsref="p:d", trigger_type="poll", schedule="0 0 * * *")
         store.activate(td)
         store.update_last_run("t1", run_id="run-1")
 
@@ -306,7 +303,7 @@ async def test_trigger_manager_poll_schedule():
         name="scheduled",
         dag_nsref="pipelines:echo",
         trigger_type="poll",
-        interval=Interval.from_string("1h"),
+        schedule="0 * * * *",
     )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -318,7 +315,7 @@ async def test_trigger_manager_poll_schedule():
         manager.start()
         await asyncio.sleep(0.1)
 
-        # Should not have fired yet (interval is 1h)
+        # Should not have fired yet (schedule is hourly)
         events = store.get_events("scheduled")
         assert len(events) == 0
 
@@ -345,7 +342,7 @@ async def test_trigger_manager_poll_custom_fn():
         dag_nsref="pipelines:echo",
         trigger_type="poll",
         poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
-        interval=Interval.from_string("1s"),
+        schedule="* * * * * */1",
     )
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -402,7 +399,7 @@ async def test_trigger_manager_deactivated_not_polled():
         dag_nsref="pipelines:echo",
         trigger_type="poll",
         poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
-        interval=Interval.from_string("1s"),
+        schedule="* * * * * */1",
     )
 
     with tempfile.TemporaryDirectory() as tmp:

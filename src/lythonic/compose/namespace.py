@@ -506,7 +506,7 @@ class Namespace:
         name: str,
         dag_nsref: str,
         trigger_type: str,
-        interval: Any | None = None,
+        schedule: str | None = None,
         poll_fn: Callable[[], Any] | None = None,
     ) -> Any:
         """Register a trigger definition. Purely declarative."""
@@ -519,7 +519,7 @@ class Namespace:
             name=name,
             dag_nsref=dag_nsref,
             trigger_type=trigger_type,
-            interval=interval,
+            schedule=schedule,
             poll_fn=poll_fn,
         )
         self._triggers[name] = td

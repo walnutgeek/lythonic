@@ -25,9 +25,9 @@ if TYPE_CHECKING:
     from lythonic.compose.dag_runner import DagRunResult
     from lythonic.compose.namespace import Namespace
 
+from croniter import croniter
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from lythonic.periodic import Interval
 from lythonic.state import execute_sql, open_sqlite_db
 
 _TRIGGER_ACTIVATIONS_DDL = """\
@@ -64,15 +64,17 @@ class TriggerDef(BaseModel):
     name: str
     dag_nsref: str
     trigger_type: str  # "poll" or "push"
-    interval: Interval | None = None
+    schedule: str | None = None
     poll_fn: Callable[[], Any] | None = None
 
     model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
     def _validate_trigger(self) -> TriggerDef:
-        if self.trigger_type == "poll" and self.interval is None:
-            raise ValueError(f"Trigger '{self.name}': poll triggers require an interval")
+        if self.trigger_type == "poll" and self.schedule is None:
+            raise ValueError(f"Trigger '{self.name}': poll triggers require a schedule")
+        if self.schedule is not None and not croniter.is_valid(self.schedule):
+            raise ValueError(f"Trigger '{self.name}': invalid cron expression '{self.schedule}'")
         return self
 
 
@@ -93,8 +95,8 @@ class TriggerStore:
     def activate(self, trigger_def: TriggerDef) -> None:
         """Create or update an activation record from a trigger definition."""
         config: dict[str, Any] = {}
-        if trigger_def.interval is not None:
-            config["interval"] = str(trigger_def.interval)
+        if trigger_def.schedule is not None:
+            config["schedule"] = trigger_def.schedule
         if trigger_def.poll_fn is not None:
             from lythonic import GlobalRef
 
@@ -293,15 +295,14 @@ class TriggerManager:
 
                 for activation in active_polls:
                     config = json.loads(activation.get("config_json") or "{}")
-                    interval_str = config.get("interval")
-                    if not interval_str:
+                    schedule = config.get("schedule")
+                    if not schedule:
                         continue
 
-                    interval = Interval.from_string(interval_str)
-                    interval_seconds = interval.timedelta().total_seconds()
-                    last_run = activation.get("last_run_at") or 0
+                    last_run = activation.get("last_run_at") or activation.get("created_at") or 0
+                    next_fire = croniter(schedule, last_run).get_next(float)
 
-                    if now - last_run < interval_seconds:
+                    if now < next_fire:
                         continue
 
                     poll_fn_gref = config.get("poll_fn")
