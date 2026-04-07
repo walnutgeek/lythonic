@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging as _logging
 import tempfile
 import threading
 from pathlib import Path
@@ -197,6 +198,25 @@ async def _capture_thread_async(value: int) -> str:  # pyright: ignore[reportUnu
 def _capture_thread_with_ctx(ctx: DagContext, value: int) -> str:  # pyright: ignore[reportUnusedFunction]
     """Sync node with DagContext that captures which thread it runs on."""
     return f"{threading.current_thread().name}:{ctx.node_label}:{value * 2}"
+
+
+def _log_and_return(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Sync node that logs and returns a value."""
+    _logging.getLogger("test.node").info("processing %d", value)
+    return f"done:{value}"
+
+
+@inline
+def _log_and_return_inline(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Inline sync node that logs and returns a value."""
+    _logging.getLogger("test.node").info("processing %d", value)
+    return f"done:{value}"
+
+
+async def _log_and_return_async(value: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Async node that logs and returns a value."""
+    _logging.getLogger("test.node").info("processing %d", value)
+    return f"done:{value}"
 
 
 async def test_linear_dag_execution():
@@ -1002,3 +1022,141 @@ async def test_call_node_error_propagation():
 
     assert result.status == "failed"
     assert result.failed_node == "broken"
+
+
+async def test_log_context_sync_node_in_executor():
+    """Sync node in executor thread should have run_id and node_label in log records."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.log_context import NodeRunLogFilter
+    from lythonic.compose.namespace import Dag, Namespace
+
+    logger = _logging.getLogger("test.node")
+    f = NodeRunLogFilter()
+    logger.addFilter(f)
+
+    records: list[_logging.LogRecord] = []
+    handler = _logging.Handler()
+    handler.emit = lambda record: records.append(record)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    logger.addHandler(handler)
+    logger.setLevel(_logging.DEBUG)
+
+    try:
+        ns = Namespace()
+        ns.register(this_module._log_and_return, nsref="t:log_sync")  # pyright: ignore[reportPrivateUsage]
+
+        with Dag() as dag:
+            dag.node(ns.get("t:log_sync"))
+
+        runner = DagRunner(dag)
+        result = await runner.run(
+            source_inputs={"log_sync": {"value": 42}},
+            dag_nsref="test:log_ctx",
+        )
+
+        assert result.status == "completed"
+        assert len(records) == 1
+        assert records[0].run_id != ""  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        assert records[0].node_label == "log_sync"  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    finally:
+        logger.removeHandler(handler)
+        logger.removeFilter(f)
+
+
+async def test_log_context_async_node():
+    """Async node should have run_id and node_label in log records."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.log_context import NodeRunLogFilter
+    from lythonic.compose.namespace import Dag, Namespace
+
+    logger = _logging.getLogger("test.node")
+    f = NodeRunLogFilter()
+    logger.addFilter(f)
+
+    records: list[_logging.LogRecord] = []
+    handler = _logging.Handler()
+    handler.emit = lambda record: records.append(record)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    logger.addHandler(handler)
+    logger.setLevel(_logging.DEBUG)
+
+    try:
+        ns = Namespace()
+        ns.register(this_module._log_and_return_async, nsref="t:log_async")  # pyright: ignore[reportPrivateUsage]
+
+        with Dag() as dag:
+            dag.node(ns.get("t:log_async"))
+
+        runner = DagRunner(dag)
+        result = await runner.run(
+            source_inputs={"log_async": {"value": 42}},
+            dag_nsref="test:log_ctx",
+        )
+
+        assert result.status == "completed"
+        assert len(records) == 1
+        assert records[0].run_id != ""  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        assert records[0].node_label == "log_async"  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    finally:
+        logger.removeHandler(handler)
+        logger.removeFilter(f)
+
+
+async def test_log_context_inline_node():
+    """Inline node should have run_id and node_label in log records."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.log_context import NodeRunLogFilter
+    from lythonic.compose.namespace import Dag, Namespace
+
+    logger = _logging.getLogger("test.node")
+    f = NodeRunLogFilter()
+    logger.addFilter(f)
+
+    records: list[_logging.LogRecord] = []
+    handler = _logging.Handler()
+    handler.emit = lambda record: records.append(record)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    logger.addHandler(handler)
+    logger.setLevel(_logging.DEBUG)
+
+    try:
+        ns = Namespace()
+        ns.register(this_module._log_and_return_inline, nsref="t:log_inline")  # pyright: ignore[reportPrivateUsage]
+
+        with Dag() as dag:
+            dag.node(ns.get("t:log_inline"))
+
+        runner = DagRunner(dag)
+        result = await runner.run(
+            source_inputs={"log_inline": {"value": 42}},
+            dag_nsref="test:log_ctx",
+        )
+
+        assert result.status == "completed"
+        assert len(records) == 1
+        assert records[0].run_id != ""  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        assert records[0].node_label == "log_inline"  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    finally:
+        logger.removeHandler(handler)
+        logger.removeFilter(f)
+
+
+def test_log_context_outside_node():
+    """Log records outside node execution should have empty context fields."""
+    from lythonic.compose.log_context import NodeRunLogFilter
+
+    logger = _logging.getLogger("test.node.outside")
+    f = NodeRunLogFilter()
+    logger.addFilter(f)
+
+    records: list[_logging.LogRecord] = []
+    handler = _logging.Handler()
+    handler.emit = lambda record: records.append(record)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    logger.addHandler(handler)
+    logger.setLevel(_logging.DEBUG)
+
+    try:
+        logger.info("no context")
+        assert len(records) == 1
+        assert records[0].run_id == ""  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        assert records[0].node_label == ""  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    finally:
+        logger.removeHandler(handler)
+        logger.removeFilter(f)

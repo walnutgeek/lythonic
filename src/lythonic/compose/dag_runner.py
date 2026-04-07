@@ -22,6 +22,7 @@ sub-DAG once as a single pipeline step.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 import json
 import uuid
@@ -30,6 +31,10 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
+from lythonic.compose.log_context import (
+    NodeRunContext,
+    _current_node_run,  # pyright: ignore[reportPrivateUsage]
+)
 from lythonic.compose.namespace import CallNode, CompositeDagNode, Dag, DagContext, DagNode, MapNode
 
 
@@ -284,26 +289,36 @@ class DagRunner:
 
         is_inline = getattr(fn, "_lythonic_inline", False)
 
-        if dag_node.ns_node.expects_dag_context():
-            ctx_type = dag_node.ns_node.dag_context_type() or DagContext
-            ctx = ctx_type(
-                dag_nsref=dag_nsref,
-                node_label=dag_node.label,
-                run_id=run_id,
-            )
-            if asyncio.iscoroutinefunction(fn):
-                return await fn(ctx, **kwargs)
-            if is_inline:
-                return fn(ctx, **kwargs)
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, functools.partial(fn, ctx, **kwargs))
+        token = _current_node_run.set(NodeRunContext(run_id=run_id, node_label=dag_node.label))
+        try:
+            if dag_node.ns_node.expects_dag_context():
+                ctx_type = dag_node.ns_node.dag_context_type() or DagContext
+                ctx = ctx_type(
+                    dag_nsref=dag_nsref,
+                    node_label=dag_node.label,
+                    run_id=run_id,
+                )
+                if asyncio.iscoroutinefunction(fn):
+                    return await fn(ctx, **kwargs)
+                if is_inline:
+                    return fn(ctx, **kwargs)
+                loop = asyncio.get_running_loop()
+                # Copy context so ContextVar values (incl. NodeRunContext) propagate to thread.
+                copied = contextvars.copy_context()
+                return await loop.run_in_executor(
+                    None, copied.run, functools.partial(fn, ctx, **kwargs)
+                )
 
-        if asyncio.iscoroutinefunction(fn):
-            return await fn(**kwargs)
-        if is_inline:
-            return fn(**kwargs)
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, functools.partial(fn, **kwargs))
+            if asyncio.iscoroutinefunction(fn):
+                return await fn(**kwargs)
+            if is_inline:
+                return fn(**kwargs)
+            loop = asyncio.get_running_loop()
+            # Copy context so ContextVar values (incl. NodeRunContext) propagate to thread.
+            copied = contextvars.copy_context()
+            return await loop.run_in_executor(None, copied.run, functools.partial(fn, **kwargs))
+        finally:
+            _current_node_run.reset(token)
 
     async def restart(self, run_id: str) -> DagRunResult:
         """Restart a paused or failed run from where it left off."""
