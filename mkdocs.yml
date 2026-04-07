@@ -79,6 +79,7 @@ nav:
           - "...cached": reference/compose-cached.md
           - "...cli": reference/compose-cli.md
           - "...logic": reference/compose-logic.md
+          - "...trigger": reference/compose-trigger.md
       - state:
           - lythonic.state: reference/state.md
           - "...user": reference/user.md
