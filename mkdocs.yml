@@ -64,6 +64,7 @@ nav:
       - Your First Schema: tutorials/first-schema.md
       - CRUD Operations: tutorials/crud-operations.md
       - Cashflow Tracking Example: tutorials/cashflow-example.md
+      - Scheduled Triggers: tutorials/scheduled-triggers.md
   - How-To Guides:
       - Define a Schema: how-to/define-schema.md
       - Multi-Tenant Apps: how-to/multi-tenant.md
