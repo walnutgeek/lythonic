@@ -429,61 +429,21 @@ class Namespace:
         branch._leaves[leaf_name] = node
         return node
 
-    def _copy_namespace_leaves(self, source_ns: Namespace) -> None:
-        """Copy all leaves from `source_ns` into this namespace, with collision handling."""
-        for ns_node in source_ns._all_leaves():
-            branch_parts, leaf_name = _parse_nsref(ns_node.nsref)
-            branch = self._get_or_create_branch(branch_parts)
-
-            if leaf_name in branch._leaves:
-                existing = branch._leaves[leaf_name]
-                if str(existing.method.gref) == str(ns_node.method.gref):
-                    continue
-                raise ValueError(
-                    f"Namespace conflict for '{ns_node.nsref}': "
-                    f"existing callable {existing.method.gref} differs from {ns_node.method.gref}"
-                )
-
-            node = NamespaceNode(
-                method=ns_node.method,
-                nsref=ns_node.nsref,
-                namespace=self,
-                decorated=ns_node._decorated,  # pyright: ignore[reportPrivateUsage]
-                tags=ns_node.tags,
-            )
-            branch._leaves[leaf_name] = node
-
-    def _copy_dag_namespace(self, dag: Dag) -> None:
-        """Recursively copy all callables from a DAG and its sub-DAGs into this namespace."""
-        self._copy_namespace_leaves(dag.namespace)
-        for dag_node in dag.nodes.values():
-            if isinstance(dag_node, CompositeDagNode):
-                self._copy_dag_namespace(dag_node.sub_dag)
-
     def _register_dag(
         self, dag: Dag, nsref: str | None, tags: frozenset[str] | set[str] | list[str] | None = None
     ) -> NamespaceNode:
         """
-        Register a Dag as a callable NamespaceNode. Copies the Dag's
-        internal namespace nodes into this namespace (skip if identical
-        callable, raise on conflict). Updates DagNode references to
-        point to this namespace.
+        Register a Dag as a callable NamespaceNode. Sets the DAG's
+        `parent_namespace` to this namespace for runtime resolution.
+        The DAG keeps its own namespace; callables are not copied.
         """
         if nsref is None:
             raise ValueError("nsref is required when registering a Dag")
 
-        if dag.namespace is self:
+        if dag.parent_namespace is self:
             raise ValueError(f"Dag '{nsref}' is already registered with this namespace")
 
-        # Copy nodes from DAG's namespace (and sub-DAG namespaces) to parent.
-        self._copy_dag_namespace(dag)
-
-        # Update DagNode references to point to parent namespace copies.
-        for dag_node in dag.nodes.values():
-            if not isinstance(dag_node, CompositeDagNode):
-                dag_node.ns_node = self.get(dag_node.ns_node.nsref)
-
-        dag.namespace = self
+        dag.parent_namespace = self
 
         from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
 
@@ -674,6 +634,19 @@ class Dag:
         self.nodes = {}
         self.edges = []
         self.namespace = Namespace()
+        self.parent_namespace: Namespace | None = None
+
+    def resolve(self, nsref: str) -> NamespaceNode:
+        """
+        Resolve a callable by nsref. Tries `parent_namespace` first
+        (if set), then falls back to the DAG's own namespace.
+        """
+        if self.parent_namespace is not None:
+            try:
+                return self.parent_namespace.get(nsref)
+            except KeyError:
+                pass
+        return self.namespace.get(nsref)
 
     def node(
         self,

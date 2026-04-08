@@ -549,7 +549,7 @@ def test_dag_context_manager_catches_cycle():
 # Dag-namespace registration
 
 
-def test_register_dag_copies_nodes_to_parent():
+def test_register_dag_sets_parent_namespace():
     from lythonic.compose.namespace import Dag, Namespace
 
     ns = Namespace()
@@ -559,64 +559,32 @@ def test_register_dag_copies_nodes_to_parent():
 
     ns.register(dag, nsref="pipelines:my_dag")
 
-    # Nodes from the DAG should now be in the parent namespace
-    sample_node = ns.get("tests.test_namespace:_sample_fn")
-    assert sample_node is not None
-    another_node = ns.get("tests.test_namespace:_another_fn")
-    assert another_node is not None
-
-
-def test_register_dag_updates_dagnode_references():
-    from lythonic.compose.namespace import Dag, Namespace
-
-    ns = Namespace()
-    dag = Dag()
-    dag.node(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
-
-    ns.register(dag, nsref="pipelines:my_dag")
-
-    # DagNode.ns_node should now point to the parent namespace's copy
-    dag_node = dag.nodes["_sample_fn"]
-    assert dag_node.ns_node.namespace is ns
-
-
-def test_register_dag_skip_identical():
-    """If parent already has the same callable, skip without error."""
-    from lythonic.compose.namespace import Dag, Namespace
-
-    ns = Namespace()
-    ns.register(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
-
-    dag = Dag()
-    dag.node(this_module._sample_fn)  # pyright: ignore[reportPrivateUsage]
-
-    # Should not raise -- same callable
-    ns.register(dag, nsref="pipelines:my_dag")
-
-    # DagNode should now reference the parent's node
-    dag_node = dag.nodes["_sample_fn"]
-    assert dag_node.ns_node.namespace is ns
-
-
-def test_register_dag_conflict_raises():
-    """If parent has same nsref but different callable, raise ValueError."""
-    from lythonic.compose.namespace import Dag, Namespace
-
-    ns = Namespace()
-    # Register _sample_fn under the nsref that _another_fn will use
-    ns.register(
-        this_module._sample_fn,  # pyright: ignore[reportPrivateUsage]
-        nsref="tests.test_namespace:_another_fn",
-    )
-
-    dag = Dag()
-    dag.node(this_module._another_fn)  # pyright: ignore[reportPrivateUsage]
-
+    # DAG keeps its own namespace, parent_namespace points to ns
+    assert dag.parent_namespace is ns
+    # Callables stay in the DAG's own namespace, not copied to parent
+    assert dag.namespace.get("tests.test_namespace:_sample_fn") is not None
     try:
-        ns.register(dag, nsref="pipelines:my_dag")
-        raise AssertionError("Expected ValueError")
-    except ValueError as e:
-        assert "conflict" in str(e).lower() or "different" in str(e).lower()
+        ns.get("tests.test_namespace:_sample_fn")
+        raise AssertionError("Should not be in parent namespace")
+    except KeyError:
+        pass
+
+
+def test_register_dag_resolve_uses_parent():
+    """Dag.resolve() checks parent_namespace first, then own namespace."""
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="shared:fn")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(this_module._another_fn)  # pyright: ignore[reportPrivateUsage]
+    ns.register(dag, nsref="pipelines:my_dag")
+
+    # Resolve from parent namespace
+    assert dag.resolve("shared:fn") is not None
+    # Resolve from DAG's own namespace
+    assert dag.resolve("tests.test_namespace:_another_fn") is not None
 
 
 def test_register_dag_double_registration_raises():
