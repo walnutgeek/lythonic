@@ -68,6 +68,7 @@ import sqlite3
 import time
 import typing
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -83,6 +84,22 @@ if TYPE_CHECKING:
     from lythonic.compose.namespace import NamespaceNode
 
 DAYS_TO_SECONDS = 86400.0
+
+_in_cache_wrapper: ContextVar[bool] = ContextVar("_in_cache_wrapper", default=False)
+
+
+class CacheProhibitDirectCall(Exception):
+    """
+    Raised when a cached method is called directly instead of through
+    the cache wrapper. Call `CacheProhibitDirectCall.require()` from
+    a method body to enforce this.
+    """
+
+    @staticmethod
+    def require() -> None:
+        """Raise if not inside a cache wrapper."""
+        if not _in_cache_wrapper.get():
+            raise CacheProhibitDirectCall("Method must be called through cache wrapper")
 
 
 class CacheRefreshPushback(Exception):
@@ -291,7 +308,11 @@ def _build_sync_wrapper(
                     if _pushback_check(conn, namespace_path):
                         return _deserialize_return_value(value_json, return_type)
                     try:
-                        result = method.o(**kwargs)
+                        token = _in_cache_wrapper.set(True)
+                        try:
+                            result = method.o(**kwargs)
+                        finally:
+                            _in_cache_wrapper.reset(token)
                         result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
@@ -309,7 +330,11 @@ def _build_sync_wrapper(
                     raise CacheRefreshSuppressed(namespace_path, suppressed_until)
 
             # Cache miss or expired past max_ttl (no pushback)
-            result = method.o(**kwargs)
+            token = _in_cache_wrapper.set(True)
+            try:
+                result = method.o(**kwargs)
+            finally:
+                _in_cache_wrapper.reset(token)
             result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
             return result
@@ -347,7 +372,11 @@ def _build_async_wrapper(
                     if _pushback_check(conn, namespace_path):
                         return _deserialize_return_value(value_json, return_type)
                     try:
-                        result = await method.o(**kwargs)
+                        token = _in_cache_wrapper.set(True)
+                        try:
+                            result = await method.o(**kwargs)
+                        finally:
+                            _in_cache_wrapper.reset(token)
                         result_json = _serialize_return_value(result, return_type)
                         _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
                         return result
@@ -365,7 +394,11 @@ def _build_async_wrapper(
                     raise CacheRefreshSuppressed(namespace_path, suppressed_until)
 
             # Cache miss or expired past max_ttl (no pushback)
-            result = await method.o(**kwargs)
+            token = _in_cache_wrapper.set(True)
+            try:
+                result = await method.o(**kwargs)
+            finally:
+                _in_cache_wrapper.reset(token)
             result_json = _serialize_return_value(result, return_type)
             _cache_upsert(conn, table_name, method, kwargs, result_json, time.time())
             return result

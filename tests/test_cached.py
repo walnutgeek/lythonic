@@ -656,3 +656,52 @@ def test_default_scope_uses_method_namespace_path():
         with closing(sqlite3.connect(str(db_path))) as conn:
             assert _pushback_check(conn, "api.rate_limited") is not None
             assert _pushback_check(conn, "api.other") is None
+
+
+def _guarded_sync(ticker: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+    """Sync method that refuses direct calls."""
+    from lythonic.compose.cached import CacheProhibitDirectCall
+
+    CacheProhibitDirectCall.require()
+    return {"ticker": ticker, "price": "100"}
+
+
+def test_require_cache_context_raises_outside_wrapper():
+    """CacheProhibitDirectCall.require() raises when called directly."""
+    from lythonic.compose.cached import CacheProhibitDirectCall
+
+    try:
+        CacheProhibitDirectCall.require()
+        raise AssertionError("Expected CacheProhibitDirectCall")
+    except CacheProhibitDirectCall:
+        pass
+
+
+def test_require_cache_context_passes_through_wrapper():
+    """CacheProhibitDirectCall.require() does not raise inside cache wrapper."""
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    with tempfile.TemporaryDirectory() as tmp:
+        register_cached_callable(
+            ns,
+            gref="tests.test_cached:_guarded_sync",
+            nsref="t:guarded",
+            min_ttl=1.0,
+            max_ttl=2.0,
+            db_path=Path(tmp) / "cache.db",
+        )
+        result = ns.t.guarded(ticker="AAPL")  # pyright: ignore
+        assert result == {"ticker": "AAPL", "price": "100"}
+
+
+def test_guarded_method_fails_when_called_directly():
+    """A guarded method raises CacheProhibitDirectCall when called without wrapper."""
+    from lythonic.compose.cached import CacheProhibitDirectCall
+
+    try:
+        _guarded_sync(ticker="AAPL")
+        raise AssertionError("Expected CacheProhibitDirectCall")
+    except CacheProhibitDirectCall:
+        pass
