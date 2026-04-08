@@ -116,7 +116,7 @@ import inspect as _inspect
 import logging
 import typing
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from lythonic.compose.dag_runner import DagRunResult  # pyright: ignore[reportImportCycles]
@@ -127,12 +127,16 @@ from lythonic import GlobalRef
 from lythonic.compose import Method
 from lythonic.compose._inline import inline as inline
 
+_F = TypeVar("_F", bound=Callable[..., Any])
 
-def dag_factory(fn: Callable[..., Any]) -> Callable[..., Any]:
+
+def dag_factory(fn: _F) -> _F:
     """
     Mark a no-arg function as a DAG factory. When registered in a
     namespace, the factory is called and the returned DAG is registered
-    with a `__` suffix appended to the name.
+    with a `__` suffix appended to the name. Also recognized by
+    `Dag.node()` and `Dag.map()` which call the factory and auto-derive
+    the label from the function name.
     """
     fn._is_dag_factory = True  # pyright: ignore[reportFunctionMemberAccess]
     return fn
@@ -669,9 +673,21 @@ class Dag:
         derived from the source's nsref leaf name. Raises `ValueError`
         if the label already exists.
 
-        When `source` is a `Dag`, creates a `CallNode` that runs the
-        sub-DAG as a single step. `label` is required in this case.
+        When `source` is a `Dag` or `@dag_factory`, creates a `CallNode`
+        that runs the sub-DAG as a single step. Label is auto-derived
+        from the factory function name if not provided.
         """
+        # Expand @dag_factory to a Dag
+        if callable(source) and getattr(source, "_is_dag_factory", False):
+            if label is None:
+                label = str(getattr(source, "__name__", ""))
+            factory_result = source()  # pyright: ignore[reportCallIssue]
+            if not isinstance(factory_result, Dag):
+                raise TypeError(
+                    f"@dag_factory must return a Dag, got {type(factory_result).__name__}"
+                )
+            source = factory_result
+
         if isinstance(source, Dag):
             if label is None:
                 raise ValueError("label is required when passing a Dag to node()")
@@ -709,14 +725,26 @@ class Dag:
 
     def map(
         self,
-        sub_dag: Dag,
-        label: str,
+        sub_dag: Dag | Callable[..., Any],
+        label: str | None = None,
     ) -> MapNode:
         """
         Create a `MapNode` that runs `sub_dag` on each element of an
         upstream collection. The sub-DAG must have exactly one source
-        and one sink. `label` is required.
+        and one sink. Accepts a `@dag_factory` function, in which case
+        the label is auto-derived from the function name.
         """
+        # Expand @dag_factory to a Dag
+        if callable(sub_dag) and getattr(sub_dag, "_is_dag_factory", False):
+            if label is None:
+                label = str(getattr(sub_dag, "__name__", ""))
+            factory_result = sub_dag()  # pyright: ignore[reportCallIssue]
+            if not isinstance(factory_result, Dag):
+                raise TypeError(
+                    f"@dag_factory must return a Dag, got {type(factory_result).__name__}"
+                )
+            sub_dag = factory_result
+
         if not label:
             raise ValueError("label is required for map()")
 
@@ -726,7 +754,7 @@ class Dag:
             )
 
         map_node = MapNode(
-            sub_dag=sub_dag,
+            sub_dag=sub_dag,  # pyright: ignore[reportArgumentType]
             label=label,
             dag=self,
         )

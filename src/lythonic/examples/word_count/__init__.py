@@ -3,7 +3,7 @@ import re
 from collections import Counter
 
 import lythonic.state as ls
-from lythonic.compose.namespace import Dag
+from lythonic.compose.namespace import Dag, dag_factory
 
 
 def get_text() -> str:
@@ -35,18 +35,17 @@ def reduce(counts_to_merge: list[dict[str, int]]) -> dict[str, int]:
     return dict(cc.most_common(10))
 
 
-# ns = Namespace()
 # Sub-DAG: tokenize -> count (applied to each text chunk)
-tc_dag = Dag()
-# ns.register(tc_dag, nsref=f"{__name__}:tc_dag")
-tc_dag.node(tokenize) >> tc_dag.node(count)  # pyright: ignore[reportUnusedExpression]
+@dag_factory
+def chunks() -> Dag:
+    with Dag() as dag:
+        dag.node(tokenize) >> dag.node(count)  # pyright: ignore[reportUnusedExpression]
+        return dag
 
-# Main DAG: get_text -> split_text -> map(tc_dag) -> reduce
-main_dag = Dag()
-# ns.register(main_dag, nsref=f"{__name__}:main_dag")
-(
-    main_dag.node(get_text)
-    >> main_dag.node(split_text)
-    >> main_dag.map(tc_dag, label="chunks")
-    >> main_dag.node(reduce)
-)  # pyright: ignore[reportUnusedExpression]
+
+# Main DAG: get_text -> split_text -> map(chunks) -> reduce
+@dag_factory
+def main_dag() -> Dag:
+    with Dag() as dag:
+        (dag.node(get_text) >> dag.node(split_text) >> dag.map(chunks) >> dag.node(reduce))  # pyright: ignore[reportUnusedExpression]
+        return dag
