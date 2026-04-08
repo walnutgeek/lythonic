@@ -131,6 +131,81 @@ def test_provenance_get_missing_run():
         assert prov.get_run("nonexistent") is None
 
 
+def test_provenance_edge_traversal():
+    from lythonic.compose.dag_provenance import DagProvenance
+
+    with tempfile.TemporaryDirectory() as tmp:
+        prov = DagProvenance(Path(tmp) / "test.db")
+        prov.create_run("run-1", "p:d", {})
+        prov.record_edge_traversal("run-1", "fetch", "compute")
+        prov.record_edge_traversal("run-1", "compute", "report")
+
+        edges = prov.get_edge_traversals("run-1")
+        assert len(edges) == 2
+        assert edges[0]["upstream_label"] == "fetch"
+        assert edges[0]["downstream_label"] == "compute"
+        assert edges[1]["upstream_label"] == "compute"
+        assert edges[1]["downstream_label"] == "report"
+
+
+def test_provenance_node_type():
+    from lythonic.compose.dag_provenance import DagProvenance
+
+    with tempfile.TemporaryDirectory() as tmp:
+        prov = DagProvenance(Path(tmp) / "test.db")
+        prov.create_run("run-1", "p:d", {})
+        prov.record_node_start("run-1", "fetch", "{}", node_type="source")
+        prov.record_node_start("run-1", "compute", "{}", node_type="internal")
+        prov.record_node_start("run-1", "report", "{}", node_type="sink")
+
+        nodes = prov.get_node_executions("run-1")
+        types = {n["node_label"]: n["node_type"] for n in nodes}
+        assert types["fetch"] == "source"
+        assert types["compute"] == "internal"
+        assert types["report"] == "sink"
+
+
+async def test_edge_traversals_recorded_during_dag_run():
+    """Edge traversals are recorded when running a DAG with provenance."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:format")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    s = dag.node(ns.get("t:source"))
+    d = dag.node(ns.get("t:double"))
+    f = dag.node(ns.get("t:format"))
+    s >> d >> f  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        prov = DagProvenance(Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=prov)
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:edge_test",
+        )
+
+        assert result.status == "completed"
+
+        # Check edge traversals
+        edges = prov.get_edge_traversals(result.run_id)
+        edge_pairs = [(e["upstream_label"], e["downstream_label"]) for e in edges]
+        assert ("source", "double") in edge_pairs
+        assert ("double", "format") in edge_pairs
+        assert len(edges) == 2
+
+        # Check node types
+        nodes = prov.get_node_executions(result.run_id)
+        types = {n["node_label"]: n["node_type"] for n in nodes}
+        assert types["source"] == "source"
+        assert types["double"] == "internal"
+        assert types["format"] == "sink"
+
+
 async def _ctx_node(ctx: DagContext, value: float) -> str:  # pyright: ignore[reportUnusedFunction]
     return f"{ctx.node_label}:{ctx.run_id[:8]}:{value}"
 

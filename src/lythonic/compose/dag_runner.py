@@ -107,17 +107,35 @@ class DagRunner:
         """Core execution loop shared by run, restart, and replay."""
         node_outputs: dict[str, Any] = dict(completed_outputs)
         order = self.dag.topological_order()
+        source_labels = {n.label for n in self.dag.sources()}
         sink_labels = {n.label for n in self.dag.sinks()}
+
+        def _node_type(label: str) -> str:
+            if isinstance(self.dag.nodes[label], CompositeDagNode):
+                return "composite"
+            if label in source_labels:
+                return "source"
+            if label in sink_labels:
+                return "sink"
+            return "internal"
+
+        def _record_outgoing_edges(label: str) -> None:
+            for edge in self.dag.edges:
+                if edge.upstream == label:
+                    self.provenance.record_edge_traversal(run_id, edge.upstream, edge.downstream)
 
         for dag_node in order:
             if dag_node.label in node_outputs:
                 continue
+
+            nt = _node_type(dag_node.label)
 
             if isinstance(dag_node, CompositeDagNode):
                 self.provenance.record_node_start(
                     run_id,
                     dag_node.label,
                     json.dumps({"composite": type(dag_node).__name__}, default=str),
+                    node_type=nt,
                 )
                 try:
                     if isinstance(dag_node, MapNode):
@@ -130,6 +148,7 @@ class DagRunner:
                     self.provenance.record_node_complete(
                         run_id, dag_node.label, json.dumps(result, default=str)
                     )
+                    _record_outgoing_edges(dag_node.label)
                 except Exception as e:
                     self.provenance.record_node_failed(run_id, dag_node.label, str(e))
                     self.provenance.finish_run(run_id, "failed")
@@ -152,7 +171,10 @@ class DagRunner:
 
             kwargs = self._wire_inputs(dag_node, node_outputs, source_inputs)
             self.provenance.record_node_start(
-                run_id, dag_node.label, json.dumps(kwargs, default=str)
+                run_id,
+                dag_node.label,
+                json.dumps(kwargs, default=str),
+                node_type=nt,
             )
 
             try:
@@ -161,6 +183,7 @@ class DagRunner:
                 self.provenance.record_node_complete(
                     run_id, dag_node.label, json.dumps(result, default=str)
                 )
+                _record_outgoing_edges(dag_node.label)
             except DagPause:
                 self.provenance.update_run_status(run_id, "paused")
                 return DagRunResult(

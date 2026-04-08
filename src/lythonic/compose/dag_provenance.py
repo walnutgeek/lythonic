@@ -30,12 +30,22 @@ CREATE TABLE IF NOT EXISTS node_executions (
     run_id TEXT NOT NULL,
     node_label TEXT NOT NULL,
     status TEXT NOT NULL,
+    node_type TEXT,
     input_json TEXT,
     output_json TEXT,
     started_at REAL,
     finished_at REAL,
     error TEXT,
     PRIMARY KEY (run_id, node_label),
+    FOREIGN KEY (run_id) REFERENCES dag_runs(run_id)
+)"""
+
+_EDGE_TRAVERSALS_DDL = """\
+CREATE TABLE IF NOT EXISTS edge_traversals (
+    run_id TEXT NOT NULL,
+    upstream_label TEXT NOT NULL,
+    downstream_label TEXT NOT NULL,
+    traversed_at REAL NOT NULL,
     FOREIGN KEY (run_id) REFERENCES dag_runs(run_id)
 )"""
 
@@ -52,6 +62,7 @@ class DagProvenance:
             cursor = conn.cursor()
             execute_sql(cursor, _DAG_RUNS_DDL)
             execute_sql(cursor, _NODE_EXECUTIONS_DDL)
+            execute_sql(cursor, _EDGE_TRAVERSALS_DDL)
             conn.commit()
 
     def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:
@@ -88,16 +99,18 @@ class DagProvenance:
             )
             conn.commit()
 
-    def record_node_start(self, run_id: str, node_label: str, input_json: str) -> None:
+    def record_node_start(
+        self, run_id: str, node_label: str, input_json: str, node_type: str | None = None
+    ) -> None:
         """Record that a node has started execution."""
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
                 "INSERT OR REPLACE INTO node_executions "
-                "(run_id, node_label, status, input_json, started_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (run_id, node_label, "running", input_json, time.time()),
+                "(run_id, node_label, status, node_type, input_json, started_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (run_id, node_label, "running", node_type, input_json, time.time()),
             )
             conn.commit()
 
@@ -167,7 +180,7 @@ class DagProvenance:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
-                "SELECT run_id, node_label, status, input_json, output_json, "
+                "SELECT run_id, node_label, status, node_type, input_json, output_json, "
                 "started_at, finished_at, error "
                 "FROM node_executions WHERE run_id = ?",
                 (run_id,),
@@ -177,11 +190,12 @@ class DagProvenance:
                     "run_id": r[0],
                     "node_label": r[1],
                     "status": r[2],
-                    "input_json": r[3],
-                    "output_json": r[4],
-                    "started_at": r[5],
-                    "finished_at": r[6],
-                    "error": r[7],
+                    "node_type": r[3],
+                    "input_json": r[4],
+                    "output_json": r[5],
+                    "started_at": r[6],
+                    "finished_at": r[7],
+                    "error": r[8],
                 }
                 for r in cursor.fetchall()
             ]
@@ -211,6 +225,41 @@ class DagProvenance:
             )
             return [row[0] for row in cursor.fetchall()]
 
+    def record_edge_traversal(
+        self, run_id: str, upstream_label: str, downstream_label: str
+    ) -> None:
+        """Record that an edge was traversed during execution."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "INSERT INTO edge_traversals "
+                "(run_id, upstream_label, downstream_label, traversed_at) "
+                "VALUES (?, ?, ?, ?)",
+                (run_id, upstream_label, downstream_label, time.time()),
+            )
+            conn.commit()
+
+    def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:
+        """Get all edge traversals for a run."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "SELECT run_id, upstream_label, downstream_label, traversed_at "
+                "FROM edge_traversals WHERE run_id = ? ORDER BY traversed_at",
+                (run_id,),
+            )
+            return [
+                {
+                    "run_id": r[0],
+                    "upstream_label": r[1],
+                    "downstream_label": r[2],
+                    "traversed_at": r[3],
+                }
+                for r in cursor.fetchall()
+            ]
+
 
 class NullProvenance:
     """
@@ -227,7 +276,13 @@ class NullProvenance:
     def finish_run(self, run_id: str, status: str) -> None:  # pyright: ignore[reportUnusedParameter]
         pass
 
-    def record_node_start(self, run_id: str, node_label: str, input_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
+    def record_node_start(
+        self,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        node_label: str,  # pyright: ignore[reportUnusedParameter]
+        input_json: str,  # pyright: ignore[reportUnusedParameter]
+        node_type: str | None = None,  # pyright: ignore[reportUnusedParameter]
+    ) -> None:
         pass
 
     def record_node_complete(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
@@ -249,4 +304,15 @@ class NullProvenance:
         return None
 
     def get_pending_nodes(self, run_id: str) -> list[str]:  # pyright: ignore[reportUnusedParameter]
+        return []
+
+    def record_edge_traversal(
+        self,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        upstream_label: str,  # pyright: ignore[reportUnusedParameter]
+        downstream_label: str,  # pyright: ignore[reportUnusedParameter]
+    ) -> None:
+        pass
+
+    def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
         return []
