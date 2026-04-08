@@ -429,6 +429,37 @@ class Namespace:
         branch._leaves[leaf_name] = node
         return node
 
+    def _copy_namespace_leaves(self, source_ns: Namespace) -> None:
+        """Copy all leaves from `source_ns` into this namespace, with collision handling."""
+        for ns_node in source_ns._all_leaves():
+            branch_parts, leaf_name = _parse_nsref(ns_node.nsref)
+            branch = self._get_or_create_branch(branch_parts)
+
+            if leaf_name in branch._leaves:
+                existing = branch._leaves[leaf_name]
+                if str(existing.method.gref) == str(ns_node.method.gref):
+                    continue
+                raise ValueError(
+                    f"Namespace conflict for '{ns_node.nsref}': "
+                    f"existing callable {existing.method.gref} differs from {ns_node.method.gref}"
+                )
+
+            node = NamespaceNode(
+                method=ns_node.method,
+                nsref=ns_node.nsref,
+                namespace=self,
+                decorated=ns_node._decorated,  # pyright: ignore[reportPrivateUsage]
+                tags=ns_node.tags,
+            )
+            branch._leaves[leaf_name] = node
+
+    def _copy_dag_namespace(self, dag: Dag) -> None:
+        """Recursively copy all callables from a DAG and its sub-DAGs into this namespace."""
+        self._copy_namespace_leaves(dag.namespace)
+        for dag_node in dag.nodes.values():
+            if isinstance(dag_node, CompositeDagNode):
+                self._copy_dag_namespace(dag_node.sub_dag)
+
     def _register_dag(
         self, dag: Dag, nsref: str | None, tags: frozenset[str] | set[str] | list[str] | None = None
     ) -> NamespaceNode:
@@ -444,32 +475,13 @@ class Namespace:
         if dag.namespace is self:
             raise ValueError(f"Dag '{nsref}' is already registered with this namespace")
 
-        # Copy nodes from DAG's namespace to parent, with collision handling.
-        for ns_node in dag.namespace._all_leaves():
-            branch_parts, leaf_name = _parse_nsref(ns_node.nsref)
-            branch = self._get_or_create_branch(branch_parts)
-
-            if leaf_name in branch._leaves:
-                existing = branch._leaves[leaf_name]
-                if str(existing.method.gref) == str(ns_node.method.gref):
-                    continue  # Same callable, skip
-                raise ValueError(
-                    f"Namespace conflict for '{ns_node.nsref}': "
-                    f"existing callable {existing.method.gref} differs from {ns_node.method.gref}"
-                )
-
-            node = NamespaceNode(
-                method=ns_node.method,
-                nsref=ns_node.nsref,
-                namespace=self,
-                decorated=ns_node._decorated,  # pyright: ignore[reportPrivateUsage]
-                tags=ns_node.tags,
-            )
-            branch._leaves[leaf_name] = node
+        # Copy nodes from DAG's namespace (and sub-DAG namespaces) to parent.
+        self._copy_dag_namespace(dag)
 
         # Update DagNode references to point to parent namespace copies.
         for dag_node in dag.nodes.values():
-            dag_node.ns_node = self.get(dag_node.ns_node.nsref)
+            if not isinstance(dag_node, CompositeDagNode):
+                dag_node.ns_node = self.get(dag_node.ns_node.nsref)
 
         dag.namespace = self
 
