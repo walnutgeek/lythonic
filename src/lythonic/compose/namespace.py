@@ -90,6 +90,24 @@ result = await dag(url="https://example.com")
 print(result.status)   # "completed"
 print(result.outputs)  # sink node outputs
 ```
+
+## DAG Factories
+
+Use `@dag_factory` to mark a function that builds a DAG. When registered
+in a namespace, the factory is called and the resulting DAG is registered
+with a `__` suffix:
+
+```python
+from lythonic.compose.namespace import dag_factory, Dag
+
+@dag_factory
+def my_pipeline() -> Dag:
+    dag = Dag()
+    dag.node(step1) >> dag.node(step2)
+    return dag
+
+ns.register(my_pipeline)  # registers DAG under "module:my_pipeline__"
+```
 """
 
 from __future__ import annotations
@@ -108,6 +126,16 @@ from pydantic import BaseModel
 from lythonic import GlobalRef
 from lythonic.compose import Method
 from lythonic.compose._inline import inline as inline
+
+
+def dag_factory(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Mark a no-arg function as a DAG factory. When registered in a
+    namespace, the factory is called and the returned DAG is registered
+    with a `__` suffix appended to the name.
+    """
+    fn._is_dag_factory = True  # pyright: ignore[reportFunctionMemberAccess]
+    return fn
 
 
 class DagContext(BaseModel):
@@ -355,14 +383,23 @@ class Namespace:
     ) -> NamespaceNode:
         """
         Register a callable. If `nsref` is `None`, derive from the callable's
-        module and name. If `decorate` is provided, wrap the callable for
-        invocation (metadata is still extracted from the original). Optional
-        `tags` are stored on the node for querying via `query()`.
+        module and name. If the callable is marked with `@dag_factory`,
+        call it and register the returned DAG with a `__` suffix. If
+        `decorate` is provided, wrap the callable for invocation (metadata
+        is still extracted from the original). Optional `tags` are stored
+        on the node for querying via `query()`.
         """
         if isinstance(c, Dag):
             return self._register_dag(c, nsref, tags=tags)
 
-        from lythonic import GlobalRef
+        # Handle @dag_factory decorated callables
+        if callable(c) and getattr(c, "_is_dag_factory", False):
+            gref = GlobalRef(c)
+            factory_nsref = nsref or f"{gref.module}:{gref.name}__"
+            dag = c()
+            if not isinstance(dag, Dag):
+                raise TypeError(f"@dag_factory {gref} must return a Dag, got {type(dag).__name__}")
+            return self._register_dag(dag, factory_nsref, tags=tags)
 
         gref = GlobalRef(c)
 

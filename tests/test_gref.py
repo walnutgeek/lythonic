@@ -71,6 +71,48 @@ def test_coros():
     assert gref.get_instance() == M3
 
 
+# Factory convention: __ suffix
+
+
+def _test_factory() -> str:  # pyright: ignore[reportUnusedFunction]
+    return "factory_result"
+
+
+# Cached immutable result — takes priority over factory
+_test_cached__ = "cached_value"  # pyright: ignore[reportUnusedVariable]
+
+
+def _test_cached() -> str:  # pyright: ignore[reportUnusedFunction]
+    return "should_not_be_called"
+
+
+def test_factory_convention_calls_factory():
+    gref = GlobalRef("tests.test_gref:_test_factory__")
+    result = gref.get_instance()
+    assert result == "factory_result"
+
+
+def test_factory_convention_cached_takes_priority():
+    gref = GlobalRef("tests.test_gref:_test_cached__")
+    result = gref.get_instance()
+    assert result == "cached_value"
+
+
+def test_factory_convention_no_suffix_direct():
+    gref = GlobalRef("tests.test_gref:_test_factory")
+    result = gref.get_instance()
+    assert callable(result)
+
+
+def test_factory_convention_missing_raises():
+    gref = GlobalRef("tests.test_gref:_nonexistent__")
+    try:
+        gref.get_instance()
+        raise AssertionError("Expected AttributeError")
+    except AttributeError:
+        pass
+
+
 def test_result_ok_err_unwrap():
     ok: Result[int, str] = Result[int, str].Ok(123)
     err: Result[int, str] = Result[int, str].Err("fail")

@@ -894,6 +894,57 @@ def test_call_node_wires_with_rshift():
     assert ("enrich", "sink") in edge_pairs
 
 
+# @dag_factory
+
+
+def test_dag_factory_registers_dag():
+    from lythonic.compose.namespace import Dag, Namespace, dag_factory
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:step")  # pyright: ignore[reportPrivateUsage]
+
+    @dag_factory
+    def my_pipeline() -> Dag:  # pyright: ignore[reportUnusedFunction]
+        d = Dag()
+        d.node(ns.get("t:step"))
+        return d
+
+    node = ns.register(my_pipeline)
+    assert node.nsref == "tests.test_namespace:my_pipeline__"
+
+
+def test_dag_factory_custom_nsref():
+    from lythonic.compose.namespace import Dag, Namespace, dag_factory
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="t:step")  # pyright: ignore[reportPrivateUsage]
+
+    @dag_factory
+    def my_pipeline() -> Dag:  # pyright: ignore[reportUnusedFunction]
+        d = Dag()
+        d.node(ns.get("t:step"))
+        return d
+
+    node = ns.register(my_pipeline, nsref="custom:pipe__")
+    assert node.nsref == "custom:pipe__"
+
+
+def test_dag_factory_not_returning_dag_raises():
+    from lythonic.compose.namespace import Namespace, dag_factory
+
+    ns = Namespace()
+
+    @dag_factory
+    def bad_factory() -> str:  # pyright: ignore[reportUnusedFunction]
+        return "not a dag"  # pyright: ignore[reportReturnType]
+
+    try:
+        ns.register(bad_factory)
+        raise AssertionError("Expected TypeError")
+    except TypeError as e:
+        assert "Dag" in str(e)
+
+
 # Dag.__call__
 
 

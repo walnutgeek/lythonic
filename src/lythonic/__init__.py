@@ -159,9 +159,28 @@ class GlobalRef:
         return iscoroutinefunction(self.get_instance())
 
     def get_instance(self) -> Any:
+        """
+        Resolve the named attribute from the module. If the name ends
+        with `__` and the attribute doesn't exist, strip the suffix and
+        call the resulting factory function instead.
+
+        The `__` suffix convention supports lazy initialization: define
+        a factory function `xyz()` that returns an object, and reference
+        it as `"module:xyz__"`. If the module defines `xyz__` directly
+        (e.g., for caching an immutable result), that takes priority.
+        For mutable objects, omit the cached variable so the factory is
+        called fresh each time.
+        """
         assert not self.is_module(), f"{repr(self)}.get_module() only"
-        attr = getattr(self.get_module(), self.name)
-        return attr
+        module = self.get_module()
+        try:
+            return getattr(module, self.name)
+        except AttributeError:
+            if self.name.endswith("__"):
+                factory_name = self.name[:-2]
+                factory = getattr(module, factory_name)
+                return factory()
+            raise
 
     @classmethod
     def __get_pydantic_core_schema__(
