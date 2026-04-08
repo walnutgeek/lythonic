@@ -1160,3 +1160,83 @@ def test_log_context_outside_node():
     finally:
         logger.removeHandler(handler)
         logger.removeFilter(f)
+
+
+# Runtime resolution with CacheProhibitDirectCall
+
+
+def _guarded_fetch(ticker: str) -> dict[str, float]:  # pyright: ignore[reportUnusedFunction]
+    """A fetch function that refuses direct calls — must go through cache wrapper."""
+    from lythonic.compose.cached import CacheProhibitDirectCall
+
+    CacheProhibitDirectCall.require()
+    return {"price": 100.0, "ticker": ticker}  # pyright: ignore[reportReturnType]
+
+
+async def _format_price(data: dict[str, float]) -> str:  # pyright: ignore[reportUnusedFunction]
+    return f"{data['ticker']}={data['price']}"
+
+
+async def test_runtime_resolution_detached_dag_fails_with_guard():
+    """A detached DAG calling a guarded function should fail."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._guarded_fetch, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._format_price, nsref="market:format")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    f = dag.node(ns.get("market:fetch"))
+    p = dag.node(ns.get("market:format"))
+    f >> p  # pyright: ignore[reportUnusedExpression]
+
+    # Detached DAG (no parent_namespace) calls the raw function directly
+    runner = DagRunner(dag)
+    result = await runner.run(
+        source_inputs={"fetch": {"ticker": "AAPL"}},
+        dag_nsref="test:detached",
+    )
+    assert result.status == "failed"
+    assert "cache wrapper" in (result.error or "").lower()
+
+
+async def test_runtime_resolution_attached_dag_succeeds_with_cache():
+    """An attached DAG resolves to the cached version and succeeds."""
+    from lythonic.compose.cached import register_cached_callable
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "cache.db"
+
+        # Register guarded function WITH cache wrapping in the namespace
+        register_cached_callable(
+            ns,
+            gref="tests.test_dag_runner:_guarded_fetch",
+            nsref="market:fetch",
+            min_ttl=1.0,
+            max_ttl=2.0,
+            db_path=db_path,
+        )
+        ns.register(this_module._format_price, nsref="market:format")  # pyright: ignore[reportPrivateUsage]
+
+        # Build a DAG using the namespace nodes
+        dag = Dag()
+        f = dag.node(ns.get("market:fetch"))
+        p = dag.node(ns.get("market:format"))
+        f >> p  # pyright: ignore[reportUnusedExpression]
+
+        # Register DAG in namespace (sets parent_namespace for runtime resolution)
+        ns.register(dag, nsref="pipelines:prices")
+
+        # Run via the registered DAG — runner resolves via parent_namespace
+        runner = DagRunner(dag)
+        result = await runner.run(
+            source_inputs={"fetch": {"ticker": "AAPL"}},
+            dag_nsref="test:attached",
+        )
+        assert result.status == "completed"
+        assert result.outputs["format"] == "AAPL=100.0"

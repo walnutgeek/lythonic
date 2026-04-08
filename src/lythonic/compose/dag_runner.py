@@ -282,14 +282,21 @@ class DagRunner:
         kwargs: dict[str, Any],
     ) -> Any:
         """Call a node's function, injecting DagContext if expected."""
-        fn = dag_node.ns_node._decorated or dag_node.ns_node.method.o  # pyright: ignore[reportPrivateUsage]
+        # Runtime resolution: try parent namespace first for overrides (e.g., cache wrappers)
+        resolved = dag_node.ns_node
+        if self.dag.parent_namespace is not None:
+            try:
+                resolved = self.dag.resolve(dag_node.ns_node.nsref)
+            except KeyError:
+                pass
+        fn = resolved._decorated or resolved.method.o  # pyright: ignore[reportPrivateUsage]
 
         is_inline = getattr(fn, "_lythonic_inline", False)
 
         token = set_node_run_context(run_id=run_id, node_label=dag_node.label)
         try:
-            if dag_node.ns_node.expects_dag_context():
-                ctx_type = dag_node.ns_node.dag_context_type() or DagContext
+            if resolved.expects_dag_context():
+                ctx_type = resolved.dag_context_type() or DagContext
                 ctx = ctx_type(
                     dag_nsref=dag_nsref,
                     node_label=dag_node.label,
