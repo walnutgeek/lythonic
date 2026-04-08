@@ -235,10 +235,10 @@ from lythonic.compose.cached import register_cached_callable
 register_cached_callable(
     ns,
     gref="lythonic.compose.namespace:_parse_nsref",  # any importable callable
-    nsref="cache:parse_nsref",
     min_ttl=0.5,   # days — fresh for 12 hours
     max_ttl=2.0,   # days — force refresh after 2 days
     db_path=Path("cache.db"),
+    nsref="cache:parse_nsref",
 )
 
 # First call hits the original function and caches the result

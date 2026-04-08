@@ -92,7 +92,7 @@ def test_sync_wrapper_miss_fetches_and_caches():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch", "market:fetch", 1.0, 2.0, db_path
+            ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, nsref="market:fetch"
         )
 
         result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
@@ -116,7 +116,7 @@ def test_sync_wrapper_expired_refetches():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch2", "fetch2", 0.0001, 0.0002, db_path
+            ns, "tests.test_cached:_fake_fetch2", 0.0001, 0.0002, db_path, nsref="fetch2"
         )
 
         ns.fetch2(ticker="X")  # pyright: ignore
@@ -153,7 +153,7 @@ async def test_async_wrapper_miss_fetches_and_caches():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_fake_async_fetch", "async_market:fetch", 1.0, 2.0, db_path
+            ns, "tests.test_cached:_fake_async_fetch", 1.0, 2.0, db_path, nsref="async_market:fetch"
         )
 
         result = await ns.async_market.fetch(ticker="GOOG")  # pyright: ignore
@@ -188,7 +188,7 @@ def test_pydantic_return_type_cached():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_fetch_typed", "typed_fetch", 1.0, 2.0, db_path
+            ns, "tests.test_cached:_fetch_typed", 1.0, 2.0, db_path, nsref="typed_fetch"
         )
 
         result = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
@@ -223,7 +223,9 @@ def test_probabilistic_refresh_between_ttls():
     with tempfile.TemporaryDirectory() as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(ns, "tests.test_cached:_prob_fetch", "prob", 1.0, 3.0, db_path)
+        register_cached_callable(
+            ns, "tests.test_cached:_prob_fetch", 1.0, 3.0, db_path, nsref="prob"
+        )
 
         ns.prob(key="A")  # pyright: ignore
         assert this_module._prob_fetch_count == 1  # pyright: ignore
@@ -265,7 +267,7 @@ def test_default_namespace_path_uses_function_name():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_my_download", "_my_download", 1.0, 2.0, db_path
+            ns, "tests.test_cached:_my_download", 1.0, 2.0, db_path, nsref="_my_download"
         )
 
         result = ns._my_download(tag="hello")  # pyright: ignore
@@ -376,7 +378,7 @@ def test_pushback_table_created_on_register():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch", "market:fetch", 1.0, 2.0, db_path
+            ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, nsref="market:fetch"
         )
 
         with closing(sqlite3.connect(str(db_path))) as conn:
@@ -407,7 +409,12 @@ def test_pushback_suppresses_probabilistic_refresh():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+            ns,
+            "tests.test_cached:_pushback_fetch",
+            1.0,
+            3.0,
+            db_path,
+            nsref="market:pushback_fetch",
         )
 
         # Initial fetch to populate cache
@@ -459,10 +466,10 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
         register_cached_callable(
             ns,
             "tests.test_cached:_async_pushback_fetch",
-            "async_market:pushback_fetch",
             1.0,
             3.0,
             db_path,
+            nsref="async_market:pushback_fetch",
         )
 
         result = await ns.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
@@ -513,7 +520,7 @@ def test_pushback_recorded_on_exception():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_rate_limited_fetch", "api:rate_limited", 1.0, 3.0, db_path
+            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, nsref="api:rate_limited"
         )
 
         # First call succeeds
@@ -557,7 +564,12 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+            ns,
+            "tests.test_cached:_pushback_fetch",
+            1.0,
+            3.0,
+            db_path,
+            nsref="market:pushback_fetch",
         )
 
         # Populate cache
@@ -599,7 +611,12 @@ def test_cache_miss_ignores_pushback():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_pushback_fetch", "market:pushback_fetch", 1.0, 3.0, db_path
+            ns,
+            "tests.test_cached:_pushback_fetch",
+            1.0,
+            3.0,
+            db_path,
+            nsref="market:pushback_fetch",
         )
 
         # Set pushback before any cache entry exists
@@ -627,10 +644,10 @@ def test_default_scope_uses_method_namespace_path():
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
-            ns, "tests.test_cached:_rate_limited_fetch", "api:rate_limited", 1.0, 3.0, db_path
+            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, nsref="api:rate_limited"
         )
         register_cached_callable(
-            ns, "tests.test_cached:_pushback_fetch", "api:other", 1.0, 3.0, db_path
+            ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, nsref="api:other"
         )
 
         # Populate both caches

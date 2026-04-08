@@ -15,8 +15,8 @@ from lythonic.compose.namespace import Namespace
 
 ns = Namespace()
 register_cached_callable(
-    ns, "myapp.downloads:fetch_prices", "market:fetch_prices",
-    min_ttl=0.5, max_ttl=2.0, db_path=Path("cache.db"),
+    ns, "myapp.downloads:fetch_prices",
+    min_ttl=0.5, max_ttl=2.0, db_path=Path("cache.db"), nsref="market:fetch_prices",
 )
 
 # Sync method — served from cache when fresh
@@ -24,8 +24,8 @@ result = ns.market.fetch_prices(ticker="AAPL")
 
 # Async method — awaited on cache miss or hard expiry
 register_cached_callable(
-    ns, "myapp.downloads:get_exchange_rate", "get_exchange_rate",
-    min_ttl=0.25, max_ttl=1.0, db_path=Path("cache.db"),
+    ns, "myapp.downloads:get_exchange_rate",
+    min_ttl=0.25, max_ttl=1.0, db_path=Path("cache.db"), nsref="get_exchange_rate",
 )
 rate = await ns.get_exchange_rate(from_currency="USD", to_currency="EUR")
 ```
@@ -409,10 +409,10 @@ def _build_async_wrapper(
 def register_cached_callable(
     ns: Namespace,
     gref: str,
-    nsref: str,
     min_ttl: float,
     max_ttl: float,
     db_path: Path,
+    nsref: str | None = None,
 ) -> NamespaceNode:
     """
     Register a callable with cache wrapping. Handles DDL generation,
@@ -421,6 +421,8 @@ def register_cached_callable(
     """
 
     gref_obj = GlobalRef(gref)
+    if nsref is None:
+        nsref = str(gref)
     method = Method(gref_obj)
     method.validate_simple_type_args()
 
