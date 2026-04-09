@@ -237,7 +237,21 @@ class TriggerManager:
         _, tc = self.namespace.get_trigger(name)
         effective_payload = payload if payload is not None else (tc.payload or {})
 
-        result: DagRunResult = await dag_node(**effective_payload)
+        raw_result = await dag_node(**effective_payload)
+
+        # Wrap non-DagRunResult callables (plain functions, not DAGs)
+        from lythonic.compose.dag_runner import DagRunResult
+
+        if isinstance(raw_result, DagRunResult):
+            result = raw_result
+        else:
+            import uuid
+
+            result = DagRunResult(
+                run_id=str(uuid.uuid4()),
+                status="completed",
+                outputs={"result": raw_result},
+            )
 
         self.store.record_event(
             trigger_name=name,
