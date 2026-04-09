@@ -1,12 +1,10 @@
 """
 Namespace Config: Pydantic models for persisting Namespace structure.
 
-Defines the configuration schema for callables, cached callables, and DAGs.
-Format-agnostic — use `model_dump()`/`model_validate()` with any serializer.
-
-Provides `load_namespace()` to build a live Namespace from config,
-`dump_namespace()` to serialize a Namespace back to config, and
-`validate_config()` for config-only validation.
+.. deprecated::
+    This module is obsolete. Use `NsNodeConfig` on `NamespaceNode` for
+    structured config and `StorageConfig` from `lythonic.compose.engine`
+    for storage paths. DAGs are now code-defined via `@dag_factory`.
 """
 
 from __future__ import annotations

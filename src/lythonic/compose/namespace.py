@@ -296,6 +296,24 @@ def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
     return result
 
 
+class NsNodeConfig(BaseModel):
+    """
+    Serializable configuration for a namespace node. Drives node behavior
+    and enables config-based serialization/deserialization of namespaces.
+    """
+
+    nsref: str
+    gref: str | None = None
+    tags: list[str] | None = None
+
+
+class NsCacheConfig(NsNodeConfig):
+    """Cache-wrapped callable configuration."""
+
+    min_ttl: float
+    max_ttl: float
+
+
 class NamespaceNode:
     """
     Wraps a `Method` with namespace identity. Callable -- delegates to the
@@ -314,6 +332,7 @@ class NamespaceNode:
         namespace: Namespace,
         decorated: Callable[..., Any] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
+        config: NsNodeConfig | None = None,
     ) -> None:
         self.method = method
         self.nsref = nsref
@@ -321,6 +340,7 @@ class NamespaceNode:
         self._decorated = decorated
         self.metadata: dict[str, Any] = {}
         self.tags: frozenset[str] = _validate_tags(tags)
+        self.config: NsNodeConfig | None = config
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:
