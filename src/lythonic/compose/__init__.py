@@ -81,7 +81,10 @@ class ArgInfo(NamedTuple):
     @property
     def type(self) -> str:
         if self.annotation is not None:
-            return self.annotation.__name__
+            if isinstance(self.annotation, str):
+                return self.annotation
+            else:
+                return self.annotation.__name__
         return "str"
 
     def arg_help(self, indent: int):

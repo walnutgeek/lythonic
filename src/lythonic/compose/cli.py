@@ -117,7 +117,7 @@ class ActionTree(Method):
         has_ctx: bool = (
             len(self.args) > 0
             and self.args[0].name == "ctx"
-            and self.args[0].annotation == RunContext
+            and self.args[0].annotation in (RunContext, "RunContext")
         )
         self_args = self.args[1:] if has_ctx else self.args
         return (
@@ -309,6 +309,7 @@ class RunContext:
     def _recursive_help(self, print_at: ActionTree, indent: int):
         indent += 2
         _, arguments, options = print_at._split_ctx_args_opts()  # pyright: ignore[reportPrivateUsage]
+
         for arg in arguments:
             self.print(arg.arg_help(indent))
         for opt in options:
