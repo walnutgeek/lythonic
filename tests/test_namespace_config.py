@@ -168,12 +168,12 @@ def test_register_cached_callable():
         assert node.nsref == "market:fetch"
         assert node.metadata.get("cache") == {"min_ttl": 1.0, "max_ttl": 2.0}
 
-        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.get("market:fetch")(ticker="AAPL")
         assert result == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._cached_fn_count == 1  # pyright: ignore
 
         # Second call from cache
-        result2 = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        result2 = ns.get("market:fetch")(ticker="AAPL")
         assert result2 == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._cached_fn_count == 1  # pyright: ignore
 
@@ -223,12 +223,12 @@ def test_load_namespace_cached_entries():
 
     with tempfile.TemporaryDirectory() as tmp:
         ns = load_namespace(config, Path(tmp))
-        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.get("market:fetch")(ticker="AAPL")
         assert result == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._cached_fn_count == 1  # pyright: ignore
 
         # Cached
-        ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        ns.get("market:fetch")(ticker="AAPL")
         assert this_module._cached_fn_count == 1  # pyright: ignore
 
 

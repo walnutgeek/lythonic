@@ -25,7 +25,7 @@ def test_namespace_nested_access():
     ns.register(this_module._ns_test_ok, nsref="market:fetch_prices")  # pyright: ignore[reportPrivateUsage]
     ns.register(this_module._ns_test_data, nsref="get_data")  # pyright: ignore[reportPrivateUsage]
 
-    assert ns.market.fetch_prices() == "ok"  # pyright: ignore
+    assert ns.get("market:fetch_prices")() == "ok"
     assert ns.get_data() == "data"  # pyright: ignore
 
 
@@ -95,12 +95,12 @@ def test_sync_wrapper_miss_fetches_and_caches():
             ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, nsref="market:fetch"
         )
 
-        result = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.get("market:fetch")(ticker="AAPL")
         assert result == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._fake_fetch_count == 1  # pyright: ignore
 
         # Second call should come from cache
-        result2 = ns.market.fetch(ticker="AAPL")  # pyright: ignore
+        result2 = ns.get("market:fetch")(ticker="AAPL")
         assert result2 == {"price": 100.0, "ticker": "AAPL"}
         assert this_module._fake_fetch_count == 1  # pyright: ignore
 
@@ -156,11 +156,11 @@ async def test_async_wrapper_miss_fetches_and_caches():
             ns, "tests.test_cached:_fake_async_fetch", 1.0, 2.0, db_path, nsref="async_market:fetch"
         )
 
-        result = await ns.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        result = await ns.get("async_market:fetch")(ticker="GOOG")
         assert result == {"price": 200.0, "ticker": "GOOG"}
         assert this_module._fake_async_count == 1  # pyright: ignore
 
-        result2 = await ns.async_market.fetch(ticker="GOOG")  # pyright: ignore
+        result2 = await ns.get("async_market:fetch")(ticker="GOOG")
         assert result2 == {"price": 200.0, "ticker": "GOOG"}
         assert this_module._fake_async_count == 1  # pyright: ignore
 
@@ -418,7 +418,7 @@ def test_pushback_suppresses_probabilistic_refresh():
         )
 
         # Initial fetch to populate cache
-        result = ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        result = ns.get("market:pushback_fetch")(ticker="AAPL")
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -436,7 +436,7 @@ def test_pushback_suppresses_probabilistic_refresh():
 
         # Call many times — method should never be called due to pushback
         for _ in range(50):
-            result = ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+            result = ns.get("market:pushback_fetch")(ticker="AAPL")
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -472,7 +472,7 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
             nsref="async_market:pushback_fetch",
         )
 
-        result = await ns.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+        result = await ns.get("async_market:pushback_fetch")(ticker="GOOG")
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate to probabilistic window
@@ -487,7 +487,7 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
             _pushback_set(conn, "async_market", time.time() + 86400)
 
         for _ in range(50):
-            result = await ns.async_market.pushback_fetch(ticker="GOOG")  # pyright: ignore
+            result = await ns.get("async_market:pushback_fetch")(ticker="GOOG")
         assert this_module._async_pushback_fetch_count == 1  # pyright: ignore
         assert result == {"price": 1.0}
 
@@ -524,7 +524,7 @@ def test_pushback_recorded_on_exception():
         )
 
         # First call succeeds
-        result = ns.api.rate_limited(ticker="X")  # pyright: ignore
+        result = ns.get("api:rate_limited")(ticker="X")
         assert result == {"price": 50.0}
         assert this_module._rate_limited_count == 1  # pyright: ignore
 
@@ -538,7 +538,7 @@ def test_pushback_recorded_on_exception():
 
         # Next call triggers refresh, method raises CacheRefreshPushback.
         # Should get stale data back.
-        result = ns.api.rate_limited(ticker="X")  # pyright: ignore
+        result = ns.get("api:rate_limited")(ticker="X")
         assert result == {"price": 50.0}
         assert this_module._rate_limited_count == 2  # pyright: ignore
 
@@ -573,7 +573,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
         )
 
         # Populate cache
-        ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+        ns.get("market:pushback_fetch")(ticker="AAPL")
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
 
         # Backdate past max_ttl
@@ -589,7 +589,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
             _pushback_set(conn, "market", time.time() + 86400)
 
         with pytest.raises(CacheRefreshSuppressed) as exc_info:
-            ns.market.pushback_fetch(ticker="AAPL")  # pyright: ignore
+            ns.get("market:pushback_fetch")(ticker="AAPL")
 
         assert exc_info.value.namespace_path == "market.pushback_fetch"
         assert exc_info.value.suppressed_until > time.time()
@@ -624,7 +624,7 @@ def test_cache_miss_ignores_pushback():
             _pushback_set(conn, "market", time.time() + 86400)
 
         # Cache miss — should call method despite pushback
-        result = ns.market.pushback_fetch(ticker="NEW")  # pyright: ignore
+        result = ns.get("market:pushback_fetch")(ticker="NEW")
         assert this_module._pushback_fetch_count == 1  # pyright: ignore
         assert result["price"] == 1.0
 
@@ -651,8 +651,8 @@ def test_default_scope_uses_method_namespace_path():
         )
 
         # Populate both caches
-        ns.api.rate_limited(ticker="X")  # pyright: ignore
-        ns.api.other(ticker="Y")  # pyright: ignore
+        ns.get("api:rate_limited")(ticker="X")
+        ns.get("api:other")(ticker="Y")
 
         # Backdate both to probabilistic window (p ~= 1)
         with closing(sqlite3.connect(str(db_path))) as conn:
@@ -667,7 +667,7 @@ def test_default_scope_uses_method_namespace_path():
             conn.commit()
 
         # Trigger rate_limited to raise CacheRefreshPushback(days=1) with no prefix
-        ns.api.rate_limited(ticker="X")  # pyright: ignore
+        ns.get("api:rate_limited")(ticker="X")
 
         # Pushback should be scoped to "api.rate_limited" only
         with closing(sqlite3.connect(str(db_path))) as conn:
@@ -709,7 +709,7 @@ def test_require_cache_context_passes_through_wrapper():
             max_ttl=2.0,
             db_path=Path(tmp) / "cache.db",
         )
-        result = ns.t.guarded(ticker="AAPL")  # pyright: ignore
+        result = ns.get("t:guarded")(ticker="AAPL")
         assert result == {"ticker": "AAPL", "price": "100"}
 
 
