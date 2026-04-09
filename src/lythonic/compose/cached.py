@@ -461,7 +461,7 @@ def register_cached_callable(
     from lythonic.compose.namespace import NsCacheConfig
 
     cache_config = NsCacheConfig(
-        nsref=nsref or str(gref_obj), gref=str(gref_obj), min_ttl=min_ttl, max_ttl=max_ttl
+        nsref=nsref or str(gref_obj), gref=gref_obj, min_ttl=min_ttl, max_ttl=max_ttl
     )
     node: NamespaceNode = ns.register(gref, nsref=nsref, decorate=lambda _: wrapper)
     node.config = cache_config

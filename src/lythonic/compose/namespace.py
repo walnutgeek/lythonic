@@ -123,7 +123,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from lythonic import GlobalRef
+from lythonic import GlobalRef, GRef
 from lythonic.compose import Method
 from lythonic.compose._inline import inline as inline
 
@@ -306,7 +306,7 @@ class NsNodeConfig(BaseModel):
 
     type: str = "auto"
     nsref: str
-    gref: str | None = None
+    gref: GRef | None = None
     tags: list[str] | None = None
 
 
@@ -347,7 +347,7 @@ class NamespaceNode:
         self.tags: frozenset[str] = _validate_tags(tags)
         self.config = config or NsNodeConfig(
             nsref=nsref,
-            gref=str(method.gref) if method.gref else None,
+            gref=method.gref if method.gref else None,
             tags=sorted(self.tags) if self.tags else None,
         )
 

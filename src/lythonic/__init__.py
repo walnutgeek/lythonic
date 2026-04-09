@@ -47,9 +47,7 @@ from types import ModuleType
 from typing import Annotated, Any, Generic, TypeVar, final
 
 from pydantic import (
-    AfterValidator,
     GetCoreSchemaHandler,
-    PlainSerializer,
     WithJsonSchema,
 )
 from pydantic_core import CoreSchema, core_schema
@@ -184,15 +182,19 @@ class GlobalRef:
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source_type: Any, handler: GetCoreSchemaHandler
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
     ) -> CoreSchema:
-        return core_schema.no_info_after_validator_function(cls, handler(str))
+        # Accept both str and GlobalRef, normalize to GlobalRef
+        return core_schema.no_info_plain_validator_function(
+            lambda v: v if isinstance(v, GlobalRef) else GlobalRef(v),
+            serialization=core_schema.plain_serializer_function_ser_schema(str),
+        )
 
 
 GRef = Annotated[
     GlobalRef,
-    PlainSerializer(str, return_type=str),
-    AfterValidator(GlobalRef),
     WithJsonSchema({"type": "string"}, mode="serialization"),
 ]
 
