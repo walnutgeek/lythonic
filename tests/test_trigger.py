@@ -202,6 +202,38 @@ async def test_trigger_manager_fire_push():
         assert events[0]["run_id"] == result.run_id
 
 
+async def test_trigger_config_default_payload():
+    """Config payload is used when fire() payload is None."""
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[TriggerConfig(name="with_default", type="push", payload={"text": "default_msg"})],
+    )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        manager = TriggerManager(namespace=ns, store=store)
+        manager.activate("with_default")
+
+        # Fire without payload — should use config default
+        result = await manager.fire("with_default")
+        assert result.status == "completed"
+        assert result.outputs["echo"] == "echo:default_msg"
+
+        # Fire with explicit payload — should override
+        result2 = await manager.fire("with_default", payload={"text": "override"})
+        assert result2.outputs["echo"] == "echo:override"
+
+
 async def test_trigger_manager_fire_without_start():
     """Push triggers work without calling start()."""
     from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig

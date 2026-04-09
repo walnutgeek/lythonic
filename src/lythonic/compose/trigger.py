@@ -233,11 +233,15 @@ class TriggerManager:
         dag_nsref = activation["dag_nsref"]
         dag_node = self.namespace.get(dag_nsref)
 
-        result: DagRunResult = await dag_node(**(payload or {}))
+        # Resolve payload: explicit overrides config default
+        _, tc = self.namespace.get_trigger(name)
+        effective_payload = payload if payload is not None else (tc.payload or {})
+
+        result: DagRunResult = await dag_node(**effective_payload)
 
         self.store.record_event(
             trigger_name=name,
-            payload=payload,
+            payload=effective_payload,
             run_id=result.run_id,
             status=result.status,
         )

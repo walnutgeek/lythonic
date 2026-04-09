@@ -306,6 +306,7 @@ class TriggerConfig(BaseModel):
     type: str  # "poll" or "push"
     schedule: str | None = None
     poll_fn: GRef | None = None
+    payload: dict[str, Any] | None = None
 
 
 class NsNodeConfig(BaseModel):
