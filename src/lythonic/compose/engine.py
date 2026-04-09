@@ -17,6 +17,7 @@ class StorageConfig(BaseModel):
     cache_db: Path | None = None
     dag_db: Path | None = None
     trigger_db: Path | None = None
+    log_file: Path | None = None
 
 
 class EngineConfig(BaseModel):
