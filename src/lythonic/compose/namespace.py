@@ -296,6 +296,18 @@ def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
     return result
 
 
+class TriggerConfig(BaseModel):
+    """
+    Trigger configuration attached to a namespace node. Each node can
+    have zero or many triggers.
+    """
+
+    name: str
+    type: str  # "poll" or "push"
+    schedule: str | None = None
+    poll_fn: GRef | None = None
+
+
 class NsNodeConfig(BaseModel):
     """
     Serializable configuration for a namespace node. The `type` field
@@ -308,6 +320,7 @@ class NsNodeConfig(BaseModel):
     nsref: str
     gref: GRef | None = None
     tags: list[str] | None = None
+    triggers: list[TriggerConfig] = []
 
 
 class NsCacheConfig(NsNodeConfig):
@@ -387,7 +400,6 @@ class Namespace:
 
     def __init__(self) -> None:
         self._nodes = {}
-        self._triggers: dict[str, Any] = {}
 
     def register(
         self,
@@ -395,6 +407,7 @@ class Namespace:
         nsref: str | None = None,
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
+        config: NsNodeConfig | None = None,
     ) -> NamespaceNode:
         """
         Register a callable. If `nsref` is `None`, derive from the callable's
@@ -405,7 +418,7 @@ class Namespace:
         on the node for querying via `query()`.
         """
         if isinstance(c, Dag):
-            return self._register_dag(c, nsref, tags=tags)
+            return self._register_dag(c, nsref, tags=tags, config=config)
 
         # Handle @dag_factory decorated callables
         if callable(c) and getattr(c, "_is_dag_factory", False):
@@ -414,7 +427,7 @@ class Namespace:
             dag = c()
             if not isinstance(dag, Dag):
                 raise TypeError(f"@dag_factory {gref} must return a Dag, got {type(dag).__name__}")
-            return self._register_dag(dag, factory_nsref, tags=tags)
+            return self._register_dag(dag, factory_nsref, tags=tags, config=config)
 
         gref = GlobalRef(c)
 
@@ -428,13 +441,22 @@ class Namespace:
             raise ValueError(f"'{nsref}' already exists in namespace")
 
         node = NamespaceNode(
-            method=method, nsref=nsref, namespace=self, decorated=decorated, tags=tags
+            method=method,
+            nsref=nsref,
+            namespace=self,
+            decorated=decorated,
+            tags=tags,
+            config=config,
         )
         self._nodes[nsref] = node
         return node
 
     def _register_dag(
-        self, dag: Dag, nsref: str | None, tags: frozenset[str] | set[str] | list[str] | None = None
+        self,
+        dag: Dag,
+        nsref: str | None,
+        tags: frozenset[str] | set[str] | list[str] | None = None,
+        config: NsNodeConfig | None = None,
     ) -> NamespaceNode:
         """
         Register a Dag as a callable NamespaceNode. Sets the DAG's
@@ -476,7 +498,7 @@ class Namespace:
         if nsref in self._nodes:
             raise ValueError(f"'{nsref}' already exists in namespace")
 
-        node = NamespaceNode(method=method, nsref=nsref, namespace=self, tags=tags)
+        node = NamespaceNode(method=method, nsref=nsref, namespace=self, tags=tags, config=config)
         self._nodes[nsref] = node
         return node
 
@@ -507,39 +529,17 @@ class Namespace:
         tokens = _parse_tag_expr(expr)
         return [node for node in self._all_leaves() if _eval_tag_expr(tokens, node.tags)]
 
-    def register_trigger(
-        self,
-        name: str,
-        dag_nsref: str,
-        trigger_type: str,
-        schedule: str | None = None,
-        poll_fn: Callable[[], Any] | None = None,
-    ) -> Any:
-        """Register a trigger definition. Purely declarative."""
-        from lythonic.compose.trigger import TriggerDef
-
-        if name in self._triggers:
-            raise ValueError(f"Trigger '{name}' already registered")
-
-        td = TriggerDef(
-            name=name,
-            dag_nsref=dag_nsref,
-            trigger_type=trigger_type,
-            schedule=schedule,
-            poll_fn=poll_fn,
-        )
-        self._triggers[name] = td
-        return td
-
-    def get_trigger(self, name: str) -> Any:
-        """Retrieve a trigger definition by name. Raises `KeyError` if not found."""
-        if name not in self._triggers:
-            raise KeyError(f"Trigger '{name}' not found")
-        return self._triggers[name]
+    def get_trigger(self, name: str) -> tuple[NamespaceNode, TriggerConfig]:
+        """Find a trigger by name across all nodes. Returns (node, trigger_config)."""
+        for node in self._nodes.values():
+            for tc in node.config.triggers:
+                if tc.name == name:
+                    return node, tc
+        raise KeyError(f"Trigger '{name}' not found")
 
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
-        if name in ("_nodes", "_triggers"):
+        if name == "_nodes":
             raise AttributeError(name)
         # Look up by name as a leaf suffix (for simple nsrefs like "t:fetch" -> "fetch")
         for nsref, node in self._nodes.items():

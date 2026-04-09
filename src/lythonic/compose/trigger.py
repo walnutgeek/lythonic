@@ -1,10 +1,10 @@
 # pyright: reportImportCycles=false
 """
-Trigger: Event-driven DAG execution.
+Trigger: Event-driven execution of namespace nodes.
 
-Provides `TriggerDef` for declarative trigger definitions,
-`TriggerStore` for activation state persistence, and
-`TriggerManager` for runtime coordination.
+Provides `TriggerStore` for activation state persistence and
+`TriggerManager` for runtime coordination. Trigger definitions
+live on `NsNodeConfig.triggers` as `TriggerConfig` instances.
 """
 
 from __future__ import annotations
@@ -14,19 +14,17 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
     from lythonic.compose.dag_runner import DagRunResult
-    from lythonic.compose.namespace import Namespace
+    from lythonic.compose.namespace import Namespace, TriggerConfig
 
 from croniter import croniter
-from pydantic import BaseModel, ConfigDict, model_validator
 
 from lythonic.state import execute_sql, open_sqlite_db
 
@@ -55,29 +53,6 @@ CREATE TABLE IF NOT EXISTS trigger_events (
 )"""
 
 
-class TriggerDef(BaseModel):
-    """
-    Declarative trigger definition. Registered in a `Namespace` via
-    `register_trigger()`. Does not start anything -- purely metadata.
-    """
-
-    name: str
-    dag_nsref: str
-    trigger_type: str  # "poll" or "push"
-    schedule: str | None = None
-    poll_fn: Callable[[], Any] | None = None
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
-
-    @model_validator(mode="after")
-    def _validate_trigger(self) -> TriggerDef:
-        if self.trigger_type == "poll" and self.schedule is None:
-            raise ValueError(f"Trigger '{self.name}': poll triggers require a schedule")
-        if self.schedule is not None and not croniter.is_valid(self.schedule):
-            raise ValueError(f"Trigger '{self.name}': invalid cron expression '{self.schedule}'")
-        return self
-
-
 class TriggerStore:
     """SQLite-backed storage for trigger activations and events."""
 
@@ -92,15 +67,13 @@ class TriggerStore:
             execute_sql(cursor, _TRIGGER_EVENTS_DDL)
             conn.commit()
 
-    def activate(self, trigger_def: TriggerDef) -> None:
-        """Create or update an activation record from a trigger definition."""
+    def activate(self, trigger_config: TriggerConfig, dag_nsref: str) -> None:
+        """Create or update an activation record from a trigger config."""
         config: dict[str, Any] = {}
-        if trigger_def.schedule is not None:
-            config["schedule"] = trigger_def.schedule
-        if trigger_def.poll_fn is not None:
-            from lythonic import GlobalRef
-
-            config["poll_fn"] = str(GlobalRef(trigger_def.poll_fn))
+        if trigger_config.schedule is not None:
+            config["schedule"] = trigger_config.schedule
+        if trigger_config.poll_fn is not None:
+            config["poll_fn"] = str(trigger_config.poll_fn)
 
         now = time.time()
         with open_sqlite_db(self.db_path) as conn:
@@ -111,11 +84,11 @@ class TriggerStore:
                 "(name, dag_nsref, trigger_type, status, last_run_at, created_at, config_json) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
-                    trigger_def.name,
-                    trigger_def.dag_nsref,
-                    trigger_def.trigger_type,
+                    trigger_config.name,
+                    dag_nsref,
+                    trigger_config.type,
                     "active",
-                    now,  # treat activation time as the reference; first fire after one interval
+                    now,
                     now,
                     json.dumps(config),
                 ),
@@ -214,9 +187,9 @@ class TriggerStore:
 
 class TriggerManager:
     """
-    Runtime coordinator for triggers. Bridges namespace definitions to
-    execution: `activate()` creates DB records, `fire()` runs push triggers,
-    `start()`/`stop()` runs a background loop for poll triggers.
+    Runtime coordinator for triggers. Reads trigger definitions from
+    node configs in the namespace. `activate()` creates DB records,
+    `fire()` runs triggers, `start()`/`stop()` runs a background poll loop.
     """
 
     namespace: Namespace
@@ -238,9 +211,9 @@ class TriggerManager:
         self._shutdown: asyncio.Event = asyncio.Event()
 
     def activate(self, name: str) -> None:
-        """Activate a trigger from its namespace definition."""
-        td = self.namespace.get_trigger(name)
-        self.store.activate(td)
+        """Activate a trigger by name (found in node configs)."""
+        node, tc = self.namespace.get_trigger(name)
+        self.store.activate(tc, dag_nsref=node.nsref)
 
     def deactivate(self, name: str) -> None:
         """Deactivate a trigger."""
@@ -248,9 +221,8 @@ class TriggerManager:
 
     async def fire(self, name: str, payload: dict[str, Any] | None = None) -> DagRunResult:
         """
-        Fire a push trigger: run the associated DAG with payload as inputs.
-        Checks that the trigger is active, then awaits the dag_wrapper closure
-        registered in the namespace. Records the event in the store.
+        Fire a trigger: run the associated node with payload as inputs.
+        Records the event in the store.
         """
         activation = self.store.get_activation(name)
         if activation is None or activation["status"] != "active":
@@ -261,7 +233,6 @@ class TriggerManager:
         dag_nsref = activation["dag_nsref"]
         dag_node = self.namespace.get(dag_nsref)
 
-        # dag_node wraps the dag_wrapper closure from _register_dag, which is async.
         result: DagRunResult = await dag_node(**(payload or {}))
 
         self.store.record_event(
@@ -313,7 +284,6 @@ class TriggerManager:
                         fn = GlobalRef(poll_fn_gref).get_instance()
                         result: Any = fn()
                         if result is None:
-                            # poll_fn signals no data available; skip this cycle
                             continue
                         payload = dict(result) if isinstance(result, dict) else {"data": result}  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
                     else:

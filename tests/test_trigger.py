@@ -22,62 +22,28 @@ def _poll_fn() -> dict[str, str] | None:  # pyright: ignore[reportUnusedFunction
     return {"data": "test"}
 
 
-def test_register_trigger_poll():
-    from lythonic.compose.namespace import Namespace
+def test_trigger_config_on_node():
+    from lythonic.compose.namespace import Namespace, NsNodeConfig, TriggerConfig
 
     ns = Namespace()
-    ns.register_trigger(
-        name="daily_etl",
-        dag_nsref="pipelines:etl",
-        trigger_type="poll",
-        schedule="0 0 * * *",
+    config = NsNodeConfig(
+        nsref="pipelines:etl",
+        triggers=[
+            TriggerConfig(name="daily_etl", type="poll", schedule="0 0 * * *"),
+            TriggerConfig(name="webhook", type="push"),
+        ],
     )
-    td = ns.get_trigger("daily_etl")
-    assert td.name == "daily_etl"
-    assert td.dag_nsref == "pipelines:etl"
-    assert td.trigger_type == "poll"
-    assert td.schedule is not None
+    ns.register(lambda: None, nsref="pipelines:etl", config=config)
 
+    node, tc = ns.get_trigger("daily_etl")
+    assert tc.name == "daily_etl"
+    assert tc.type == "poll"
+    assert tc.schedule == "0 0 * * *"
+    assert node.nsref == "pipelines:etl"
 
-def test_register_trigger_push():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register_trigger(
-        name="webhook",
-        dag_nsref="pipelines:handle",
-        trigger_type="push",
-    )
-    td = ns.get_trigger("webhook")
-    assert td.trigger_type == "push"
-    assert td.schedule is None
-
-
-def test_register_trigger_poll_with_fn():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register_trigger(
-        name="new_orders",
-        dag_nsref="pipelines:orders",
-        trigger_type="poll",
-        poll_fn=this_module._poll_fn,  # pyright: ignore[reportPrivateUsage]
-        schedule="*/5 * * * *",
-    )
-    td = ns.get_trigger("new_orders")
-    assert td.poll_fn is not None
-
-
-def test_register_trigger_duplicate_raises():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register_trigger(name="t1", dag_nsref="p:d", trigger_type="push")
-    try:
-        ns.register_trigger(name="t1", dag_nsref="p:d", trigger_type="push")
-        raise AssertionError("Expected ValueError")
-    except ValueError as e:
-        assert "already" in str(e).lower()
+    node2, tc2 = ns.get_trigger("webhook")
+    assert tc2.type == "push"
+    assert node2.nsref == "pipelines:etl"
 
 
 def test_get_trigger_missing_raises():
@@ -91,29 +57,35 @@ def test_get_trigger_missing_raises():
         pass
 
 
-def test_register_trigger_poll_requires_schedule():
-    from lythonic.compose.namespace import Namespace
+def test_trigger_config_with_poll_fn():
+    from lythonic.compose.namespace import Namespace, NsNodeConfig, TriggerConfig
 
     ns = Namespace()
-    try:
-        ns.register_trigger(name="bad", dag_nsref="p:d", trigger_type="poll")
-        raise AssertionError("Expected ValueError")
-    except ValueError as e:
-        assert "schedule" in str(e).lower()
+    config = NsNodeConfig(
+        nsref="pipelines:orders",
+        triggers=[
+            TriggerConfig(
+                name="new_orders",
+                type="poll",
+                schedule="*/5 * * * *",
+                poll_fn="tests.test_trigger:_poll_fn",  # pyright: ignore[reportArgumentType]
+            ),
+        ],
+    )
+    ns.register(lambda: None, nsref="pipelines:orders", config=config)
+
+    _, tc = ns.get_trigger("new_orders")
+    assert tc.poll_fn is not None
 
 
 def test_trigger_store_activate():
-    from lythonic.compose.trigger import TriggerDef, TriggerStore
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
-        td = TriggerDef(
-            name="daily",
-            dag_nsref="p:etl",
-            trigger_type="poll",
-            schedule="0 0 * * *",
-        )
-        store.activate(td)
+        tc = TriggerConfig(name="daily", type="poll", schedule="0 0 * * *")
+        store.activate(tc, dag_nsref="p:etl")
 
         activation = store.get_activation("daily")
         assert activation is not None
@@ -123,12 +95,13 @@ def test_trigger_store_activate():
 
 
 def test_trigger_store_deactivate():
-    from lythonic.compose.trigger import TriggerDef, TriggerStore
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
-        td = TriggerDef(name="t1", dag_nsref="p:d", trigger_type="push")
-        store.activate(td)
+        tc = TriggerConfig(name="t1", type="push")
+        store.activate(tc, dag_nsref="p:d")
         store.deactivate("t1")
 
         activation = store.get_activation("t1")
@@ -137,12 +110,13 @@ def test_trigger_store_deactivate():
 
 
 def test_trigger_store_record_event():
-    from lythonic.compose.trigger import TriggerDef, TriggerStore
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
-        td = TriggerDef(name="t1", dag_nsref="p:d", trigger_type="push")
-        store.activate(td)
+        tc = TriggerConfig(name="t1", type="push")
+        store.activate(tc, dag_nsref="p:d")
 
         store.record_event("t1", payload={"key": "value"}, run_id="run-123", status="completed")
 
@@ -154,26 +128,17 @@ def test_trigger_store_record_event():
 
 
 def test_trigger_store_get_active_poll_triggers():
-    from lythonic.compose.trigger import TriggerDef, TriggerStore
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         store.activate(
-            TriggerDef(
-                name="poll1",
-                dag_nsref="p:a",
-                trigger_type="poll",
-                schedule="0 0 * * *",
-            )
+            TriggerConfig(name="poll1", type="poll", schedule="0 0 * * *"), dag_nsref="p:a"
         )
-        store.activate(TriggerDef(name="push1", dag_nsref="p:b", trigger_type="push"))
+        store.activate(TriggerConfig(name="push1", type="push"), dag_nsref="p:b")
         store.activate(
-            TriggerDef(
-                name="poll2",
-                dag_nsref="p:c",
-                trigger_type="poll",
-                schedule="0 * * * *",
-            )
+            TriggerConfig(name="poll2", type="poll", schedule="0 * * * *"), dag_nsref="p:c"
         )
         store.deactivate("poll2")
 
@@ -183,12 +148,13 @@ def test_trigger_store_get_active_poll_triggers():
 
 
 def test_trigger_store_update_last_run():
-    from lythonic.compose.trigger import TriggerDef, TriggerStore
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
-        td = TriggerDef(name="t1", dag_nsref="p:d", trigger_type="poll", schedule="0 0 * * *")
-        store.activate(td)
+        tc = TriggerConfig(name="t1", type="poll", schedule="0 0 * * *")
+        store.activate(tc, dag_nsref="p:d")
         store.update_last_run("t1", run_id="run-1")
 
         activation = store.get_activation("t1")
@@ -203,7 +169,7 @@ async def _async_echo(text: str) -> str:  # pyright: ignore[reportUnusedFunction
 
 async def test_trigger_manager_fire_push():
     from lythonic.compose.dag_provenance import DagProvenance
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     ns = Namespace()
@@ -211,13 +177,13 @@ async def test_trigger_manager_fire_push():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo_pipe")
 
-    ns.register_trigger(
-        name="webhook",
-        dag_nsref="pipelines:echo_pipe",
-        trigger_type="push",
+    # Register DAG with a push trigger on the node config
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo_pipe",
+        triggers=[TriggerConfig(name="webhook", type="push")],
     )
+    ns.register(dag, nsref="pipelines:echo_pipe", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
@@ -228,7 +194,6 @@ async def test_trigger_manager_fire_push():
         result = await manager.fire("webhook", payload={"text": "hello"})
 
         assert result.status == "completed"
-        # The node label is derived from the nsref leaf ("t:echo" -> "echo")
         assert result.outputs["echo"] == "echo:hello"
 
         events = store.get_events("webhook")
@@ -239,7 +204,7 @@ async def test_trigger_manager_fire_push():
 
 async def test_trigger_manager_fire_without_start():
     """Push triggers work without calling start()."""
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     ns = Namespace()
@@ -247,9 +212,12 @@ async def test_trigger_manager_fire_without_start():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo")
 
-    ns.register_trigger(name="push1", dag_nsref="pipelines:echo", trigger_type="push")
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[TriggerConfig(name="push1", type="push")],
+    )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
@@ -261,7 +229,7 @@ async def test_trigger_manager_fire_without_start():
 
 
 async def test_trigger_manager_fire_deactivated_raises():
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     ns = Namespace()
@@ -269,9 +237,12 @@ async def test_trigger_manager_fire_deactivated_raises():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo")
 
-    ns.register_trigger(name="push1", dag_nsref="pipelines:echo", trigger_type="push")
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[TriggerConfig(name="push1", type="push")],
+    )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
@@ -287,9 +258,9 @@ async def test_trigger_manager_fire_deactivated_raises():
 
 
 async def test_trigger_manager_poll_schedule():
-    """Poll trigger fires DAG when interval elapses; does not fire before interval."""
+    """Poll trigger does not fire before schedule elapses."""
     from lythonic.compose.dag_provenance import DagProvenance
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     ns = Namespace()
@@ -297,14 +268,12 @@ async def test_trigger_manager_poll_schedule():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo")
 
-    ns.register_trigger(
-        name="scheduled",
-        dag_nsref="pipelines:echo",
-        trigger_type="poll",
-        schedule="0 * * * *",
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[TriggerConfig(name="scheduled", type="poll", schedule="0 * * * *")],
     )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
@@ -325,7 +294,7 @@ async def test_trigger_manager_poll_schedule():
 async def test_trigger_manager_poll_custom_fn():
     """Poll trigger with custom poll_fn fires when fn returns data."""
     import tests.test_trigger as m
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     m._poll_counter = 0  # pyright: ignore
@@ -335,15 +304,19 @@ async def test_trigger_manager_poll_custom_fn():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo")
 
-    ns.register_trigger(
-        name="poller",
-        dag_nsref="pipelines:echo",
-        trigger_type="poll",
-        poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
-        schedule="* * * * * */1",
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[
+            TriggerConfig(
+                name="poller",
+                type="poll",
+                poll_fn="tests.test_trigger:_counting_poll_fn",  # pyright: ignore[reportArgumentType]
+                schedule="* * * * * */1",
+            ),
+        ],
     )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
@@ -354,7 +327,6 @@ async def test_trigger_manager_poll_custom_fn():
         await asyncio.sleep(3.5)
         manager.stop()
 
-        # poll_fn returns None on first call, data on second+
         events = store.get_events("poller")
         assert len(events) >= 1
 
@@ -382,7 +354,7 @@ async def test_trigger_manager_start_stop():
 async def test_trigger_manager_deactivated_not_polled():
     """Deactivated poll triggers are not polled."""
     import tests.test_trigger as m
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
     from lythonic.compose.trigger import TriggerManager, TriggerStore
 
     m._poll_counter = 0  # pyright: ignore
@@ -392,15 +364,19 @@ async def test_trigger_manager_deactivated_not_polled():
 
     dag = Dag()
     dag.node(ns.get("t:echo"))
-    ns.register(dag, nsref="pipelines:echo")
 
-    ns.register_trigger(
-        name="poller",
-        dag_nsref="pipelines:echo",
-        trigger_type="poll",
-        poll_fn=this_module._counting_poll_fn,  # pyright: ignore[reportPrivateUsage]
-        schedule="* * * * * */1",
+    dag_config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[
+            TriggerConfig(
+                name="poller",
+                type="poll",
+                poll_fn="tests.test_trigger:_counting_poll_fn",  # pyright: ignore[reportArgumentType]
+                schedule="* * * * * */1",
+            ),
+        ],
     )
+    ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
     with tempfile.TemporaryDirectory() as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
