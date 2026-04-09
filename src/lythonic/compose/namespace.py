@@ -325,7 +325,6 @@ class NamespaceNode:
     """
 
     method: Method
-    nsref: str
     namespace: Namespace
     config: NsNodeConfig
     _decorated: Callable[..., Any] | None
@@ -340,16 +339,23 @@ class NamespaceNode:
         config: NsNodeConfig | None = None,
     ) -> None:
         self.method = method
-        self.nsref = nsref
         self.namespace = namespace
         self._decorated = decorated
         self.metadata: dict[str, Any] = {}
-        self.tags: frozenset[str] = _validate_tags(tags)
+        validated_tags = _validate_tags(tags)
         self.config = config or NsNodeConfig(
             nsref=nsref,
             gref=method.gref if method.gref else None,
-            tags=sorted(self.tags) if self.tags else None,
+            tags=sorted(validated_tags) if validated_tags else None,
         )
+
+    @property
+    def nsref(self) -> str:
+        return self.config.nsref
+
+    @property
+    def tags(self) -> frozenset[str]:
+        return frozenset(self.config.tags) if self.config.tags else frozenset()
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:

@@ -125,11 +125,7 @@ def load_namespace(config: NamespaceConfig, config_dir: Path) -> Namespace:
                 db_path=cache_db,
             )
             if entry.tags:
-                from lythonic.compose.namespace import (
-                    _validate_tags,  # pyright: ignore[reportPrivateUsage]
-                )
-
-                node.tags = _validate_tags(entry.tags)
+                node.config.tags = list(entry.tags)
         else:
             ns.register(entry.gref, nsref=entry.nsref, tags=entry.tags)
 
