@@ -12,7 +12,7 @@ from lythonic.compose.namespace import NsNodeConfig
 
 
 class StorageConfig(BaseModel):
-    """Storage paths for cache DB and DAG provenance DB."""
+    """Storage paths for cache DB, DAG provenance DB, and trigger DB."""
 
     cache_db: Path | None = None
     dag_db: Path | None = None
@@ -20,5 +20,10 @@ class StorageConfig(BaseModel):
 
 
 class EngineConfig(BaseModel):
-    storage: StorageConfig
-    namespace: list[NsNodeConfig]
+    """
+    Top-level configuration for the lyth engine. Loaded from `lyth.yaml`.
+    Storage paths default to `{data_dir}/{name}.db` when not specified.
+    """
+
+    storage: StorageConfig = StorageConfig()
+    namespace: list[NsNodeConfig] = []
