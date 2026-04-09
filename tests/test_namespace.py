@@ -201,23 +201,14 @@ def test_register_with_decorate():
     assert node.method.args[0].name == "ticker"
 
 
-def test_getattr_leaf():
+def test_getattr_by_leaf_name():
     from lythonic.compose.namespace import Namespace
 
     ns = Namespace()
     ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
-    node = ns.market.fetch  # pyright: ignore
+    node = ns.fetch  # pyright: ignore
     assert node.nsref == "market:fetch"
     assert node(ticker="A") == {"ticker": "A", "limit": 10}
-
-
-def test_getattr_nested():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register(this_module._sample_fn, nsref="market.data:fetch")  # pyright: ignore[reportPrivateUsage]
-    node = ns.market.data.fetch  # pyright: ignore
-    assert node.nsref == "market.data:fetch"
 
 
 def test_getattr_root_level():
@@ -250,18 +241,6 @@ def test_register_duplicate_leaf_raises():
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "already exists" in str(e)
-
-
-def test_register_leaf_on_branch_raises():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register(this_module._sample_fn, nsref="market.data:fetch")  # pyright: ignore[reportPrivateUsage]
-    try:
-        ns.register(this_module._another_fn, nsref="market")  # pyright: ignore[reportPrivateUsage]
-        raise AssertionError("Expected ValueError")
-    except ValueError as e:
-        assert "branch" in str(e).lower() or "already exists" in str(e)
 
 
 # Task 4: DagEdge, DagNode, and >> operator

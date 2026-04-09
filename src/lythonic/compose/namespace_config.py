@@ -246,20 +246,10 @@ def dump_namespace(ns: Namespace, storage: StorageConfig | None = None) -> Names
     Export a live `Namespace` to a `NamespaceConfig`. Entries sorted
     alphabetically by nsref. DAG nodes sorted by label.
     """
-    from lythonic.compose.namespace import NamespaceNode
 
     entries: list[NamespaceEntryConfig] = []
 
-    def _collect_leaves(namespace: Namespace) -> list[NamespaceNode]:
-        """Recursively collect all leaf nodes."""
-        leaves: list[NamespaceNode] = []
-        for node in namespace._leaves.values():  # pyright: ignore[reportPrivateUsage]
-            leaves.append(node)
-        for branch in namespace._branches.values():  # pyright: ignore[reportPrivateUsage]
-            leaves.extend(_collect_leaves(branch))
-        return leaves
-
-    for node in _collect_leaves(ns):
+    for node in ns._all_leaves():  # pyright: ignore[reportPrivateUsage]
         if "dag" in node.metadata:
             dag_info = node.metadata["dag"]
             entries.append(

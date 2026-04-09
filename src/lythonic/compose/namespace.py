@@ -344,39 +344,15 @@ class NamespaceNode:
 
 class Namespace:
     """
-    Hierarchical registry of callables wrapped in `NamespaceNode`.
-    Uses GlobalRef-style paths: `"namespace.sub:callable_name"`.
+    Flat registry of callables wrapped in `NamespaceNode`.
+    Uses GlobalRef-style paths as keys: `"module.sub:callable_name"`.
     """
 
-    _branches: dict[str, Namespace]
-    _leaves: dict[str, NamespaceNode]
+    _nodes: dict[str, NamespaceNode]
 
     def __init__(self) -> None:
-        self._branches = {}
-        self._leaves = {}
+        self._nodes = {}
         self._triggers: dict[str, Any] = {}
-
-    def _get_or_create_branch(self, parts: list[str]) -> Namespace:
-        """Navigate to a branch, creating intermediate branches as needed."""
-        current = self
-        for part in parts:
-            if part in current._leaves:
-                raise ValueError(
-                    f"Cannot create branch '{part}': a leaf with that name already exists"
-                )
-            if part not in current._branches:
-                current._branches[part] = Namespace()
-            current = current._branches[part]
-        return current
-
-    def _get_branch(self, parts: list[str]) -> Namespace:
-        """Navigate to an existing branch. Raises `KeyError` if not found."""
-        current = self
-        for part in parts:
-            if part not in current._branches:
-                raise KeyError(f"Branch '{part}' not found")
-            current = current._branches[part]
-        return current
 
     def register(
         self,
@@ -413,20 +389,13 @@ class Namespace:
         method = Method(gref)
         decorated = decorate(method.o) if decorate else None
 
-        branch_parts, leaf_name = _parse_nsref(nsref)
-        branch = self._get_or_create_branch(branch_parts)
-
-        if leaf_name in branch._leaves:
-            raise ValueError(f"Leaf '{leaf_name}' already exists in namespace")
-        if leaf_name in branch._branches:
-            raise ValueError(
-                f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
-            )
+        if nsref in self._nodes:
+            raise ValueError(f"'{nsref}' already exists in namespace")
 
         node = NamespaceNode(
             method=method, nsref=nsref, namespace=self, decorated=decorated, tags=tags
         )
-        branch._leaves[leaf_name] = node
+        self._nodes[nsref] = node
         return node
 
     def _register_dag(
@@ -468,27 +437,19 @@ class Namespace:
             return await runner.run(source_inputs=source_inputs, dag_nsref=nsref)
 
         method = Method(dag_wrapper)
-        branch_parts, leaf_name = _parse_nsref(nsref)
-        branch = self._get_or_create_branch(branch_parts)
 
-        if leaf_name in branch._leaves:
-            raise ValueError(f"Leaf '{leaf_name}' already exists in namespace")
-        if leaf_name in branch._branches:
-            raise ValueError(
-                f"Cannot create leaf '{leaf_name}': a branch with that name already exists"
-            )
+        if nsref in self._nodes:
+            raise ValueError(f"'{nsref}' already exists in namespace")
 
         node = NamespaceNode(method=method, nsref=nsref, namespace=self, tags=tags)
-        branch._leaves[leaf_name] = node
+        self._nodes[nsref] = node
         return node
 
     def get(self, nsref: str) -> NamespaceNode:
         """Retrieve a node by nsref. Raises `KeyError` if not found."""
-        branch_parts, leaf_name = _parse_nsref(nsref)
-        branch = self._get_branch(branch_parts)
-        if leaf_name not in branch._leaves:
-            raise KeyError(f"Leaf '{leaf_name}' not found")
-        return branch._leaves[leaf_name]
+        if nsref not in self._nodes:
+            raise KeyError(f"'{nsref}' not found in namespace")
+        return self._nodes[nsref]
 
     def register_all(
         self,
@@ -500,11 +461,8 @@ class Namespace:
         return [self.register(c, decorate=decorate, tags=tags) for c in cc]
 
     def _all_leaves(self) -> list[NamespaceNode]:
-        """Recursively collect all leaf nodes from this namespace and all branches."""
-        leaves: list[NamespaceNode] = list(self._leaves.values())
-        for branch in self._branches.values():
-            leaves.extend(branch._all_leaves())
-        return leaves
+        """Return all registered nodes."""
+        return list(self._nodes.values())
 
     def query(self, expr: str) -> list[NamespaceNode]:
         """
@@ -546,12 +504,13 @@ class Namespace:
 
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
-        if name in ("_branches", "_leaves", "_triggers"):
+        if name in ("_nodes", "_triggers"):
             raise AttributeError(name)
-        if name in self._branches:
-            return self._branches[name]
-        if name in self._leaves:
-            return self._leaves[name]
+        # Look up by name as a leaf suffix (for simple nsrefs like "t:fetch" -> "fetch")
+        for nsref, node in self._nodes.items():
+            _, leaf = _parse_nsref(nsref)
+            if leaf == name:
+                return node
         raise AttributeError(f"'{name}' not found in namespace")
 
 
