@@ -134,6 +134,14 @@ Always use full type annotations, generics, and other modern practices.
 
 ## Coding Conventions and Imports
 
+- `GRef` (from `lythonic`) is `Annotated[GlobalRef, ...]` with Pydantic
+  serialization/deserialization — it serializes to a string and deserializes back to
+  `GlobalRef`. Use `GRef` in Pydantic model fields when the model is deserialized from
+  JSON/YAML (the input is always a string). When constructing models programmatically,
+  pass `str(gref_obj)` since `GRef`'s Pydantic validator expects a string input, not a
+  `GlobalRef` object. For internal config models like `NsNodeConfig`, use `str` for the
+  `gref` field to avoid this mismatch.
+
 - Always use full, absolute imports for paths.
   do NOT use `from .module1.module2 import ...`. Such relative paths make it hard to
   refactor. Use `from toplevel_pkg.module1.modlule2 import ...` instead.

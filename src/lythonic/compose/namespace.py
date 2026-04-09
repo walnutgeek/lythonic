@@ -298,10 +298,13 @@ def _eval_tag_expr(tokens: list[str], tags: frozenset[str]) -> bool:
 
 class NsNodeConfig(BaseModel):
     """
-    Serializable configuration for a namespace node. Drives node behavior
-    and enables config-based serialization/deserialization of namespaces.
+    Serializable configuration for a namespace node. The `type` field
+    acts as a discriminator for Pydantic deserialization — subclasses
+    set a literal `type` value so `model_validate` picks the right class.
+    Use `GRef` for the `gref` field (serializes as string automatically).
     """
 
+    type: str = "auto"
     nsref: str
     gref: str | None = None
     tags: list[str] | None = None
@@ -310,6 +313,7 @@ class NsNodeConfig(BaseModel):
 class NsCacheConfig(NsNodeConfig):
     """Cache-wrapped callable configuration."""
 
+    type: str = "cache"  # pyright: ignore[reportIncompatibleVariableOverride]
     min_ttl: float
     max_ttl: float
 
@@ -323,6 +327,7 @@ class NamespaceNode:
     method: Method
     nsref: str
     namespace: Namespace
+    config: NsNodeConfig
     _decorated: Callable[..., Any] | None
 
     def __init__(
@@ -340,7 +345,11 @@ class NamespaceNode:
         self._decorated = decorated
         self.metadata: dict[str, Any] = {}
         self.tags: frozenset[str] = _validate_tags(tags)
-        self.config: NsNodeConfig | None = config
+        self.config = config or NsNodeConfig(
+            nsref=nsref,
+            gref=str(method.gref) if method.gref else None,
+            tags=sorted(self.tags) if self.tags else None,
+        )
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:
