@@ -74,7 +74,6 @@ nav:
       - compose:
           - lythonic.compose: reference/compose.md
           - "...namespace": reference/compose-namespace.md
-          - "...namespace_config": reference/compose-namespace-config.md
           - "...dag_runner": reference/compose-dag-runner.md
           - "...dag_provenance": reference/compose-dag-provenance.md
           - "...cached": reference/compose-cached.md

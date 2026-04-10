@@ -538,6 +538,24 @@ class Namespace:
                     return node, tc
         raise KeyError(f"Trigger '{name}' not found")
 
+    def to_dict(self) -> list[dict[str, Any]]:
+        """Serialize all node configs to a list of dicts (YAML/JSON-ready)."""
+        return [node.config.model_dump(exclude_none=True) for node in self._all_leaves()]
+
+    @classmethod
+    def from_dict(cls, entries: list[dict[str, Any]]) -> Namespace:
+        """Build a Namespace from a list of serialized node configs."""
+        ns = cls()
+        for entry in entries:
+            config = NsNodeConfig.model_validate(entry)
+            if config.gref is not None:
+                gref = GlobalRef(config.gref)
+                instance = gref.get_instance()
+                ns.register(instance, nsref=config.nsref, config=config)
+            else:
+                ns.register(lambda: None, nsref=config.nsref, config=config)
+        return ns
+
     def __getattr__(self, name: str) -> Any:
         # Avoid recursion for internal attributes.
         if name == "_nodes":

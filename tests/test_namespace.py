@@ -525,6 +525,60 @@ def test_dag_context_manager_catches_cycle():
         assert "cycle" in str(e).lower()
 
 
+# Namespace serialization
+
+
+def test_namespace_to_dict():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    ns.register(this_module._sample_fn, nsref="market:fetch", tags={"fast"})  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._another_fn, nsref="market:process")  # pyright: ignore[reportPrivateUsage]
+
+    result = ns.to_dict()
+    assert len(result) == 2
+    nsrefs = {e["nsref"] for e in result}
+    assert "market:fetch" in nsrefs
+    assert "market:process" in nsrefs
+
+    tagged = next(e for e in result if e["nsref"] == "market:fetch")
+    assert tagged["tags"] == ["fast"]
+
+    untagged = next(e for e in result if e["nsref"] == "market:process")
+    assert "tags" not in untagged or untagged.get("tags") is None
+
+
+def test_namespace_from_dict():
+    from lythonic.compose.namespace import Namespace
+
+    entries = [
+        {"nsref": "market:fetch", "gref": "tests.test_namespace:_sample_fn", "tags": ["fast"]},
+        {"nsref": "market:process", "gref": "tests.test_namespace:_another_fn"},
+    ]
+    ns = Namespace.from_dict(entries)
+
+    fetch = ns.get("market:fetch")
+    assert fetch(ticker="AAPL") == {"ticker": "AAPL", "limit": 10}
+    assert fetch.tags == frozenset({"fast"})
+
+    process = ns.get("market:process")
+    assert process(code="abc") == "ABC"
+
+
+def test_namespace_round_trip():
+    from lythonic.compose.namespace import Namespace
+
+    ns1 = Namespace()
+    ns1.register(this_module._sample_fn, nsref="t:fetch", tags={"slow"})  # pyright: ignore[reportPrivateUsage]
+
+    serialized = ns1.to_dict()
+    ns2 = Namespace.from_dict(serialized)
+
+    node = ns2.get("t:fetch")
+    assert node.tags == frozenset({"slow"})
+    assert node(ticker="X") == {"ticker": "X", "limit": 10}
+
+
 # Dag-namespace registration
 
 

@@ -42,5 +42,3 @@ def dag1():
     with Dag() as dag:
         dag.node(task1)
     return dag
-
-
