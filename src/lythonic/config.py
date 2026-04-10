@@ -16,22 +16,3 @@ class Configurable(Generic[ConfigType]):
         self.config = config
 
 
-# class Kit:
-#     name: str
-#     states: dict[str, Schema]
-#     configurables: dict[str, Configurable[Any]]
-#     edges: dict[str, LogicNode]
-
-#     def __init__(self, name: str):
-#         self.name = name
-#         self.states = {}
-#         self.configurables = {}
-#         self.edges = {}
-
-#     @override
-#     def __str__(self):
-#         return self.name
-
-#     @override
-#     def __repr__(self):
-#         return f"Kit({self.name})"
