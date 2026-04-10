@@ -5,6 +5,7 @@ AGENTS.md
 *.bak
 *.orig
 tmp/
+data/
 trash/
 attic/
 .kash/
