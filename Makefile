@@ -6,7 +6,7 @@
 
 .PHONY: default install lint test upgrade build clean docs docs-serve docs-deploy
 
-default: install lint test 
+default: install lint test docs
 
 install:
 	uv sync --all-extras
