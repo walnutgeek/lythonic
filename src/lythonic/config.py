@@ -14,5 +14,3 @@ class Configurable(Generic[ConfigType]):
 
     def __init__(self, config: ConfigType) -> None:
         self.config = config
-
-
