@@ -21,17 +21,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from lythonic import GlobalRef
-from lythonic.compose.cli import ActionTree, RunContext
+from lythonic.compose.cli import ActionTree, Main, RunContext
 from lythonic.compose.engine import EngineConfig
 
 
-class LythMain(BaseModel):
+class LythMain(Main):
     """lyth — lythonic compose engine CLI"""
 
-    help: bool = Field(default=False, description="Show help")
     data: str = Field(default="./data", description="Data directory")
     config: str = Field(default="", description="Config file (default: {data}/lyth.yaml)")
 
