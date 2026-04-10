@@ -7,7 +7,7 @@ Repository = "https://github.com/walnutgeek/lythonic"
 
 [project]
 name = "lythonic"
-description = "Lightweight pythonic toolkit for building complex workflows"
+description = "Compose Python logic into data-flow pipelines — sync or async, run anywhere"
 authors = [
     { name="Walnut Geek", email="wg@walnutgeek.com" },
 ]

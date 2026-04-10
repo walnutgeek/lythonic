@@ -3,34 +3,64 @@
 [![PyPI version](https://img.shields.io/pypi/v/lythonic.svg?label=lythonic&color=blue)](https://pypi.org/project/lythonic/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://walnutgeek.github.io/lythonic/)
 
-**Lightweight pythonic toolkit for building complex workflows.**
+**Compose Python logic into data-flow pipelines — sync or async, run anywhere.**
 
-Lythonic combines composable callable pipelines with structured SQLite
-persistence — two pillars that work together or independently.
+Write plain Python functions. Wire them with `>>`. Data flows visibly
+between nodes — you can see what went in, what came out, what failed.
+Unlike task schedulers where jobs are opaque units, lythonic tracks the
+data itself.
 
-## Installation
+## Quick Start
 
 ```bash
 uv add lythonic
 ```
 
-## Compose
+```python
+from lythonic.compose.namespace import Dag
 
-Build callable pipelines and DAGs with automatic execution and provenance.
+def fetch(url: str) -> dict:
+    return {"source": url, "values": [1, 2, 3]}
 
-- **Namespace** — hierarchical registry for callables with dot-path access
-- **DAG** — wire nodes with `>>`, validate types and cycles, fan-out/fan-in
-- **DagRunner** — async execution with output wiring, pause/restart/replay
-- **Caching** — SQLite-backed cache with probabilistic TTL refresh
+def double(data: dict) -> dict:
+    return {**data, "values": [v * 2 for v in data["values"]]}
 
-## State
+dag = Dag()
+dag.node(fetch) >> dag.node(double)
 
-Structured data persistence powered by SQLite and Pydantic.
+# Run it — sync or async, doesn't matter
+import asyncio
+result = asyncio.run(dag(url="https://example.com"))
+print(result.outputs)  # {"double": {"source": "...", "values": [2, 4, 6]}}
+```
 
-- **DbModel** — define tables as Pydantic models with automatic DDL generation
-- **Schema** — manage multiple tables with referential integrity
-- **CRUD** — insert, select, update, delete with typed filtering
-- **Multi-tenant** — built-in user-scoped access patterns via `UserOwned`
+## Why lythonic?
+
+**Data flow, not task flow.** Each node receives typed data from upstream
+and passes results downstream. The DAG runner wires inputs to outputs by
+type — fan-out, fan-in, and map-reduce built in. Provenance tracking
+records what data flowed through each edge.
+
+**Compose freely.** DAGs nest inside DAGs. `dag.node(sub_dag)` runs a
+sub-DAG as a single step. `dag.map(sub_dag)` runs it on each element of
+a collection, concurrently. Build small, reuse everywhere.
+
+**Run transparently.** `await dag()` for a quick test. `DagRunner` with
+provenance for production. `lyth start` for a long-running engine with
+cron-triggered pipelines. Same code, different execution context.
+
+**Sync and async — mixed freely.** Write sync functions, async functions,
+or both in the same DAG. Sync nodes run in a thread executor automatically.
+
+## Features
+
+- **DAG composition** — `>>` wiring, callable DAGs, MapNode, CallNode
+- **`@dag_factory`** — define reusable DAG templates as decorated functions
+- **Triggers** — cron-scheduled or push-triggered execution via `TriggerManager`
+- **Provenance** — SQLite-backed tracking of runs, node executions, edge traversals
+- **Caching** — per-callable SQLite cache with probabilistic TTL refresh
+- **`lyth` CLI** — `start`, `stop`, `run`, `fire`, `status` commands
+- **State** — Pydantic-based SQLite ORM with schema management and multi-tenant support
 
 ## Documentation
 

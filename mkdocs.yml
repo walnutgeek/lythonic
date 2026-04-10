@@ -60,6 +60,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Tutorials:
+      - Getting Started with lyth: tutorials/lyth-quickstart.md
       - Build a Pipeline: tutorials/compose-pipeline.md
       - Your First Schema: tutorials/first-schema.md
       - CRUD Operations: tutorials/crud-operations.md

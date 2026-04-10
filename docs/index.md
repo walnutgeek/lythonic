@@ -1,42 +1,75 @@
 # Lythonic
 
-**Lightweight pythonic toolkit for building complex workflows.**
+**Compose Python logic into data-flow pipelines — sync or async, run anywhere.**
 
-Lythonic has two pillars: **compose** for building callable pipelines and
-DAGs, and **state** for structured data persistence with SQLite and Pydantic.
+Write plain Python functions. Wire them with `>>`. Data flows visibly
+between nodes — you can see what went in, what came out, what failed.
+Unlike task schedulers where jobs are opaque units, lythonic tracks the
+data itself.
 
-## Compose: Callable Pipelines
+## Data Flow, Not Task Flow
 
-Define functions, wire them into a DAG, and execute:
+In Airflow or Prefect, you schedule *tasks* — opaque units that happen
+to produce side effects. In lythonic, you compose *functions* — data
+flows from one node to the next, with types checked at the edges.
+Provenance records what data traversed each edge, not just "task X ran."
 
 ```python
 from lythonic.compose.namespace import Dag
-import asyncio
 
 def fetch(url: str) -> dict:
-    return {"source": url, "raw": [1, 2, 3]}
+    return {"source": url, "values": [1, 2, 3]}
 
-def transform(data: dict) -> dict:
-    return {"source": data["source"], "values": [v * 2 for v in data["raw"]]}
+def double(data: dict) -> dict:
+    return {**data, "values": [v * 2 for v in data["values"]]}
 
 dag = Dag()
-dag.node(fetch) >> dag.node(transform)
+dag.node(fetch) >> dag.node(double)
 
-# Call the DAG directly (uses NullProvenance)
+import asyncio
 result = asyncio.run(dag(url="https://example.com"))
-print(result.status)   # "completed"
-print(result.outputs)  # {"transform": {"source": "https://example.com", "values": [2, 4, 6]}}
+print(result.outputs["double"])
+# {"source": "https://example.com", "values": [2, 4, 6]}
 ```
 
-For production use with provenance tracking:
+## Compose Freely
+
+DAGs nest inside DAGs. Build small pipelines, reuse them as steps in
+larger ones:
 
 ```python
-from pathlib import Path
+from lythonic.compose.namespace import Dag, dag_factory
+
+@dag_factory
+def etl_pipeline() -> Dag:
+    dag = Dag()
+    dag.node(extract) >> dag.node(transform) >> dag.node(load)
+    return dag
+
+# Use as a step in a larger DAG
+parent = Dag()
+parent.node(setup) >> parent.node(etl_pipeline, label="etl") >> parent.node(report)
+
+# Or map over a collection
+parent.node(split) >> parent.map(etl_pipeline) >> parent.node(merge)
+```
+
+## Run Transparently
+
+Same DAG, different execution contexts:
+
+```python
+# Quick test — no provenance, no ceremony
+result = await dag(url="https://example.com")
+
+# Production — with provenance tracking
 from lythonic.compose.dag_runner import DagRunner
 from lythonic.compose.dag_provenance import DagProvenance
+runner = DagRunner(dag, provenance=DagProvenance(Path("runs.db")))
+result = await runner.run(source_inputs={"fetch": {"url": "..."}})
 
-runner = DagRunner(dag, provenance=DagProvenance(Path("pipeline.db")))
-result = asyncio.run(runner.run(source_inputs={"fetch": {"url": "https://example.com"}}))
+# Engine — cron-triggered, long-running
+# lyth start  (reads lyth.yaml, activates triggers, runs poll loop)
 ```
 
 ## State: Structured Persistence
@@ -45,31 +78,28 @@ Define tables as Pydantic models with automatic DDL, CRUD, and multi-tenant
 support:
 
 ```python
-from pydantic import Field
 from lythonic.state import DbModel, Schema, open_sqlite_db
+from pydantic import Field
 
 class Author(DbModel["Author"]):
     author_id: int = Field(default=-1, description="(PK)")
     name: str
 
-class Book(DbModel["Book"]):
-    book_id: int = Field(default=-1, description="(PK)")
-    author_id: int = Field(description="(FK:Author.author_id)")
-    title: str
-
-SCHEMA = Schema([Author, Book])
+SCHEMA = Schema([Author])
 SCHEMA.create_schema("library.db")
 
 with open_sqlite_db("library.db") as conn:
-    author = Author(name="Jane Austen")
-    author.save(conn)
-    Book(author_id=author.author_id, title="Pride and Prejudice").save(conn)
+    Author(name="Jane Austen").save(conn)
     conn.commit()
 ```
 
 ## Next Steps
 
+- [Getting Started with lyth](tutorials/lyth-quickstart.md) — set up
+  and run your first triggered pipeline
 - [Build a Pipeline](tutorials/compose-pipeline.md) — end-to-end compose tutorial
-- [Your First Schema](tutorials/first-schema.md) — define tables with Pydantic models
-- [CRUD Operations](tutorials/crud-operations.md) — insert, query, update, delete
-- [API Reference](reference/compose-namespace.md) — complete API documentation
+- [Composable DAGs](how-to/composable-dags.md) — MapNode, CallNode,
+  callable DAGs
+- [Scheduled Triggers](tutorials/scheduled-triggers.md) — cron-based
+  DAG execution
+- [API Reference](reference/compose-namespace.md) — complete API docs
