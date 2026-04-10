@@ -1,3 +1,23 @@
+"""
+Run it with lyth.yaml:
+---
+namespace:
+  - nsref: "examples:task1"
+    gref: "lythonic.examples.do_sleep_repeat:task1"
+    triggers:
+      - name: "task1_repeat"
+        type: "poll"
+        schedule: "*/15 * * * * *"
+  - nsref: "examples:dag1"
+    gref: "lythonic.examples.do_sleep_repeat:dag1__"
+    triggers:
+      - name: dag1_repeat
+        type: "poll"
+        schedule: "*/15 * * * * *"
+
+
+"""
+
 import asyncio
 import logging
 import threading
@@ -22,3 +42,5 @@ def dag1():
     with Dag() as dag:
         dag.node(task1)
     return dag
+
+
