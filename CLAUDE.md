@@ -32,6 +32,15 @@ Therefore:
   Instead, specifically say what you’ve done, e.g., "I’ve added types, including
   generics, to all the methods in `Foo` and fixed all linter errors."
 
+# The `data/` Directory
+
+The `data/` directory is the server's runtime data directory. It is in `.gitignore`
+and MUST NOT be committed — it may contain large files, databases, or secrets.
+
+If you need to preserve a small config example (like a YAML namespace config), put it
+in a test fixture or inline it as a code example in documentation. Never `git add`
+anything under `data/`.
+
 # General Coding Guidelines
 
 ## Using Comments
