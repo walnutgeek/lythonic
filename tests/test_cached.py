@@ -88,7 +88,7 @@ def test_sync_wrapper_miss_fetches_and_caches():
 
     this_module._fake_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -112,7 +112,7 @@ def test_sync_wrapper_expired_refetches():
 
     this_module._fake_fetch2_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -149,7 +149,7 @@ async def test_async_wrapper_miss_fetches_and_caches():
 
     this_module._fake_async_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -184,7 +184,7 @@ def test_pydantic_return_type_cached():
     from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -220,7 +220,7 @@ def test_probabilistic_refresh_between_ttls():
 
     this_module._prob_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -263,7 +263,7 @@ def test_default_namespace_path_uses_function_name():
     from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -301,7 +301,7 @@ def test_pushback_set_and_check():
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
     )
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "test.db"
         with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
@@ -329,7 +329,7 @@ def test_pushback_replacement():
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
     )
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "test.db"
         with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
@@ -357,7 +357,7 @@ def test_pushback_expired_not_matched():
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
     )
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "test.db"
         with closing(sqlite3.connect(str(db_path))) as conn:
             conn.execute(
@@ -374,7 +374,7 @@ def test_pushback_table_created_on_register():
     from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -405,7 +405,7 @@ def test_pushback_suppresses_probabilistic_refresh():
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -460,7 +460,7 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
 
     this_module._async_pushback_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -516,7 +516,7 @@ def test_pushback_recorded_on_exception():
 
     this_module._rate_limited_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -560,7 +560,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -607,7 +607,7 @@ def test_cache_miss_ignores_pushback():
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -640,7 +640,7 @@ def test_default_scope_uses_method_namespace_path():
     this_module._rate_limited_count = 0  # pyright: ignore
     this_module._pushback_fetch_count = 0  # pyright: ignore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
         register_cached_callable(
@@ -700,7 +700,7 @@ def test_require_cache_context_passes_through_wrapper():
     from lythonic.compose.namespace import Namespace
 
     ns = Namespace()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         register_cached_callable(
             ns,
             gref="tests.test_cached:_guarded_sync",

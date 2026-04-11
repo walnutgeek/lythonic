@@ -15,7 +15,7 @@ from lythonic.compose.namespace import DagContext, inline
 def test_provenance_create_and_get_run():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "pipelines:daily", {"fetch": {"ticker": "AAPL"}})
 
@@ -31,7 +31,7 @@ def test_provenance_create_and_get_run():
 def test_provenance_update_and_finish_run():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -48,7 +48,7 @@ def test_provenance_update_and_finish_run():
 def test_provenance_node_lifecycle():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -67,7 +67,7 @@ def test_provenance_node_lifecycle():
 def test_provenance_node_failed():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -82,7 +82,7 @@ def test_provenance_node_failed():
 def test_provenance_node_skipped():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -95,7 +95,7 @@ def test_provenance_node_skipped():
 def test_provenance_get_node_output():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -109,7 +109,7 @@ def test_provenance_get_node_output():
 def test_provenance_get_pending_nodes():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
 
@@ -126,7 +126,7 @@ def test_provenance_get_pending_nodes():
 def test_provenance_get_missing_run():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         assert prov.get_run("nonexistent") is None
 
@@ -134,7 +134,7 @@ def test_provenance_get_missing_run():
 def test_provenance_edge_traversal():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
         prov.record_edge_traversal("run-1", "fetch", "compute")
@@ -151,7 +151,7 @@ def test_provenance_edge_traversal():
 def test_provenance_node_type():
     from lythonic.compose.dag_provenance import DagProvenance
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
         prov.record_node_start("run-1", "fetch", "{}", node_type="source")
@@ -181,7 +181,7 @@ async def test_edge_traversals_recorded_during_dag_run():
     f = dag.node(ns.get("t:format"))
     s >> d >> f  # pyright: ignore[reportUnusedExpression]
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "runs.db")
         runner = DagRunner(dag, provenance=prov)
         result = await runner.run(
@@ -310,7 +310,7 @@ async def test_linear_dag_execution():
         f = dag.node(ns.get("t:format"))
         _ = s >> d >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "AAPL"}},
@@ -336,7 +336,7 @@ async def test_provenance_recorded_during_run():
         d = dag.node(ns.get("t:double"))
         _ = s >> d
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "runs.db"
         runner = DagRunner(dag, provenance=DagProvenance(db_path))
         result = await runner.run(
@@ -371,7 +371,7 @@ async def test_dag_context_injection():
         c = dag.node(ns.get("t:ctx_node"))
         _ = s >> c
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
@@ -403,7 +403,7 @@ async def test_fan_out_fan_in():
         _ = s >> r >> m
         _ = s >> a >> m
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
@@ -431,7 +431,7 @@ async def test_node_failure():
         f = dag.node(ns.get("t:fail_node"))
         _ = s >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
@@ -468,7 +468,7 @@ async def test_node_driven_pause():
         f = dag.node(ns.get("t:fmt"))
         _ = s >> p >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"source": {"ticker": "X"}},
@@ -523,7 +523,7 @@ async def test_external_pause():
         s2 = dag.node(ns.get("t:step2"))
         _ = s1 >> s2
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         async def pause_when_step1_starts():
@@ -582,7 +582,7 @@ async def test_restart_paused_run():
         f = dag.node(ns.get("t:fmt"))
         _ = s >> p >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         # First run pauses
@@ -615,7 +615,7 @@ async def test_restart_failed_run():
         f = dag.node(ns.get("t:maybe_fail"))
         _ = s >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         result1 = await runner.run(
@@ -655,7 +655,7 @@ async def test_replay_selective_reexecution():
         f = dag.node(ns.get("t:fmt"))
         _ = s >> d >> f
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(dag, provenance=DagProvenance(Path(tmp) / "runs.db"))
 
         # First run
@@ -816,7 +816,7 @@ async def test_map_over_list():
     j = parent.node(ns.get("t:join"))
     s >> m >> j  # pyright: ignore[reportUnusedExpression]
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"split": {"text": "hello,world,foo"}},
@@ -856,7 +856,7 @@ async def test_map_over_dict():
     m = parent.map(sub, label="regions")
     s >> m  # pyright: ignore[reportUnusedExpression]
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"make_dict": {"text": "hello"}},
@@ -884,7 +884,7 @@ async def test_map_invalid_input_type_raises():
     m = parent.map(sub, label="mapped")
     s >> m  # pyright: ignore[reportUnusedExpression]
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={},
@@ -913,7 +913,7 @@ async def test_map_iteration_failure_propagates():
     m = parent.map(sub, label="mapped")
     s >> m  # pyright: ignore[reportUnusedExpression]
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         runner = DagRunner(parent, provenance=DagProvenance(Path(tmp) / "runs.db"))
         result = await runner.run(
             source_inputs={"split": {"text": "a,b"}},
@@ -1284,7 +1284,7 @@ async def test_runtime_resolution_attached_dag_succeeds_with_cache():
 
     ns = Namespace()
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "cache.db"
 
         # Register guarded function WITH cache wrapping in the namespace

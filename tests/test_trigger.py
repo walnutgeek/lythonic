@@ -82,7 +82,7 @@ def test_trigger_store_activate():
     from lythonic.compose.namespace import TriggerConfig
     from lythonic.compose.trigger import TriggerStore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         tc = TriggerConfig(name="daily", type="poll", schedule="0 0 * * *")
         store.activate(tc, dag_nsref="p:etl")
@@ -98,7 +98,7 @@ def test_trigger_store_deactivate():
     from lythonic.compose.namespace import TriggerConfig
     from lythonic.compose.trigger import TriggerStore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         tc = TriggerConfig(name="t1", type="push")
         store.activate(tc, dag_nsref="p:d")
@@ -113,7 +113,7 @@ def test_trigger_store_record_event():
     from lythonic.compose.namespace import TriggerConfig
     from lythonic.compose.trigger import TriggerStore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         tc = TriggerConfig(name="t1", type="push")
         store.activate(tc, dag_nsref="p:d")
@@ -131,7 +131,7 @@ def test_trigger_store_get_active_poll_triggers():
     from lythonic.compose.namespace import TriggerConfig
     from lythonic.compose.trigger import TriggerStore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         store.activate(
             TriggerConfig(name="poll1", type="poll", schedule="0 0 * * *"), dag_nsref="p:a"
@@ -151,7 +151,7 @@ def test_trigger_store_update_last_run():
     from lythonic.compose.namespace import TriggerConfig
     from lythonic.compose.trigger import TriggerStore
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         tc = TriggerConfig(name="t1", type="poll", schedule="0 0 * * *")
         store.activate(tc, dag_nsref="p:d")
@@ -185,7 +185,7 @@ async def test_trigger_manager_fire_push():
     )
     ns.register(dag, nsref="pipelines:echo_pipe", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         provenance = DagProvenance(Path(tmp) / "provenance.db")
         manager = TriggerManager(namespace=ns, store=store, provenance=provenance)
@@ -219,7 +219,7 @@ async def test_trigger_config_default_payload():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
         manager.activate("with_default")
@@ -251,7 +251,7 @@ async def test_trigger_manager_fire_without_start():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
         manager.activate("push1")
@@ -276,7 +276,7 @@ async def test_trigger_manager_fire_deactivated_raises():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
         manager.activate("push1")
@@ -307,7 +307,7 @@ async def test_trigger_manager_poll_schedule():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         provenance = DagProvenance(Path(tmp) / "prov.db")
         manager = TriggerManager(namespace=ns, store=store, provenance=provenance)
@@ -350,7 +350,7 @@ async def test_trigger_manager_poll_custom_fn():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
         manager.activate("poller")
@@ -370,7 +370,7 @@ async def test_trigger_manager_start_stop():
 
     ns = Namespace()
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
 
@@ -410,7 +410,7 @@ async def test_trigger_manager_deactivated_not_polled():
     )
     ns.register(dag, nsref="pipelines:echo", config=dag_config)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         store = TriggerStore(Path(tmp) / "triggers.db")
         manager = TriggerManager(namespace=ns, store=store)
         manager.activate("poller")
