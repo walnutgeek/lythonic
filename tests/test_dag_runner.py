@@ -45,40 +45,6 @@ def test_provenance_update_and_finish_run():
         assert run["finished_at"] is not None
 
 
-def test_provenance_node_lifecycle():
-    from lythonic.compose.dag_provenance import DagProvenance
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        prov = DagProvenance(Path(tmp) / "test.db")
-        prov.create_run("run-1", "p:d", {})
-
-        prov.record_node_start("run-1", "fetch", '{"ticker": "AAPL"}')
-        execs = prov.get_node_executions("run-1")
-        assert len(execs) == 1
-        assert execs[0]["status"] == "running"
-
-        prov.record_node_complete("run-1", "fetch", '{"price": 150.0}')
-        execs = prov.get_node_executions("run-1")
-        assert execs[0]["status"] == "completed"
-        assert execs[0]["output_json"] == '{"price": 150.0}'
-        assert execs[0]["finished_at"] is not None
-
-
-def test_provenance_node_failed():
-    from lythonic.compose.dag_provenance import DagProvenance
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        prov = DagProvenance(Path(tmp) / "test.db")
-        prov.create_run("run-1", "p:d", {})
-
-        prov.record_node_start("run-1", "fetch", "{}")
-        prov.record_node_failed("run-1", "fetch", "Connection timeout")
-
-        execs = prov.get_node_executions("run-1")
-        assert execs[0]["status"] == "failed"
-        assert execs[0]["error"] == "Connection timeout"
-
-
 def test_provenance_node_skipped():
     from lythonic.compose.dag_provenance import DagProvenance
 
@@ -92,60 +58,12 @@ def test_provenance_node_skipped():
         assert execs[0]["output_json"] == '{"price": 100.0}'
 
 
-def test_provenance_get_node_output():
-    from lythonic.compose.dag_provenance import DagProvenance
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        prov = DagProvenance(Path(tmp) / "test.db")
-        prov.create_run("run-1", "p:d", {})
-
-        prov.record_node_start("run-1", "fetch", "{}")
-        prov.record_node_complete("run-1", "fetch", '{"v": 1}')
-
-        assert prov.get_node_output("run-1", "fetch") == '{"v": 1}'
-        assert prov.get_node_output("run-1", "missing") is None
-
-
-def test_provenance_get_pending_nodes():
-    from lythonic.compose.dag_provenance import DagProvenance
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        prov = DagProvenance(Path(tmp) / "test.db")
-        prov.create_run("run-1", "p:d", {})
-
-        prov.record_node_start("run-1", "fetch", "{}")
-        prov.record_node_complete("run-1", "fetch", "{}")
-        prov.record_node_start("run-1", "compute", "{}")
-        prov.record_node_failed("run-1", "compute", "err")
-
-        pending = prov.get_pending_nodes("run-1")
-        assert "compute" in pending
-        assert "fetch" not in pending
-
-
 def test_provenance_get_missing_run():
     from lythonic.compose.dag_provenance import DagProvenance
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         assert prov.get_run("nonexistent") is None
-
-
-def test_provenance_edge_traversal():
-    from lythonic.compose.dag_provenance import DagProvenance
-
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        prov = DagProvenance(Path(tmp) / "test.db")
-        prov.create_run("run-1", "p:d", {})
-        prov.record_edge_traversal("run-1", "fetch", "compute")
-        prov.record_edge_traversal("run-1", "compute", "report")
-
-        edges = prov.get_edge_traversals("run-1")
-        assert len(edges) == 2
-        assert edges[0]["upstream_label"] == "fetch"
-        assert edges[0]["downstream_label"] == "compute"
-        assert edges[1]["upstream_label"] == "compute"
-        assert edges[1]["downstream_label"] == "report"
 
 
 def test_provenance_node_type():

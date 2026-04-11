@@ -206,30 +206,10 @@ class DagProvenance:
             _insert_node_start(conn.cursor(), run_id, node_label, input_json, node_type)
             conn.commit()
 
-    def record_node_complete(self, run_id: str, node_label: str, output_json: str) -> None:
-        """Record that a node has completed successfully."""
-        with open_sqlite_db(self.db_path) as conn:
-            _update_node_complete(conn.cursor(), run_id, node_label, output_json)
-            conn.commit()
-
-    def record_node_failed(self, run_id: str, node_label: str, error: str) -> None:
-        """Record that a node has failed."""
-        with open_sqlite_db(self.db_path) as conn:
-            _update_node_failed(conn.cursor(), run_id, node_label, error)
-            conn.commit()
-
     def record_node_skipped(self, run_id: str, node_label: str, output_json: str) -> None:
         """Record a node as skipped with a copied output (used in replay)."""
         with open_sqlite_db(self.db_path) as conn:
             _insert_node_skipped(conn.cursor(), run_id, node_label, output_json)
-            conn.commit()
-
-    def record_edge_traversal(
-        self, run_id: str, upstream_label: str, downstream_label: str
-    ) -> None:
-        """Record that an edge was traversed during execution."""
-        with open_sqlite_db(self.db_path) as conn:
-            _insert_edge_traversal(conn.cursor(), run_id, upstream_label, downstream_label)
             conn.commit()
 
     # Batch operations — multiple writes in one open/close cycle
@@ -312,31 +292,6 @@ class DagProvenance:
                 }
                 for r in cursor.fetchall()
             ]
-
-    def get_node_output(self, run_id: str, node_label: str) -> str | None:
-        """Get the output JSON of a completed or skipped node, or None."""
-        with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "SELECT output_json FROM node_executions "
-                "WHERE run_id = ? AND node_label = ? AND status IN ('completed', 'skipped')",
-                (run_id, node_label),
-            )
-            row = cursor.fetchone()
-            return row[0] if row else None
-
-    def get_pending_nodes(self, run_id: str) -> list[str]:
-        """Get labels of nodes that are not yet completed or skipped."""
-        with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "SELECT node_label FROM node_executions "
-                "WHERE run_id = ? AND status IN ('pending', 'running', 'failed')",
-                (run_id,),
-            )
-            return [row[0] for row in cursor.fetchall()]
 
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:
         """Get all edge traversals for a run."""
@@ -459,21 +414,7 @@ class NullProvenance:
     ) -> None:
         pass
 
-    def record_node_complete(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
-        pass
-
-    def record_node_failed(self, run_id: str, node_label: str, error: str) -> None:  # pyright: ignore[reportUnusedParameter]
-        pass
-
     def record_node_skipped(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
-        pass
-
-    def record_edge_traversal(
-        self,
-        run_id: str,  # pyright: ignore[reportUnusedParameter]
-        upstream_label: str,  # pyright: ignore[reportUnusedParameter]
-        downstream_label: str,  # pyright: ignore[reportUnusedParameter]
-    ) -> None:
         pass
 
     def complete_node_with_edges(
@@ -492,12 +433,6 @@ class NullProvenance:
         return None
 
     def get_node_executions(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
-        return []
-
-    def get_node_output(self, run_id: str, node_label: str) -> str | None:  # pyright: ignore[reportUnusedParameter]
-        return None
-
-    def get_pending_nodes(self, run_id: str) -> list[str]:  # pyright: ignore[reportUnusedParameter]
         return []
 
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
