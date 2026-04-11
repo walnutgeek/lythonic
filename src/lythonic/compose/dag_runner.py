@@ -92,7 +92,10 @@ class DagRunner:
         """Execute the DAG from scratch."""
         run_id = str(uuid.uuid4())
         nsref = dag_nsref or "unknown"
-        self.provenance.create_run(run_id, nsref, source_inputs or {})
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self.provenance.create_run, run_id, nsref, source_inputs or {}
+        )
         self._pause_requested = False
 
         return await self._execute(run_id, nsref, source_inputs or {}, completed_outputs={})
@@ -119,10 +122,10 @@ class DagRunner:
                 return "sink"
             return "internal"
 
-        def _record_outgoing_edges(label: str) -> None:
-            for edge in self.dag.edges:
-                if edge.upstream == label:
-                    self.provenance.record_edge_traversal(run_id, edge.upstream, edge.downstream)
+        def _outgoing_edges(label: str) -> list[tuple[str, str]]:
+            return [(e.upstream, e.downstream) for e in self.dag.edges if e.upstream == label]
+
+        loop = asyncio.get_running_loop()
 
         for dag_node in order:
             if dag_node.label in node_outputs:
@@ -131,11 +134,13 @@ class DagRunner:
             nt = _node_type(dag_node.label)
 
             if isinstance(dag_node, CompositeDagNode):
-                self.provenance.record_node_start(
+                await loop.run_in_executor(
+                    None,
+                    self.provenance.record_node_start,
                     run_id,
                     dag_node.label,
                     json.dumps({"composite": type(dag_node).__name__}, default=str),
-                    node_type=nt,
+                    nt,
                 )
                 try:
                     if isinstance(dag_node, MapNode):
@@ -145,13 +150,24 @@ class DagRunner:
                     else:
                         raise ValueError(f"Unknown composite node type: {type(dag_node)}")
                     node_outputs[dag_node.label] = result
-                    self.provenance.record_node_complete(
-                        run_id, dag_node.label, json.dumps(result, default=str)
+                    output_json = json.dumps(result, default=str)
+                    edges = _outgoing_edges(dag_node.label)
+                    await loop.run_in_executor(
+                        None,
+                        self.provenance.complete_node_with_edges,
+                        run_id,
+                        dag_node.label,
+                        output_json,
+                        edges,
                     )
-                    _record_outgoing_edges(dag_node.label)
                 except Exception as e:
-                    self.provenance.record_node_failed(run_id, dag_node.label, str(e))
-                    self.provenance.finish_run(run_id, "failed")
+                    await loop.run_in_executor(
+                        None,
+                        self.provenance.fail_node_and_finish_run,
+                        run_id,
+                        dag_node.label,
+                        str(e),
+                    )
                     return DagRunResult(
                         run_id=run_id,
                         status="failed",
@@ -161,7 +177,9 @@ class DagRunner:
                     )
 
                 if self._pause_requested:
-                    self.provenance.update_run_status(run_id, "paused")
+                    await loop.run_in_executor(
+                        None, self.provenance.update_run_status, run_id, "paused"
+                    )
                     return DagRunResult(
                         run_id=run_id,
                         status="paused",
@@ -170,30 +188,45 @@ class DagRunner:
                 continue
 
             kwargs = self._wire_inputs(dag_node, node_outputs, source_inputs)
-            self.provenance.record_node_start(
+            await loop.run_in_executor(
+                None,
+                self.provenance.record_node_start,
                 run_id,
                 dag_node.label,
                 json.dumps(kwargs, default=str),
-                node_type=nt,
+                nt,
             )
 
             try:
                 result = await self._call_node(dag_node, run_id, dag_nsref, kwargs)
                 node_outputs[dag_node.label] = result
-                self.provenance.record_node_complete(
-                    run_id, dag_node.label, json.dumps(result, default=str)
+                output_json = json.dumps(result, default=str)
+                edges = _outgoing_edges(dag_node.label)
+                await loop.run_in_executor(
+                    None,
+                    self.provenance.complete_node_with_edges,
+                    run_id,
+                    dag_node.label,
+                    output_json,
+                    edges,
                 )
-                _record_outgoing_edges(dag_node.label)
             except DagPause:
-                self.provenance.update_run_status(run_id, "paused")
+                await loop.run_in_executor(
+                    None, self.provenance.update_run_status, run_id, "paused"
+                )
                 return DagRunResult(
                     run_id=run_id,
                     status="paused",
                     outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
                 )
             except Exception as e:
-                self.provenance.record_node_failed(run_id, dag_node.label, str(e))
-                self.provenance.finish_run(run_id, "failed")
+                await loop.run_in_executor(
+                    None,
+                    self.provenance.fail_node_and_finish_run,
+                    run_id,
+                    dag_node.label,
+                    str(e),
+                )
                 return DagRunResult(
                     run_id=run_id,
                     status="failed",
@@ -203,14 +236,16 @@ class DagRunner:
                 )
 
             if self._pause_requested:
-                self.provenance.update_run_status(run_id, "paused")
+                await loop.run_in_executor(
+                    None, self.provenance.update_run_status, run_id, "paused"
+                )
                 return DagRunResult(
                     run_id=run_id,
                     status="paused",
                     outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
                 )
 
-        self.provenance.finish_run(run_id, "completed")
+        await loop.run_in_executor(None, self.provenance.finish_run, run_id, "completed")
         return DagRunResult(
             run_id=run_id,
             status="completed",

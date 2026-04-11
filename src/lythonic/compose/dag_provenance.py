@@ -4,11 +4,16 @@ DagProvenance: SQLite-backed storage for DAG run state and node execution traces
 Records the full lifecycle of each DAG run: creation, node-by-node execution
 (inputs, outputs, timing, errors), and final status. Supports querying for
 restart and replay scenarios.
+
+Private `_`-prefixed methods take a cursor and don't commit — they're building
+blocks for batch operations. Public methods open the DB, batch writes, and
+commit in one cycle.
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -50,8 +55,109 @@ CREATE TABLE IF NOT EXISTS edge_traversals (
 )"""
 
 
+# Private cursor-level helpers (no commit, no open/close)
+
+
+def _insert_run(
+    cursor: sqlite3.Cursor,
+    run_id: str,
+    dag_nsref: str,
+    source_inputs: dict[str, Any],
+) -> None:
+    execute_sql(
+        cursor,
+        "INSERT INTO dag_runs (run_id, dag_nsref, status, started_at, source_inputs_json) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (run_id, dag_nsref, "running", time.time(), json.dumps(source_inputs)),
+    )
+
+
+def _update_run_status(cursor: sqlite3.Cursor, run_id: str, status: str) -> None:
+    execute_sql(
+        cursor,
+        "UPDATE dag_runs SET status = ? WHERE run_id = ?",
+        (status, run_id),
+    )
+
+
+def _finish_run(cursor: sqlite3.Cursor, run_id: str, status: str) -> None:
+    execute_sql(
+        cursor,
+        "UPDATE dag_runs SET status = ?, finished_at = ? WHERE run_id = ?",
+        (status, time.time(), run_id),
+    )
+
+
+def _insert_node_start(
+    cursor: sqlite3.Cursor,
+    run_id: str,
+    node_label: str,
+    input_json: str,
+    node_type: str | None = None,
+) -> None:
+    execute_sql(
+        cursor,
+        "INSERT OR REPLACE INTO node_executions "
+        "(run_id, node_label, status, node_type, input_json, started_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, node_label, "running", node_type, input_json, time.time()),
+    )
+
+
+def _update_node_complete(
+    cursor: sqlite3.Cursor, run_id: str, node_label: str, output_json: str
+) -> None:
+    execute_sql(
+        cursor,
+        "UPDATE node_executions SET status = ?, output_json = ?, finished_at = ? "
+        "WHERE run_id = ? AND node_label = ?",
+        ("completed", output_json, time.time(), run_id, node_label),
+    )
+
+
+def _update_node_failed(cursor: sqlite3.Cursor, run_id: str, node_label: str, error: str) -> None:
+    execute_sql(
+        cursor,
+        "UPDATE node_executions SET status = ?, error = ?, finished_at = ? "
+        "WHERE run_id = ? AND node_label = ?",
+        ("failed", error, time.time(), run_id, node_label),
+    )
+
+
+def _insert_node_skipped(
+    cursor: sqlite3.Cursor, run_id: str, node_label: str, output_json: str
+) -> None:
+    now = time.time()
+    execute_sql(
+        cursor,
+        "INSERT OR REPLACE INTO node_executions "
+        "(run_id, node_label, status, output_json, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, node_label, "skipped", output_json, now, now),
+    )
+
+
+def _insert_edge_traversal(
+    cursor: sqlite3.Cursor,
+    run_id: str,
+    upstream_label: str,
+    downstream_label: str,
+) -> None:
+    execute_sql(
+        cursor,
+        "INSERT INTO edge_traversals "
+        "(run_id, upstream_label, downstream_label, traversed_at) "
+        "VALUES (?, ?, ?, ?)",
+        (run_id, upstream_label, downstream_label, time.time()),
+    )
+
+
 class DagProvenance:
-    """SQLite-backed storage for DAG run state and node execution traces."""
+    """
+    SQLite-backed storage for DAG run state and node execution traces.
+
+    Public methods batch related writes into a single `open_sqlite_db` cycle.
+    """
 
     db_path: Path
 
@@ -68,35 +174,19 @@ class DagProvenance:
     def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:
         """Create a new run record with status 'running'."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "INSERT INTO dag_runs (run_id, dag_nsref, status, started_at, source_inputs_json) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (run_id, dag_nsref, "running", time.time(), json.dumps(source_inputs)),
-            )
+            _insert_run(conn.cursor(), run_id, dag_nsref, source_inputs)
             conn.commit()
 
     def update_run_status(self, run_id: str, status: str) -> None:
         """Update the status of a run without setting finished_at."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "UPDATE dag_runs SET status = ? WHERE run_id = ?",
-                (status, run_id),
-            )
+            _update_run_status(conn.cursor(), run_id, status)
             conn.commit()
 
     def finish_run(self, run_id: str, status: str) -> None:
         """Set final status and finished_at timestamp."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "UPDATE dag_runs SET status = ?, finished_at = ? WHERE run_id = ?",
-                (status, time.time(), run_id),
-            )
+            _finish_run(conn.cursor(), run_id, status)
             conn.commit()
 
     def record_node_start(
@@ -104,53 +194,66 @@ class DagProvenance:
     ) -> None:
         """Record that a node has started execution."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "INSERT OR REPLACE INTO node_executions "
-                "(run_id, node_label, status, node_type, input_json, started_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (run_id, node_label, "running", node_type, input_json, time.time()),
-            )
+            _insert_node_start(conn.cursor(), run_id, node_label, input_json, node_type)
             conn.commit()
 
     def record_node_complete(self, run_id: str, node_label: str, output_json: str) -> None:
         """Record that a node has completed successfully."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "UPDATE node_executions SET status = ?, output_json = ?, finished_at = ? "
-                "WHERE run_id = ? AND node_label = ?",
-                ("completed", output_json, time.time(), run_id, node_label),
-            )
+            _update_node_complete(conn.cursor(), run_id, node_label, output_json)
             conn.commit()
 
     def record_node_failed(self, run_id: str, node_label: str, error: str) -> None:
         """Record that a node has failed."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "UPDATE node_executions SET status = ?, error = ?, finished_at = ? "
-                "WHERE run_id = ? AND node_label = ?",
-                ("failed", error, time.time(), run_id, node_label),
-            )
+            _update_node_failed(conn.cursor(), run_id, node_label, error)
             conn.commit()
 
     def record_node_skipped(self, run_id: str, node_label: str, output_json: str) -> None:
         """Record a node as skipped with a copied output (used in replay)."""
         with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            now = time.time()
-            execute_sql(
-                cursor,
-                "INSERT OR REPLACE INTO node_executions "
-                "(run_id, node_label, status, output_json, started_at, finished_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (run_id, node_label, "skipped", output_json, now, now),
-            )
+            _insert_node_skipped(conn.cursor(), run_id, node_label, output_json)
             conn.commit()
+
+    def record_edge_traversal(
+        self, run_id: str, upstream_label: str, downstream_label: str
+    ) -> None:
+        """Record that an edge was traversed during execution."""
+        with open_sqlite_db(self.db_path) as conn:
+            _insert_edge_traversal(conn.cursor(), run_id, upstream_label, downstream_label)
+            conn.commit()
+
+    # Batch operations — multiple writes in one open/close cycle
+
+    def complete_node_with_edges(
+        self,
+        run_id: str,
+        node_label: str,
+        output_json: str,
+        edges: list[tuple[str, str]],
+    ) -> None:
+        """Record node completion and all outgoing edge traversals in one batch."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            _update_node_complete(cursor, run_id, node_label, output_json)
+            for upstream, downstream in edges:
+                _insert_edge_traversal(cursor, run_id, upstream, downstream)
+            conn.commit()
+
+    def fail_node_and_finish_run(
+        self,
+        run_id: str,
+        node_label: str,
+        error: str,
+    ) -> None:
+        """Record node failure and mark the run as failed in one batch."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            _update_node_failed(cursor, run_id, node_label, error)
+            _finish_run(cursor, run_id, "failed")
+            conn.commit()
+
+    # Read operations
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         """Get a run record by ID, or None if not found."""
@@ -225,21 +328,6 @@ class DagProvenance:
             )
             return [row[0] for row in cursor.fetchall()]
 
-    def record_edge_traversal(
-        self, run_id: str, upstream_label: str, downstream_label: str
-    ) -> None:
-        """Record that an edge was traversed during execution."""
-        with open_sqlite_db(self.db_path) as conn:
-            cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "INSERT INTO edge_traversals "
-                "(run_id, upstream_label, downstream_label, traversed_at) "
-                "VALUES (?, ?, ?, ?)",
-                (run_id, upstream_label, downstream_label, time.time()),
-            )
-            conn.commit()
-
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:
         """Get all edge traversals for a run."""
         with open_sqlite_db(self.db_path) as conn:
@@ -294,6 +382,26 @@ class NullProvenance:
     def record_node_skipped(self, run_id: str, node_label: str, output_json: str) -> None:  # pyright: ignore[reportUnusedParameter]
         pass
 
+    def record_edge_traversal(
+        self,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        upstream_label: str,  # pyright: ignore[reportUnusedParameter]
+        downstream_label: str,  # pyright: ignore[reportUnusedParameter]
+    ) -> None:
+        pass
+
+    def complete_node_with_edges(
+        self,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        node_label: str,  # pyright: ignore[reportUnusedParameter]
+        output_json: str,  # pyright: ignore[reportUnusedParameter]
+        edges: list[tuple[str, str]],  # pyright: ignore[reportUnusedParameter]
+    ) -> None:
+        pass
+
+    def fail_node_and_finish_run(self, run_id: str, node_label: str, error: str) -> None:  # pyright: ignore[reportUnusedParameter]
+        pass
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:  # pyright: ignore[reportUnusedParameter]
         return None
 
@@ -305,14 +413,6 @@ class NullProvenance:
 
     def get_pending_nodes(self, run_id: str) -> list[str]:  # pyright: ignore[reportUnusedParameter]
         return []
-
-    def record_edge_traversal(
-        self,
-        run_id: str,  # pyright: ignore[reportUnusedParameter]
-        upstream_label: str,  # pyright: ignore[reportUnusedParameter]
-        downstream_label: str,  # pyright: ignore[reportUnusedParameter]
-    ) -> None:
-        pass
 
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
         return []
