@@ -293,6 +293,31 @@ class DagProvenance:
                 for r in cursor.fetchall()
             ]
 
+    def get_node_output(self, run_id: str, node_label: str) -> str | None:
+        """Get the output JSON of a completed or skipped node, or None."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "SELECT output_json FROM node_executions "
+                "WHERE run_id = ? AND node_label = ? AND status IN ('completed', 'skipped')",
+                (run_id, node_label),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def get_pending_nodes(self, run_id: str) -> list[str]:
+        """Get labels of nodes that are not yet completed or skipped."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "SELECT node_label FROM node_executions "
+                "WHERE run_id = ? AND status IN ('pending', 'running', 'failed')",
+                (run_id,),
+            )
+            return [row[0] for row in cursor.fetchall()]
+
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:
         """Get all edge traversals for a run."""
         with open_sqlite_db(self.db_path) as conn:
@@ -433,6 +458,12 @@ class NullProvenance:
         return None
 
     def get_node_executions(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+        return []
+
+    def get_node_output(self, run_id: str, node_label: str) -> str | None:  # pyright: ignore[reportUnusedParameter]
+        return None
+
+    def get_pending_nodes(self, run_id: str) -> list[str]:  # pyright: ignore[reportUnusedParameter]
         return []
 
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]

@@ -58,6 +58,37 @@ def test_provenance_node_skipped():
         assert execs[0]["output_json"] == '{"price": 100.0}'
 
 
+def test_provenance_get_node_output():
+    from lythonic.compose.dag_provenance import DagProvenance
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "test.db")
+        prov.create_run("run-1", "p:d", {})
+
+        prov.record_node_start("run-1", "fetch", "{}")
+        prov.complete_node_with_edges("run-1", "fetch", '{"v": 1}', [])
+
+        assert prov.get_node_output("run-1", "fetch") == '{"v": 1}'
+        assert prov.get_node_output("run-1", "missing") is None
+
+
+def test_provenance_get_pending_nodes():
+    from lythonic.compose.dag_provenance import DagProvenance
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "test.db")
+        prov.create_run("run-1", "p:d", {})
+
+        prov.record_node_start("run-1", "fetch", "{}")
+        prov.complete_node_with_edges("run-1", "fetch", "{}", [])
+        prov.record_node_start("run-1", "compute", "{}")
+        prov.fail_node_and_finish_run("run-1", "compute", "err")
+
+        pending = prov.get_pending_nodes("run-1")
+        assert "compute" in pending
+        assert "fetch" not in pending
+
+
 def test_provenance_get_missing_run():
     from lythonic.compose.dag_provenance import DagProvenance
 
