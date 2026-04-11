@@ -164,6 +164,13 @@ Always use full type annotations, generics, and other modern practices.
 - Use pathlib `Path` instead of strings.
   Use `Path(filename).read_text()` instead of two-line `with open(...)` blocks.
 
+- Use `open_sqlite_db()` context manager for all SQLite access. Keep databases closed
+  when not actively reading or writing — multiple processes may share the same DB, and
+  `open_sqlite_db()` retries briefly if the database is locked. Batch related operations
+  into a single open/close cycle rather than opening and closing per operation. For
+  example, if you need to insert 5 rows, do them in one `with open_sqlite_db(...) as conn:`
+  block, not 5 separate ones.
+
 - Use strif’s `atomic_output_file` context manager when writing files to ensure output
   files are written atomically.
 
