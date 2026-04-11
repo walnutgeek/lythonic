@@ -88,13 +88,14 @@ class DagRunner:
         self,
         source_inputs: dict[str, dict[str, Any]] | None = None,
         dag_nsref: str | None = None,
+        parent_run_id: str | None = None,
     ) -> DagRunResult:
         """Execute the DAG from scratch."""
         run_id = str(uuid.uuid4())
         nsref = dag_nsref or "unknown"
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self.provenance.create_run, run_id, nsref, source_inputs or {}
+            None, self.provenance.create_run, run_id, nsref, source_inputs or {}, parent_run_id
         )
         self._pause_requested = False
 
@@ -144,9 +145,13 @@ class DagRunner:
                 )
                 try:
                     if isinstance(dag_node, MapNode):
-                        result = await self._execute_map_node(dag_node, dag_nsref, node_outputs)
+                        result = await self._execute_map_node(
+                            dag_node, run_id, dag_nsref, node_outputs
+                        )
                     elif isinstance(dag_node, CallNode):
-                        result = await self._execute_call_node(dag_node, dag_nsref, node_outputs)
+                        result = await self._execute_call_node(
+                            dag_node, run_id, dag_nsref, node_outputs
+                        )
                     else:
                         raise ValueError(f"Unknown composite node type: {type(dag_node)}")
                     node_outputs[dag_node.label] = result
@@ -272,6 +277,7 @@ class DagRunner:
         element: Any,
         key: str,
         dag_nsref: str,
+        parent_run_id: str,
     ) -> Any:
         """Run a sub-DAG once with a single element as input."""
         sub_sources = composite_node.sub_dag.sources()
@@ -286,6 +292,7 @@ class DagRunner:
                 source_label: _single_element_inputs(composite_node.sub_dag, source_label, element)
             },
             dag_nsref=iter_nsref,
+            parent_run_id=parent_run_id,
         )
         if sub_result.status != "completed":
             raise RuntimeError(f"Sub-DAG [{key}] failed: {sub_result.error}")
@@ -294,6 +301,7 @@ class DagRunner:
     async def _execute_map_node(
         self,
         map_node: MapNode,
+        run_id: str,
         dag_nsref: str,
         node_outputs: dict[str, Any],
     ) -> Any:
@@ -315,7 +323,7 @@ class DagRunner:
             )
 
         results = await asyncio.gather(
-            *(self._run_sub_dag(map_node, v, k, dag_nsref) for k, v in items)
+            *(self._run_sub_dag(map_node, v, k, dag_nsref, run_id) for k, v in items)
         )
 
         if is_dict:
@@ -325,12 +333,13 @@ class DagRunner:
     async def _execute_call_node(
         self,
         call_node: CallNode,
+        run_id: str,
         dag_nsref: str,
         node_outputs: dict[str, Any],
     ) -> Any:
         """Execute a CallNode by running sub-DAG once with upstream output."""
         upstream = self._get_upstream_output(call_node, node_outputs)
-        return await self._run_sub_dag(call_node, upstream, "call", dag_nsref)
+        return await self._run_sub_dag(call_node, upstream, "call", dag_nsref, run_id)
 
     async def _call_node(
         self,

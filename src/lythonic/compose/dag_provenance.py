@@ -24,10 +24,12 @@ _DAG_RUNS_DDL = """\
 CREATE TABLE IF NOT EXISTS dag_runs (
     run_id TEXT PRIMARY KEY,
     dag_nsref TEXT NOT NULL,
+    parent_run_id TEXT,
     status TEXT NOT NULL,
     started_at REAL NOT NULL,
     finished_at REAL,
-    source_inputs_json TEXT
+    source_inputs_json TEXT,
+    FOREIGN KEY (parent_run_id) REFERENCES dag_runs(run_id)
 )"""
 
 _NODE_EXECUTIONS_DDL = """\
@@ -63,12 +65,13 @@ def _insert_run(
     run_id: str,
     dag_nsref: str,
     source_inputs: dict[str, Any],
+    parent_run_id: str | None = None,
 ) -> None:
     execute_sql(
         cursor,
-        "INSERT INTO dag_runs (run_id, dag_nsref, status, started_at, source_inputs_json) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (run_id, dag_nsref, "running", time.time(), json.dumps(source_inputs)),
+        "INSERT INTO dag_runs (run_id, dag_nsref, parent_run_id, status, started_at, source_inputs_json) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, dag_nsref, parent_run_id, "running", time.time(), json.dumps(source_inputs)),
     )
 
 
@@ -171,10 +174,16 @@ class DagProvenance:
             execute_sql(cursor, _EDGE_TRAVERSALS_DDL)
             conn.commit()
 
-    def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:
+    def create_run(
+        self,
+        run_id: str,
+        dag_nsref: str,
+        source_inputs: dict[str, Any],
+        parent_run_id: str | None = None,
+    ) -> None:
         """Create a new run record with status 'running'."""
         with open_sqlite_db(self.db_path) as conn:
-            _insert_run(conn.cursor(), run_id, dag_nsref, source_inputs)
+            _insert_run(conn.cursor(), run_id, dag_nsref, source_inputs, parent_run_id)
             conn.commit()
 
     def update_run_status(self, run_id: str, status: str) -> None:
@@ -261,7 +270,7 @@ class DagProvenance:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
-                "SELECT run_id, dag_nsref, status, started_at, finished_at, "
+                "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at, "
                 "source_inputs_json FROM dag_runs WHERE run_id = ?",
                 (run_id,),
             )
@@ -271,10 +280,11 @@ class DagProvenance:
             return {
                 "run_id": row[0],
                 "dag_nsref": row[1],
-                "status": row[2],
-                "started_at": row[3],
-                "finished_at": row[4],
-                "source_inputs_json": row[5],
+                "parent_run_id": row[2],
+                "status": row[3],
+                "started_at": row[4],
+                "finished_at": row[5],
+                "source_inputs_json": row[6],
             }
 
     def get_node_executions(self, run_id: str) -> list[dict[str, Any]]:
@@ -348,6 +358,76 @@ class DagProvenance:
                 for r in cursor.fetchall()
             ]
 
+    # Inspection API
+
+    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
+        """List runs ordered by started_at descending. Optional status filter."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            if status:
+                execute_sql(
+                    cursor,
+                    "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
+                    "FROM dag_runs WHERE status = ? ORDER BY started_at DESC LIMIT ?",
+                    (status, limit),
+                )
+            else:
+                execute_sql(
+                    cursor,
+                    "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
+                    "FROM dag_runs ORDER BY started_at DESC LIMIT ?",
+                    (limit,),
+                )
+            return [
+                {
+                    "run_id": r[0],
+                    "dag_nsref": r[1],
+                    "parent_run_id": r[2],
+                    "status": r[3],
+                    "started_at": r[4],
+                    "finished_at": r[5],
+                }
+                for r in cursor.fetchall()
+            ]
+
+    def get_active_runs(self) -> list[dict[str, Any]]:
+        """Get all currently running DAG executions."""
+        return self.get_recent_runs(limit=100, status="running")
+
+    def get_run_detail(self, run_id: str) -> dict[str, Any] | None:
+        """Get a run with its node executions, edge traversals, and child runs."""
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        return {
+            "run": run,
+            "nodes": self.get_node_executions(run_id),
+            "edges": self.get_edge_traversals(run_id),
+            "children": self.get_child_runs(run_id),
+        }
+
+    def get_child_runs(self, parent_run_id: str) -> list[dict[str, Any]]:
+        """Get all sub-DAG runs spawned by a parent run."""
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
+                "FROM dag_runs WHERE parent_run_id = ? ORDER BY started_at",
+                (parent_run_id,),
+            )
+            return [
+                {
+                    "run_id": r[0],
+                    "dag_nsref": r[1],
+                    "parent_run_id": r[2],
+                    "status": r[3],
+                    "started_at": r[4],
+                    "finished_at": r[5],
+                }
+                for r in cursor.fetchall()
+            ]
+
 
 class NullProvenance:
     """
@@ -355,7 +435,13 @@ class NullProvenance:
     Used when `DagRunner` is created without explicit provenance.
     """
 
-    def create_run(self, run_id: str, dag_nsref: str, source_inputs: dict[str, Any]) -> None:  # pyright: ignore[reportUnusedParameter]
+    def create_run(
+        self,
+        run_id: str,  # pyright: ignore[reportUnusedParameter]
+        dag_nsref: str,  # pyright: ignore[reportUnusedParameter]
+        source_inputs: dict[str, Any],  # pyright: ignore[reportUnusedParameter]
+        parent_run_id: str | None = None,  # pyright: ignore[reportUnusedParameter]
+    ) -> None:
         pass
 
     def update_run_status(self, run_id: str, status: str) -> None:  # pyright: ignore[reportUnusedParameter]
@@ -415,4 +501,16 @@ class NullProvenance:
         return []
 
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+        return []
+
+    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+        return []
+
+    def get_active_runs(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_run_detail(self, run_id: str) -> dict[str, Any] | None:  # pyright: ignore[reportUnusedParameter]
+        return None
+
+    def get_child_runs(self, parent_run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
         return []
