@@ -237,7 +237,21 @@ class TriggerManager:
         _, tc = self.namespace.get_trigger(name)
         effective_payload = payload if payload is not None else (tc.payload or {})
 
-        result: DagRunResult = await dag(**effective_payload)
+        from lythonic.compose.dag_runner import DagRunner
+
+        # Run with provenance so dag_runs/node_executions are recorded
+        runner = DagRunner(dag, provenance=self.provenance)
+        source_inputs: dict[str, dict[str, Any]] = {}
+        for src_node in dag.sources():
+            node_args = src_node.ns_node.method.args
+            if src_node.ns_node.expects_dag_context():
+                node_args = node_args[1:]
+            node_kwargs = {
+                a.name: effective_payload[a.name] for a in node_args if a.name in effective_payload
+            }
+            if node_kwargs:
+                source_inputs[src_node.label] = node_kwargs
+        result: DagRunResult = await runner.run(source_inputs=source_inputs, dag_nsref=dag_nsref)
 
         self.store.record_event(
             trigger_name=name,
@@ -275,7 +289,11 @@ class TriggerManager:
                         continue
 
                     last_run = activation.get("last_run_at") or activation.get("created_at") or 0
-                    next_fire = croniter(schedule, last_run).get_next(float)
+                    # 6-field cron has seconds as first field
+                    is_6_field = len(schedule.split()) == 6
+                    next_fire = croniter(
+                        schedule, last_run, second_at_beginning=is_6_field
+                    ).get_next(float)
 
                     if now < next_fire:
                         continue
