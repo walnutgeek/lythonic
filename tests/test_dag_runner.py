@@ -1264,3 +1264,65 @@ async def test_runtime_resolution_attached_dag_succeeds_with_cache():
         assert result.status == "completed"
         print(result.outputs)
         assert result.outputs["_format_price"] == "AAPL=100.0"
+
+
+# SwitchNode inside MapNode with flatmap
+
+
+async def _async_expand(text: str) -> list[str]:  # pyright: ignore[reportUnusedFunction]
+    """Branch that returns a list (multiple results per input)."""
+    return [text + "_a", text + "_b"]
+
+
+async def _async_passthrough(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Branch that returns a single result."""
+    return text + "_single"
+
+
+async def _async_route(text: str) -> tuple[str, str]:  # pyright: ignore[reportUnusedFunction]
+    """Upstream that produces (LabelSwitch, data) pairs.
+    Items starting with 'x' go to expand branch, others to passthrough."""
+    label = "_async_expand" if text.startswith("x") else "_async_passthrough"
+    return (label, text)
+
+
+async def test_switch_inside_map_with_flatmap():
+    """SwitchNode inside MapNode: one branch returns list (flatmap), another returns scalar."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag
+
+    # Inner DAG: route -> switch(expand, passthrough)
+    inner_dag = Dag()
+    r = inner_dag.node(this_module._async_route)  # pyright: ignore[reportPrivateUsage]
+    sw = inner_dag.switch(
+        [this_module._async_expand, this_module._async_passthrough],  # pyright: ignore[reportPrivateUsage]
+        label="router",
+    )
+    r >> sw  # pyright: ignore[reportUnusedExpression]
+
+    # Parent: split -> map(inner_dag)
+    parent = Dag()
+    s = parent.node(this_module._async_split)  # pyright: ignore[reportPrivateUsage]
+    m = parent.map(inner_dag, label="mapped")
+    s >> m  # pyright: ignore[reportUnusedExpression]
+
+    runner = DagRunner(parent)
+    # "x1,normal,x2" -> split -> ["x1", "normal", "x2"]
+    # Each element goes through inner_dag:
+    #   x1 -> route -> ("_async_expand", "x1") -> expand -> ["x1_a", "x1_b"]
+    #   normal -> route -> ("_async_passthrough", "normal") -> passthrough -> "normal_single"
+    #   x2 -> route -> ("_async_expand", "x2") -> expand -> ["x2_a", "x2_b"]
+    # Flatmap flattens list results: ["x1_a", "x1_b", "normal_single", "x2_a", "x2_b"]
+    result = await runner.run(
+        source_inputs={"_async_split": {"text": "x1,normal,x2"}},
+        dag_nsref="t:switch_flatmap",
+    )
+
+    assert result.status == "completed", f"Failed: {result.error}"
+    outputs = result.outputs["mapped"]
+    assert "x1_a" in outputs
+    assert "x1_b" in outputs
+    assert "normal_single" in outputs
+    assert "x2_a" in outputs
+    assert "x2_b" in outputs
+    assert len(outputs) == 5
