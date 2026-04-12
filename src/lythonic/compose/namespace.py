@@ -665,6 +665,19 @@ class CallNode(CompositeDagNode):
         self.sub_dag = sub_dag
 
 
+class MapSwitchNode(CompositeDagNode):
+    """
+    Combines MapNode and SwitchNode: maps over a collection, routing each
+    element through a switch. Created by `dag.map(dag.switch(...))`.
+    """
+
+    switch_node: SwitchNode
+
+    def __init__(self, switch_node: SwitchNode, label: str, dag: Dag) -> None:
+        super().__init__(label=label, dag=dag)
+        self.switch_node = switch_node
+
+
 class SwitchNode(CompositeDagNode):
     """
     Routes data to one of several branch DAGs based on a `LabelSwitch` value.
@@ -773,14 +786,15 @@ class Dag:
 
     def map(
         self,
-        sub_dag: Dag | Callable[..., Any],
+        sub_dag: Dag | SwitchNode | Callable[..., Any],
         label: str | None = None,
     ) -> MapNode:
         """
         Create a `MapNode` that runs `sub_dag` on each element of an
         upstream collection. The sub-DAG must have exactly one source
-        and one sink. Accepts a `@dag_factory` function, in which case
-        the label is auto-derived from the function name.
+        and one sink. Accepts a `@dag_factory` function, `SwitchNode`,
+        or `Dag`. When a `SwitchNode` is passed, it is removed from the
+        parent DAG and wrapped as the map's sub-processing.
         """
         # Expand @dag_factory to a Dag
         if callable(sub_dag) and getattr(sub_dag, "_is_dag_factory", False):
@@ -792,6 +806,21 @@ class Dag:
                     f"@dag_factory must return a Dag, got {type(factory_result).__name__}"
                 )
             sub_dag = factory_result
+
+        # SwitchNode passed directly — remove from parent, wrap in a MapSwitchNode
+        if isinstance(sub_dag, SwitchNode):
+            switch_node = sub_dag
+            if label is None:
+                label = switch_node.label
+            # Remove switch from parent DAG since it's now inside the map
+            self.nodes.pop(switch_node.label, None)
+            if not label:
+                raise ValueError("label is required for map()")
+            if label in self.nodes:
+                raise ValueError(f"Label '{label}' already exists in DAG.")
+            map_switch = MapSwitchNode(switch_node=switch_node, label=label, dag=self)
+            self.nodes[label] = map_switch
+            return map_switch  # pyright: ignore[reportReturnType]
 
         if not label:
             raise ValueError("label is required for map()")

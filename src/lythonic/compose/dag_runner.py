@@ -40,6 +40,7 @@ from lythonic.compose.namespace import (
     DagNode,
     LabelSwitch,
     MapNode,
+    MapSwitchNode,
     SwitchNode,
 )
 
@@ -172,6 +173,10 @@ class DagRunner:
                         )
                     elif isinstance(dag_node, CallNode):
                         result = await self._execute_call_node(
+                            dag_node, run_id, dag_nsref, node_outputs
+                        )
+                    elif isinstance(dag_node, MapSwitchNode):
+                        result = await self._execute_map_switch_node(
                             dag_node, run_id, dag_nsref, node_outputs
                         )
                     elif isinstance(dag_node, SwitchNode):
@@ -412,6 +417,46 @@ class DagRunner:
         if sub_result.status != "completed":
             raise RuntimeError(f"Switch branch [{switch_label}] failed: {sub_result.error}")
         return sub_result.outputs[sink_label]
+
+    async def _execute_map_switch_node(
+        self,
+        node: MapSwitchNode,
+        run_id: str,
+        dag_nsref: str,
+        node_outputs: dict[str, Any],
+    ) -> Any:
+        """Map over a collection, routing each element through a SwitchNode."""
+        collection = self._get_upstream_output(node, node_outputs)
+
+        if not isinstance(collection, list):
+            raise TypeError(
+                f"MapSwitchNode '{node.label}' received {type(collection).__name__}, expected list"
+            )
+
+        switch = node.switch_node
+
+        async def run_one(idx: int, element: Any) -> Any:
+            switch_label, data = _extract_switch(node.label, element)
+            if switch_label not in switch.branches:
+                raise ValueError(
+                    f"MapSwitchNode '{node.label}': no branch for '{switch_label}'. "
+                    f"Available: {list(switch.branches.keys())}"
+                )
+            branch_dag = switch.branches[switch_label]
+            return await self._run_sub_dag(
+                branch_dag, data, f"{node.label}[{idx}:{switch_label}]", dag_nsref, run_id
+            )
+
+        results = await asyncio.gather(*(run_one(i, elem) for i, elem in enumerate(collection)))  # pyright: ignore[reportUnknownVariableType,reportUnknownArgumentType]
+
+        # Flatmap: flatten list results
+        flat: list[Any] = []
+        for r in results:
+            if isinstance(r, list):
+                flat.extend(r)  # pyright: ignore[reportUnknownArgumentType]
+            else:
+                flat.append(r)
+        return flat
 
     async def _call_node(
         self,

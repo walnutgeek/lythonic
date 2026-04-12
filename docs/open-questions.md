@@ -1,16 +1,18 @@
 # open questions / issues / design decisions
 
 
-* 
+# API Facade 
 
-We need api_facade module. Maybe in woodglue.
+[x] We need api_facade module will be implemneted in  in woodglue.
 
 ## Flatten Map
 
 ❯ FlatMap feature: MapNode enchancement. When results from DAGs inside of map collected into list. Currentyl we expect inner DAG to produce only one element, but it should be ok     
 produce list of elements, those elements will be flattened into resulting list after map processing.   
 
-applied to lists only
+Claude> applied to lists only
+
+[ ] Validated 
 
 
 ## Switch Node
