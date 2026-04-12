@@ -32,7 +32,29 @@ from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
 from lythonic.compose.log_context import reset_node_run_context, set_node_run_context
-from lythonic.compose.namespace import CallNode, CompositeDagNode, Dag, DagContext, DagNode, MapNode
+from lythonic.compose.namespace import (
+    CallNode,
+    CompositeDagNode,
+    Dag,
+    DagContext,
+    DagNode,
+    LabelSwitch,
+    MapNode,
+    SwitchNode,
+)
+
+
+def _extract_switch(node_label: str, upstream: Any) -> tuple[LabelSwitch, Any]:  # pyright: ignore[reportUnknownParameterType]
+    """Extract LabelSwitch and data from upstream output."""
+    if isinstance(upstream, dict) and "__switch__" in upstream:
+        return str(upstream.pop("__switch__")), upstream  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType,reportUnknownVariableType]
+    if isinstance(upstream, (list, tuple)) and len(upstream) >= 2:  # pyright: ignore[reportUnknownArgumentType]
+        data = upstream[1] if len(upstream) == 2 else upstream[1:]  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+        return str(upstream[0]), data  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
+    raise TypeError(
+        f"SwitchNode '{node_label}' requires upstream to provide a LabelSwitch. "
+        f"Got {type(upstream).__name__}"  # pyright: ignore[reportUnknownArgumentType]
+    )
 
 
 def _single_element_inputs(dag: Dag, source_label: str, element: Any) -> dict[str, Any]:
@@ -150,6 +172,10 @@ class DagRunner:
                         )
                     elif isinstance(dag_node, CallNode):
                         result = await self._execute_call_node(
+                            dag_node, run_id, dag_nsref, node_outputs
+                        )
+                    elif isinstance(dag_node, SwitchNode):
+                        result = await self._execute_switch_node(
                             dag_node, run_id, dag_nsref, node_outputs
                         )
                     else:
@@ -273,24 +299,22 @@ class DagRunner:
 
     async def _run_sub_dag(
         self,
-        composite_node: CompositeDagNode,
+        sub_dag: Dag,
         element: Any,
         key: str,
         dag_nsref: str,
         parent_run_id: str,
     ) -> Any:
         """Run a sub-DAG once with a single element as input."""
-        sub_sources = composite_node.sub_dag.sources()
-        sub_sinks = composite_node.sub_dag.sinks()
+        sub_sources = sub_dag.sources()
+        sub_sinks = sub_dag.sinks()
         source_label = sub_sources[0].label
         sink_label = sub_sinks[0].label
 
-        sub_runner = DagRunner(composite_node.sub_dag, provenance=self.provenance)
-        iter_nsref = f"{dag_nsref}/{composite_node.label}[{key}]"
+        sub_runner = DagRunner(sub_dag, provenance=self.provenance)
+        iter_nsref = f"{dag_nsref}/{key}"
         sub_result = await sub_runner.run(
-            source_inputs={
-                source_label: _single_element_inputs(composite_node.sub_dag, source_label, element)
-            },
+            source_inputs={source_label: _single_element_inputs(sub_dag, source_label, element)},
             dag_nsref=iter_nsref,
             parent_run_id=parent_run_id,
         )
@@ -323,7 +347,10 @@ class DagRunner:
             )
 
         results = await asyncio.gather(
-            *(self._run_sub_dag(map_node, v, k, dag_nsref, run_id) for k, v in items)
+            *(
+                self._run_sub_dag(map_node.sub_dag, v, f"{map_node.label}[{k}]", dag_nsref, run_id)
+                for k, v in items
+            )
         )
 
         if is_dict:
@@ -339,7 +366,45 @@ class DagRunner:
     ) -> Any:
         """Execute a CallNode by running sub-DAG once with upstream output."""
         upstream = self._get_upstream_output(call_node, node_outputs)
-        return await self._run_sub_dag(call_node, upstream, "call", dag_nsref, run_id)
+        return await self._run_sub_dag(
+            call_node.sub_dag, upstream, f"{call_node.label}/call", dag_nsref, run_id
+        )
+
+    async def _execute_switch_node(
+        self,
+        switch_node: SwitchNode,
+        run_id: str,
+        dag_nsref: str,
+        node_outputs: dict[str, Any],
+    ) -> Any:
+        """Execute a SwitchNode by routing to the branch matching LabelSwitch."""
+        upstream = self._get_upstream_output(switch_node, node_outputs)
+
+        # Extract LabelSwitch and data from upstream
+        switch_label, data = _extract_switch(switch_node.label, upstream)
+
+        if switch_label not in switch_node.branches:
+            raise ValueError(
+                f"SwitchNode '{switch_node.label}': no branch for label '{switch_label}'. "
+                f"Available: {list(switch_node.branches.keys())}"
+            )
+
+        branch_dag = switch_node.branches[switch_label]
+        sub_sources = branch_dag.sources()
+        sub_sinks = branch_dag.sinks()
+        source_label = sub_sources[0].label
+        sink_label = sub_sinks[0].label
+
+        sub_runner = DagRunner(branch_dag, provenance=self.provenance)
+        iter_nsref = f"{dag_nsref}/{switch_node.label}[{switch_label}]"
+        sub_result = await sub_runner.run(
+            source_inputs={source_label: _single_element_inputs(branch_dag, source_label, data)},
+            dag_nsref=iter_nsref,
+            parent_run_id=run_id,
+        )
+        if sub_result.status != "completed":
+            raise RuntimeError(f"Switch branch [{switch_label}] failed: {sub_result.error}")
+        return sub_result.outputs[sink_label]
 
     async def _call_node(
         self,

@@ -614,41 +614,73 @@ class DagNode:
         return other
 
 
+LabelSwitch = str
+"""Routing key for SwitchNode — the value selects which branch DAG to run."""
+
+
+def _validate_single_source_sink(sub_dag: Dag) -> None:
+    """Validate that a sub-DAG has exactly one source and one sink."""
+    sources = sub_dag.sources()
+    sinks = sub_dag.sinks()
+    if len(sources) != 1:
+        raise ValueError(f"Sub-DAG must have exactly one source, found {len(sources)}")
+    if len(sinks) != 1:
+        raise ValueError(f"Sub-DAG must have exactly one sink, found {len(sinks)}")
+
+
 class CompositeDagNode(DagNode):
     """
-    Base class for DAG nodes that contain a sub-DAG. Validates the
-    sub-DAG has exactly one source and one sink.
+    Base class for DAG nodes that contain sub-DAGs. Stores source/sink
+    type contracts for compatibility checking.
     """
 
-    sub_dag: Dag
-
-    def __init__(self, sub_dag: Dag, label: str, dag: Dag) -> None:
-        sources = sub_dag.sources()
-        sinks = sub_dag.sinks()
-        if len(sources) != 1:
-            raise ValueError(f"Sub-DAG must have exactly one source, found {len(sources)}")
-        if len(sinks) != 1:
-            raise ValueError(f"Sub-DAG must have exactly one sink, found {len(sinks)}")
-
+    def __init__(self, label: str, dag: Dag) -> None:
         placeholder = NamespaceNode(
             method=Method(lambda: None),
             nsref=f"__composite__:{label}",
             namespace=dag.namespace,
         )
         super().__init__(ns_node=placeholder, label=label, dag=dag)
-        self.sub_dag = sub_dag
 
 
 class MapNode(CompositeDagNode):
     """Runs a sub-DAG on each element of a collection."""
 
-    pass
+    sub_dag: Dag
+
+    def __init__(self, sub_dag: Dag, label: str, dag: Dag) -> None:
+        _validate_single_source_sink(sub_dag)
+        super().__init__(label=label, dag=dag)
+        self.sub_dag = sub_dag
 
 
 class CallNode(CompositeDagNode):
     """Runs a sub-DAG once as a single step."""
 
-    pass
+    sub_dag: Dag
+
+    def __init__(self, sub_dag: Dag, label: str, dag: Dag) -> None:
+        _validate_single_source_sink(sub_dag)
+        super().__init__(label=label, dag=dag)
+        self.sub_dag = sub_dag
+
+
+class SwitchNode(CompositeDagNode):
+    """
+    Routes data to one of several branch DAGs based on a `LabelSwitch` value.
+    All branches must have compatible single source and single sink.
+    """
+
+    branches: dict[str, Dag]
+
+    def __init__(self, branches: dict[str, Dag], label: str, dag: Dag) -> None:
+        for branch_label, branch_dag in branches.items():
+            try:
+                _validate_single_source_sink(branch_dag)
+            except ValueError as e:
+                raise ValueError(f"Branch '{branch_label}': {e}") from e
+        super().__init__(label=label, dag=dag)
+        self.branches = branches
 
 
 class Dag:
@@ -776,6 +808,56 @@ class Dag:
         )
         self.nodes[label] = map_node
         return map_node
+
+    def switch(
+        self,
+        branches: list[Dag | Callable[..., Any]] | dict[str, Dag | Callable[..., Any]],
+        label: str,
+    ) -> SwitchNode:
+        """
+        Create a `SwitchNode` that routes to one of several branch DAGs
+        based on a `LabelSwitch` value. Accepts a list (labels auto-derived)
+        or dict of DAGs, `@dag_factory` functions, or plain callables.
+        """
+        if not label:
+            raise ValueError("label is required for switch()")
+
+        if label in self.nodes:
+            raise ValueError(f"Label '{label}' already exists in DAG.")
+
+        # Normalize to dict[str, Dag]
+        if isinstance(branches, list):
+            branch_dict: dict[str, Dag] = {}
+            for item in branches:
+                dag, branch_label = self._resolve_branch(item)
+                branch_dict[branch_label] = dag
+        else:
+            branch_dict = {}
+            for key, item in branches.items():
+                dag, _ = self._resolve_branch(item)
+                branch_dict[key] = dag
+
+        switch_node = SwitchNode(branches=branch_dict, label=label, dag=self)
+        self.nodes[label] = switch_node
+        return switch_node
+
+    def _resolve_branch(self, item: Dag | Callable[..., Any]) -> tuple[Dag, str]:
+        """Resolve a branch item to (Dag, label). Handles Dag, @dag_factory, and callables."""
+        if isinstance(item, Dag):
+            return item, ""
+        if callable(item) and getattr(item, "_is_dag_factory", False):
+            branch_label = str(getattr(item, "__name__", ""))
+            result = item()  # pyright: ignore[reportCallIssue]
+            if not isinstance(result, Dag):
+                raise TypeError(f"@dag_factory must return a Dag, got {type(result).__name__}")
+            return result, branch_label
+        if callable(item):
+            branch_label = str(getattr(item, "__name__", ""))
+            dag = Dag()
+            ns_node = dag.namespace.register(item)
+            dag.node(ns_node)
+            return dag, branch_label
+        raise TypeError(f"Expected Dag, @dag_factory, or callable, got {type(item).__name__}")
 
     def add_edge(self, upstream: DagNode, downstream: DagNode) -> DagEdge:
         """Register a directed edge between two nodes."""
