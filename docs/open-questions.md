@@ -1,6 +1,12 @@
 # open questions / issues / design decisions
 
-[ ] We need API that inspect DAGs that are in process of execution or were executed recently.
+We need api_facade module:
+* We need pydatic models matching dag_runs, node_executions, and edge_traversals tables
+   * that inspect DAGs that are in process of execution or were executed recently.
+   * watch what trigger executed
+
+
+*  Singleton DAG feature: DAG automatically created out of ns_ref out of single function that scheduled through trigger. It has same ns_ref. Actually let's do it on namespace so we have a get method we probably should have `get_as_dag() -> Dag` method. And it makes it easier to track what happened with DAG provenace tracking in/outs timing and execution. We can clean out the code for a special handling function when the scheduled through triggers.
 
 * LabelSwitch - It's a string ID that instructs SwitchNode to invoke one of the predefined DAGs within the switch node. So, switch node is collection of different compatible DAGs/workflows. All DAGs have with a same single source types in a single compatible sink type. And then when data come to the switch node, data has to include LabelSwitch that matches one of the DAGs. All source data exept LabelSwitch passed to matching DAG
 * flatMap - option on map node creation. DAGs inside of map not only one element, but list of elements, those elements will be flattened into resulting list after map processing. or it could be implemented as flatMap() method.

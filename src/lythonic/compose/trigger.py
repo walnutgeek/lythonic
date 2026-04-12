@@ -231,27 +231,13 @@ class TriggerManager:
             )
 
         dag_nsref = activation["dag_nsref"]
-        dag_node = self.namespace.get(dag_nsref)
+        dag = self.namespace.get_as_dag(dag_nsref)
 
         # Resolve payload: explicit overrides config default
         _, tc = self.namespace.get_trigger(name)
         effective_payload = payload if payload is not None else (tc.payload or {})
 
-        raw_result = await dag_node(**effective_payload)
-
-        # Wrap non-DagRunResult callables (plain functions, not DAGs)
-        from lythonic.compose.dag_runner import DagRunResult
-
-        if isinstance(raw_result, DagRunResult):
-            result = raw_result
-        else:
-            import uuid
-
-            result = DagRunResult(
-                run_id=str(uuid.uuid4()),
-                status="completed",
-                outputs={"result": raw_result},
-            )
+        result: DagRunResult = await dag(**effective_payload)
 
         self.store.record_event(
             trigger_name=name,

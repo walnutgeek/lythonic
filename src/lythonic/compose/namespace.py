@@ -351,10 +351,12 @@ class NamespaceNode:
         decorated: Callable[..., Any] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
+        dag: Dag | None = None,
     ) -> None:
         self.method = method
         self.namespace = namespace
         self._decorated = decorated
+        self.dag: Dag | None = dag
         self.metadata: dict[str, Any] = {}
         validated_tags = _validate_tags(tags)
         self.config = config or NsNodeConfig(
@@ -499,7 +501,9 @@ class Namespace:
         if nsref in self._nodes:
             raise ValueError(f"'{nsref}' already exists in namespace")
 
-        node = NamespaceNode(method=method, nsref=nsref, namespace=self, tags=tags, config=config)
+        node = NamespaceNode(
+            method=method, nsref=nsref, namespace=self, tags=tags, config=config, dag=dag
+        )
         self._nodes[nsref] = node
         return node
 
@@ -508,6 +512,20 @@ class Namespace:
         if nsref not in self._nodes:
             raise KeyError(f"'{nsref}' not found in namespace")
         return self._nodes[nsref]
+
+    def get_as_dag(self, nsref: str) -> Dag:
+        """
+        Return a DAG for any node. If the node wraps a DAG (registered
+        via `_register_dag`), return that DAG. Otherwise create a
+        single-node DAG wrapping the callable.
+        """
+        node = self.get(nsref)
+        if node.dag is not None:
+            return node.dag
+        # Wrap plain callable in a single-node DAG
+        dag = Dag()
+        dag.node(node)
+        return dag
 
     def register_all(
         self,
