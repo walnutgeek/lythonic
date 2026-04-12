@@ -15,8 +15,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 from lythonic.state import execute_sql, open_sqlite_db
 
@@ -55,6 +58,69 @@ CREATE TABLE IF NOT EXISTS edge_traversals (
     traversed_at REAL NOT NULL,
     FOREIGN KEY (run_id) REFERENCES dag_runs(run_id)
 )"""
+
+
+def _ts(epoch: float | None) -> datetime | None:
+    """Convert epoch float to timezone-aware UTC datetime."""
+    if epoch is None:
+        return None
+    return datetime.fromtimestamp(epoch, tz=UTC)
+
+
+class EdgeTraversal(BaseModel):
+    """Edge traversed during a DAG run. `downstream_label` identifies the target node."""
+
+    downstream_label: str
+    traversed_at: datetime
+
+
+class NodeExecution(BaseModel):
+    """Execution record for a single node in a DAG run."""
+
+    node_label: str
+    status: str
+    node_type: str | None = None
+    input_json: str | None = None
+    output_json: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    edges: list[EdgeTraversal] = []
+
+
+class DagRun(BaseModel):
+    """A DAG execution record with nested node executions and edge traversals."""
+
+    run_id: str
+    dag_nsref: str
+    parent_run_id: str | None = None
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    source_inputs_json: str | None = None
+    nodes: list[NodeExecution] = []
+
+    def latest_update(self) -> datetime:
+        """The most recent timestamp across all nodes and traversals."""
+        candidates: list[datetime] = [self.started_at]
+        if self.finished_at:
+            candidates.append(self.finished_at)
+        for n in self.nodes:
+            if n.started_at:
+                candidates.append(n.started_at)
+            if n.finished_at:
+                candidates.append(n.finished_at)
+            for e in n.edges:
+                candidates.append(e.traversed_at)
+        return max(candidates)
+
+    def nodes_changed_since(self, dt: datetime) -> list[NodeExecution]:
+        """Nodes whose started_at or finished_at is after `dt`."""
+        result: list[NodeExecution] = []
+        for n in self.nodes:
+            if (n.started_at and n.started_at > dt) or (n.finished_at and n.finished_at > dt):
+                result.append(n)
+        return result
 
 
 # Private cursor-level helpers (no commit, no open/close)
@@ -340,73 +406,109 @@ class DagProvenance:
 
     # Inspection API
 
-    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
-        """List runs ordered by started_at descending. Optional status filter."""
+    def _load_dag_runs(
+        self, cursor: sqlite3.Cursor, run_rows: list[tuple[Any, ...]]
+    ) -> list[DagRun]:
+        """Build DagRun models with nested nodes and edges from run rows."""
+        if not run_rows:
+            return []
+
+        run_ids = [r[0] for r in run_rows]
+        placeholders = ",".join("?" * len(run_ids))
+
+        # Load node executions
+        execute_sql(
+            cursor,
+            f"SELECT run_id, node_label, status, node_type, input_json, output_json, "
+            f"started_at, finished_at, error "
+            f"FROM node_executions WHERE run_id IN ({placeholders})",
+            tuple(run_ids),
+        )
+        nodes_by_run: dict[str, list[NodeExecution]] = {}
+        for r in cursor.fetchall():
+            nodes_by_run.setdefault(r[0], []).append(
+                NodeExecution(
+                    node_label=r[1],
+                    status=r[2],
+                    node_type=r[3],
+                    input_json=r[4],
+                    output_json=r[5],
+                    started_at=_ts(r[6]),
+                    finished_at=_ts(r[7]),
+                    error=r[8],
+                )
+            )
+
+        # Load edge traversals
+        execute_sql(
+            cursor,
+            f"SELECT run_id, upstream_label, downstream_label, traversed_at "
+            f"FROM edge_traversals WHERE run_id IN ({placeholders}) ORDER BY traversed_at",
+            tuple(run_ids),
+        )
+        edges_by_key: dict[tuple[str, str], list[EdgeTraversal]] = {}
+        for r in cursor.fetchall():
+            edges_by_key.setdefault((r[0], r[1]), []).append(
+                EdgeTraversal(downstream_label=r[2], traversed_at=_ts(r[3]))  # pyright: ignore[reportArgumentType]
+            )
+
+        # Attach edges to their upstream nodes
+        for rid, nodes in nodes_by_run.items():
+            for node in nodes:
+                node.edges = edges_by_key.get((rid, node.node_label), [])
+
+        return [
+            DagRun(
+                run_id=r[0],
+                dag_nsref=r[1],
+                parent_run_id=r[2],
+                status=r[3],
+                started_at=_ts(r[4]),  # pyright: ignore[reportArgumentType]
+                finished_at=_ts(r[5]),
+                source_inputs_json=r[6],
+                nodes=nodes_by_run.get(r[0], []),
+            )
+            for r in run_rows
+        ]
+
+    def _fetch_run_rows(
+        self,
+        cursor: sqlite3.Cursor,
+        where: str,
+        params: tuple[Any, ...],
+    ) -> list[tuple[Any, ...]]:
+        execute_sql(
+            cursor,
+            f"SELECT run_id, dag_nsref, parent_run_id, status, started_at, "
+            f"finished_at, source_inputs_json FROM dag_runs {where}",
+            params,
+        )
+        return cursor.fetchall()
+
+    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[DagRun]:
+        """List runs with full node/edge data, ordered by started_at descending."""
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             if status:
-                execute_sql(
-                    cursor,
-                    "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
-                    "FROM dag_runs WHERE status = ? ORDER BY started_at DESC LIMIT ?",
-                    (status, limit),
+                rows = self._fetch_run_rows(
+                    cursor, "WHERE status = ? ORDER BY started_at DESC LIMIT ?", (status, limit)
                 )
             else:
-                execute_sql(
-                    cursor,
-                    "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
-                    "FROM dag_runs ORDER BY started_at DESC LIMIT ?",
-                    (limit,),
-                )
-            return [
-                {
-                    "run_id": r[0],
-                    "dag_nsref": r[1],
-                    "parent_run_id": r[2],
-                    "status": r[3],
-                    "started_at": r[4],
-                    "finished_at": r[5],
-                }
-                for r in cursor.fetchall()
-            ]
+                rows = self._fetch_run_rows(cursor, "ORDER BY started_at DESC LIMIT ?", (limit,))
+            return self._load_dag_runs(cursor, rows)
 
-    def get_active_runs(self) -> list[dict[str, Any]]:
+    def get_active_runs(self) -> list[DagRun]:
         """Get all currently running DAG executions."""
         return self.get_recent_runs(limit=100, status="running")
 
-    def get_run_detail(self, run_id: str) -> dict[str, Any] | None:
-        """Get a run with its node executions, edge traversals, and child runs."""
-        run = self.get_run(run_id)
-        if run is None:
-            return None
-        return {
-            "run": run,
-            "nodes": self.get_node_executions(run_id),
-            "edges": self.get_edge_traversals(run_id),
-            "children": self.get_child_runs(run_id),
-        }
-
-    def get_child_runs(self, parent_run_id: str) -> list[dict[str, Any]]:
+    def get_child_runs(self, parent_run_id: str) -> list[DagRun]:
         """Get all sub-DAG runs spawned by a parent run."""
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
-            execute_sql(
-                cursor,
-                "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
-                "FROM dag_runs WHERE parent_run_id = ? ORDER BY started_at",
-                (parent_run_id,),
+            rows = self._fetch_run_rows(
+                cursor, "WHERE parent_run_id = ? ORDER BY started_at", (parent_run_id,)
             )
-            return [
-                {
-                    "run_id": r[0],
-                    "dag_nsref": r[1],
-                    "parent_run_id": r[2],
-                    "status": r[3],
-                    "started_at": r[4],
-                    "finished_at": r[5],
-                }
-                for r in cursor.fetchall()
-            ]
+            return self._load_dag_runs(cursor, rows)
 
 
 class NullProvenance:
@@ -469,14 +571,11 @@ class NullProvenance:
     def get_edge_traversals(self, run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
         return []
 
-    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+    def get_recent_runs(self, limit: int = 20, status: str | None = None) -> list[DagRun]:  # pyright: ignore[reportUnusedParameter]
         return []
 
-    def get_active_runs(self) -> list[dict[str, Any]]:
+    def get_active_runs(self) -> list[DagRun]:
         return []
 
-    def get_run_detail(self, run_id: str) -> dict[str, Any] | None:  # pyright: ignore[reportUnusedParameter]
-        return None
-
-    def get_child_runs(self, parent_run_id: str) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedParameter]
+    def get_child_runs(self, parent_run_id: str) -> list[DagRun]:  # pyright: ignore[reportUnusedParameter]
         return []

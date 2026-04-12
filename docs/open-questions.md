@@ -1,10 +1,15 @@
 # open questions / issues / design decisions
 
 We need api_facade module:
-We need pydatic models matching dag_runs, node_executions, and edge_traversals tables. DagRun has list[NodeExecution], and  NodeExecution has -> list[EdgeTraversal], that will allow you to skip repeating fields: run_id in NodeExecution and upstream_label in EdgeTraversal. Express all times in `datetime` timezone aware in utc. Heve Json blob fields optional even if they NOT NULL in db
+
+ src/lythonic/compose/dag_provenance.py 
+ 
+ We need pydatic models matching dag_runs, node_executions, and edge_traversals tables. DagRun has list[NodeExecution], and  NodeExecution has -> list[EdgeTraversal], that will allow you to skip repeating fields: run_id in NodeExecution and upstream_label in EdgeTraversal. Express all times in `datetime` timezone aware in utc. Heve Json blob fields optional even if they NOT NULL in db
 Have couple functionds defined on DagRun: 
 * `latest_update()->datetime` = basically max of all datetime's on all nodes and traversals.
 * `nodes_changed_since(dt:datetime)->list[NodeExecution]
+
+Let's refactor def get_recent_runs(..) to return list[DagRun]
 
    * that inspect DAGs that are in process of execution or were executed recently.
    * watch what trigger executed
@@ -43,12 +48,13 @@ Done. Three changes:
 
 ## Singleton DAG
 
-  Singleton DAG feature: DAG automatically created out of ns_ref out of single function that scheduled through trigger. It has same ns_ref. Actually let's do it on namespace so we have a get method we probably should have `get_as_dag() -> Dag` method. And it makes it easier to track what happened with DAG provenace tracking in/outs timing and execution. We can clean out the code for a special handling function when the scheduled through triggers.
+[x] Singleton DAG feature: DAG automatically created out of ns_ref out of single function that scheduled through trigger. It has same ns_ref. Actually let's do it on namespace so we have a get method we probably should have `get_as_dag() -> Dag` method. And it makes it easier to track what happened with DAG provenace tracking in/outs timing and execution. We can clean out the code for a special handling function when the scheduled through triggers.
 
 Issue: A couple things. 
 1. there is no dag_run inserts. I don't see any. Even so, I do see both dag and bare function starts. So, both of them should create dag run inserts, updates, node executions, etc.
 2. There is a delay when triggers start to fire... for about a minute. I'm wondering why. Both are scheduled to fire every 15 seconds.
 
+$ uv run lyth start 
 $ head data/lyth.log
 2026-04-12 10:13:46,866 DEBUG    [asyncio] run= node= Using selector: KqueueSelector
 2026-04-12 10:13:46,887 INFO     [lythonic.state] run= node= Opening database data/triggers.db
@@ -73,5 +79,7 @@ $ grep -B2 'node=task1 Starting task1' data/lyth.log|head
 2026-04-12 10:15:05,242 DEBUG    [lythonic.state] run= node= execute: SELECT * FROM trigger_activations WHERE name = ? -- with args: (('task1_repeat',),)
 $ grep 'INSERT INTO dag_runs' data/lyth.log 
 $ 
+
+[x] Validated both fixes
 
 ----
