@@ -502,12 +502,23 @@ class DagProvenance:
         return self.get_recent_runs(limit=100, status="running")
 
     def get_child_runs(self, parent_run_id: str) -> list[DagRun]:
-        """Get all sub-DAG runs spawned by a parent run."""
+        """Recursively get all descendant runs (children, grandchildren, etc.)."""
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
-            rows = self._fetch_run_rows(
-                cursor, "WHERE parent_run_id = ? ORDER BY started_at", (parent_run_id,)
+            execute_sql(
+                cursor,
+                "WITH RECURSIVE descendants AS ( "
+                "  SELECT run_id, dag_nsref, parent_run_id, status, started_at, "
+                "    finished_at, source_inputs_json "
+                "  FROM dag_runs WHERE parent_run_id = ? "
+                "  UNION ALL "
+                "  SELECT d.run_id, d.dag_nsref, d.parent_run_id, d.status, d.started_at, "
+                "    d.finished_at, d.source_inputs_json "
+                "  FROM dag_runs d JOIN descendants p ON d.parent_run_id = p.run_id "
+                ") SELECT * FROM descendants ORDER BY started_at",
+                (parent_run_id,),
             )
+            rows = cursor.fetchall()
             return self._load_dag_runs(cursor, rows)
 
 
