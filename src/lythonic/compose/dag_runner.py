@@ -355,7 +355,14 @@ class DagRunner:
 
         if is_dict:
             return {items[i][0]: results[i] for i in range(len(items))}
-        return list(results)
+        # Flatmap: if sub-DAG returns a list, flatten into the result
+        flat: list[Any] = []
+        for r in results:
+            if isinstance(r, list):
+                flat.extend(r)  # pyright: ignore[reportUnknownArgumentType]
+            else:
+                flat.append(r)
+        return flat
 
     async def _execute_call_node(
         self,
