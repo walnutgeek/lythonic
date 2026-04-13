@@ -91,3 +91,76 @@ from lythonic.compose.dag_provenance import DagProvenance
 runner = DagRunner(main_dag, provenance=DagProvenance(Path("runs.db")))
 result = asyncio.run(runner.run(source_inputs={"split_text": {"text": "hello world"}}))
 ```
+
+## FlatMap Behavior
+
+When using `Dag.map()` with list inputs, sub-DAG results that are lists
+are flattened into the parent result. Scalar results are appended as-is.
+This makes it easy to have sub-DAGs that expand one input into multiple
+outputs:
+
+```python
+def expand(item: str) -> list[str]:
+    return [item, item.upper()]
+
+expand_dag = Dag()
+expand_dag.node(expand)
+
+dag = Dag()
+dag.node(split) >> dag.map(expand_dag, label="expand") >> dag.node(collect)
+# If split returns ["a", "b"], the map output is ["a", "A", "b", "B"]
+```
+
+## Routing with SwitchNode
+
+`dag.switch(branches, label)` routes data to one of several branch DAGs
+based on a `LabelSwitch` value. The upstream node must return either:
+
+- A dict with a `"__switch__"` key: `{"__switch__": "text", "content": "..."}`
+- A tuple/list where the first element is the label: `("text", {"content": "..."})`
+
+Branches can be DAGs, `@dag_factory` functions, or plain callables.
+When passing a list, labels are auto-derived from names:
+
+```python
+def classify(doc: dict) -> tuple[str, dict]:
+    kind = "text" if doc.get("type") == "text" else "image"
+    return (kind, doc)
+
+def handle_text(doc: dict) -> dict:
+    return {**doc, "processed": True}
+
+def handle_image(doc: dict) -> dict:
+    return {**doc, "resized": True}
+
+dag = Dag()
+dag.node(classify) >> dag.switch([handle_text, handle_image], label="router")
+```
+
+With explicit labels via a dict:
+
+```python
+dag.node(classify) >> dag.switch(
+    {"text": text_pipeline, "image": image_pipeline},
+    label="router",
+)
+```
+
+## MapSwitch: Map + Route
+
+Combine `map` and `switch` to map over a collection and route each element
+to a different branch based on its `LabelSwitch` value:
+
+```python
+def tag_items(items: list[dict]) -> list[tuple[str, dict]]:
+    return [(item["type"], item) for item in items]
+
+dag = Dag()
+dag.node(tag_items) >> dag.map(
+    dag.switch([handle_text, handle_image], label="route"),
+    label="process_all",
+) >> dag.node(merge)
+```
+
+Each element in the collection must provide a switch label (same protocol
+as `SwitchNode`). FlatMap behavior applies to the results.

@@ -14,9 +14,16 @@ don't block the async event loop. Use the `@inline` decorator
 (`lythonic.compose._inline.inline`) to opt out for lightweight pure-computation
 functions.
 
-Handles `CompositeDagNode` subtypes: `MapNode` runs a sub-DAG on each element
-of a collection (concurrent via `asyncio.gather`), and `CallNode` runs a
-sub-DAG once as a single pipeline step.
+Handles `CompositeDagNode` subtypes:
+
+- `MapNode` runs a sub-DAG on each element of a collection (concurrent via
+  `asyncio.gather`). List results from sub-DAGs are flattened into the parent
+  result (flatmap behavior); scalars are appended as-is.
+- `CallNode` runs a sub-DAG once as a single pipeline step.
+- `SwitchNode` routes data to a branch DAG selected by a `LabelSwitch` value
+  extracted from the upstream output.
+- `MapSwitchNode` combines map and switch: maps over a collection, routing
+  each element through the appropriate branch DAG. Flatmap applies here too.
 """
 
 from __future__ import annotations

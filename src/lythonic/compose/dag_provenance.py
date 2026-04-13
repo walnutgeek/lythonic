@@ -5,6 +5,33 @@ Records the full lifecycle of each DAG run: creation, node-by-node execution
 (inputs, outputs, timing, errors), and final status. Supports querying for
 restart and replay scenarios.
 
+## Pydantic Inspection Models
+
+`DagRun`, `NodeExecution`, and `EdgeTraversal` are Pydantic models returned
+by query methods like `get_run()` and `get_recent_runs()`. All timestamps
+are timezone-aware UTC datetimes. `DagRun` nests its `NodeExecution` list,
+each of which nests its `EdgeTraversal` list. Convenience methods:
+
+- `DagRun.latest_update()` — most recent timestamp across all nodes/edges
+- `DagRun.nodes_changed_since(dt)` — nodes updated after a given datetime
+
+## Parent Run Tracking
+
+Sub-DAG runs link to their parent via `parent_run_id`. Use
+`get_child_runs(parent_run_id)` to recursively retrieve all descendant runs
+(children, grandchildren, etc.) using a recursive CTE.
+
+## Batch Operations
+
+`complete_node_with_edges()` and `fail_node_and_finish_run()` batch multiple
+writes (node status + edge traversals, or node failure + run finish) into a
+single `open_sqlite_db` cycle to reduce lock contention.
+
+## Serialization Helpers
+
+`json_default()` and `safe_json_dumps()` handle Pydantic models and other
+non-JSON-serializable types when recording provenance data.
+
 Private `_`-prefixed methods take a cursor and don't commit — they're building
 blocks for batch operations. Public methods open the DB, batch writes, and
 commit in one cycle.

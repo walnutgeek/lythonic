@@ -35,7 +35,8 @@ print(result.outputs["double"])
 ## Compose Freely
 
 DAGs nest inside DAGs. Build small pipelines, reuse them as steps in
-larger ones:
+larger ones. Route data with `switch`, map over collections, or combine
+both with `map(switch(...))`:
 
 ```python
 from lythonic.compose.namespace import Dag, dag_factory
@@ -52,6 +53,10 @@ parent.node(setup) >> parent.node(etl_pipeline, label="etl") >> parent.node(repo
 
 # Or map over a collection
 parent.node(split) >> parent.map(etl_pipeline) >> parent.node(merge)
+
+# Route by label
+dag = Dag()
+dag.node(classify) >> dag.switch([handle_text, handle_image], label="router")
 ```
 
 ## Run Transparently
@@ -99,7 +104,7 @@ with open_sqlite_db("library.db") as conn:
   and run your first triggered pipeline
 - [Build a Pipeline](tutorials/compose-pipeline.md) — end-to-end compose tutorial
 - [Composable DAGs](how-to/composable-dags.md) — MapNode, CallNode,
-  callable DAGs
+  SwitchNode, MapSwitch, callable DAGs
 - [Scheduled Triggers](tutorials/scheduled-triggers.md) — cron-based
   DAG execution
 - [API Reference](reference/compose-namespace.md) — complete API docs

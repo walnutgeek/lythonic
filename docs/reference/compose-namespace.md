@@ -15,3 +15,6 @@ Hierarchical registry of callables with metadata and DAG composition.
         - CompositeDagNode
         - MapNode
         - CallNode
+        - SwitchNode
+        - MapSwitchNode
+        - LabelSwitch

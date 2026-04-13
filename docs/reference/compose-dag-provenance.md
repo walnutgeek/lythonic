@@ -8,3 +8,8 @@ SQLite-backed storage for DAG run state and node execution traces.
       members:
         - DagProvenance
         - NullProvenance
+        - DagRun
+        - NodeExecution
+        - EdgeTraversal
+        - json_default
+        - safe_json_dumps

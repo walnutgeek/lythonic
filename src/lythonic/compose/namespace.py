@@ -66,6 +66,51 @@ parent.node(split_text) >> parent.map(sub_dag, label="chunks") >> parent.node(re
 
 The sub-DAG must have exactly one source and one sink.
 
+**FlatMap behavior:** When the input is a list and a sub-DAG returns a list,
+its elements are flattened into the parent result rather than nested. Scalar
+results are appended as before. This does not apply to dict inputs.
+
+## Switch Nodes
+
+`Dag.switch(branches, label)` creates a `SwitchNode` that routes data to
+one of several branch DAGs based on a `LabelSwitch` string extracted from
+the upstream output. The upstream must return either a dict with a
+`"__switch__"` key or a tuple/list where the first element is the label.
+
+Branches can be DAGs, `@dag_factory` functions, or plain callables. When
+a list is passed, labels are auto-derived from function/factory names:
+
+```python
+dag = Dag()
+dag.node(classify) >> dag.switch([handle_text, handle_image], label="router")
+```
+
+With a dict for explicit labels:
+
+```python
+dag.switch({"text": text_dag, "image": image_dag}, label="router")
+```
+
+## MapSwitch
+
+`dag.map(dag.switch(...))` creates a `MapSwitchNode` that maps over a
+collection, routing each element through the switch by its `LabelSwitch`
+value. Each element must provide a switch label (same protocol as
+`SwitchNode`):
+
+```python
+dag = Dag()
+dag.node(split_items) >> dag.map(
+    dag.switch([process_a, process_b], label="route"),
+    label="map_route",
+) >> dag.node(merge)
+```
+
+## Singleton DAG
+
+`Namespace.get_as_dag(nsref)` returns the underlying DAG for DAG nodes or
+wraps plain callables in a single-node DAG, providing uniform execution.
+
 ## Composable DAGs
 
 `dag.node(sub_dag, label="enrich")` creates a `CallNode` that runs a sub-DAG
