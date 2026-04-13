@@ -31,6 +31,15 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance
+
+
+def _json_default(obj: Any) -> Any:
+    """JSON serialization fallback for Pydantic models and other types."""
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    return str(obj)
+
+
 from lythonic.compose.log_context import reset_node_run_context, set_node_run_context
 from lythonic.compose.namespace import (
     CallNode,
@@ -163,7 +172,7 @@ class DagRunner:
                     self.provenance.record_node_start,
                     run_id,
                     dag_node.label,
-                    json.dumps({"composite": type(dag_node).__name__}, default=str),
+                    json.dumps({"composite": type(dag_node).__name__}, default=_json_default),
                     nt,
                 )
                 try:
@@ -186,7 +195,7 @@ class DagRunner:
                     else:
                         raise ValueError(f"Unknown composite node type: {type(dag_node)}")
                     node_outputs[dag_node.label] = result
-                    output_json = json.dumps(result, default=str)
+                    output_json = json.dumps(result, default=_json_default)
                     edges = _outgoing_edges(dag_node.label)
                     await loop.run_in_executor(
                         None,
@@ -229,14 +238,14 @@ class DagRunner:
                 self.provenance.record_node_start,
                 run_id,
                 dag_node.label,
-                json.dumps(kwargs, default=str),
+                json.dumps(kwargs, default=_json_default),
                 nt,
             )
 
             try:
                 result = await self._call_node(dag_node, run_id, dag_nsref, kwargs)
                 node_outputs[dag_node.label] = result
-                output_json = json.dumps(result, default=str)
+                output_json = json.dumps(result, default=_json_default)
                 edges = _outgoing_edges(dag_node.label)
                 await loop.run_in_executor(
                     None,
@@ -568,7 +577,7 @@ class DagRunner:
             if label not in rerun_nodes:
                 completed_outputs[label] = output
                 self.provenance.record_node_skipped(
-                    new_run_id, label, json.dumps(output, default=str)
+                    new_run_id, label, json.dumps(output, default=_json_default)
                 )
 
         return await self._execute(

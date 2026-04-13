@@ -7,14 +7,20 @@ namespace:
     triggers:
       - name: "task1_repeat"
         type: "poll"
-        schedule: "*/15 * * * * *"
+        schedule: "*/19 * * * * *"
   - nsref: "examples:dag1"
     gref: "lythonic.examples.do_sleep_repeat:dag1__"
     triggers:
       - name: dag1_repeat
         type: "poll"
-        schedule: "*/15 * * * * *"
+        schedule: "*/17 * * * * *"
 
+  - nsref: "examples:map_switch_flat_map"
+    gref: "lythonic.examples.do_sleep_repeat:map_switch_flat_map__"
+    triggers:
+      - name: map_switch_flat_map
+        type: "poll"
+        schedule: "*/23 * * * * *"
 
 """
 
