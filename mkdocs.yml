@@ -87,6 +87,7 @@ nav:
       - lythonic.periodic: reference/periodic.md
       - lythonic.misc: reference/misc.md
   - Release Notes:
+      - v0.0.14: release_notes/v0.0.14.md
       - v0.0.13: release_notes/v0.0.13.md
       - v0.0.12: release_notes/v0.0.12.md
       - v0.0.11: release_notes/v0.0.11.md
