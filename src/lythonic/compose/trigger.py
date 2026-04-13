@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from croniter import croniter
 
+from lythonic.compose.dag_provenance import safe_json_dumps
 from lythonic.state import execute_sql, open_sqlite_db
 
 _TRIGGER_ACTIVATIONS_DDL = """\
@@ -154,7 +155,7 @@ class TriggerStore:
                     trigger_name,
                     time.time(),
                     run_id,
-                    json.dumps(payload) if payload else None,
+                    safe_json_dumps(payload) if payload else None,
                     status,
                 ),
             )

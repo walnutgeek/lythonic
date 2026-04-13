@@ -13,6 +13,7 @@ commit in one cycle.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 from datetime import UTC, datetime
@@ -22,6 +23,25 @@ from typing import Any
 from pydantic import BaseModel
 
 from lythonic.state import execute_sql, open_sqlite_db
+
+_log = logging.getLogger(__name__)
+
+
+def json_default(obj: Any) -> Any:
+    """JSON serialization fallback for Pydantic models and other types."""
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    return str(obj)
+
+
+def safe_json_dumps(obj: Any) -> str:
+    """JSON serialize with Pydantic support. Logs a warning on failure."""
+    try:
+        return json.dumps(obj, default=json_default)
+    except Exception:
+        _log.warning("Failed to serialize to JSON: %s", type(obj).__name__, exc_info=True)
+        return json.dumps(str(obj))
+
 
 _DAG_RUNS_DDL = """\
 CREATE TABLE IF NOT EXISTS dag_runs (
@@ -137,7 +157,7 @@ def _insert_run(
         cursor,
         "INSERT INTO dag_runs (run_id, dag_nsref, parent_run_id, status, started_at, source_inputs_json) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, dag_nsref, parent_run_id, "running", time.time(), json.dumps(source_inputs)),
+        (run_id, dag_nsref, parent_run_id, "running", time.time(), safe_json_dumps(source_inputs)),
     )
 
 
