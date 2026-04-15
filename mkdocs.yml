@@ -87,7 +87,7 @@ nav:
       - lythonic.periodic: reference/periodic.md
       - lythonic.misc: reference/misc.md
   - Posts:
-      - "Show HN: Lythonic": posts/2026-04-13-show-hn.md
+      - "2026-04-13 Show HN": posts/2026-04-13-show-hn.md
   - Release Notes:
       - v0.0.14: release_notes/v0.0.14.md
       - v0.0.13: release_notes/v0.0.13.md
