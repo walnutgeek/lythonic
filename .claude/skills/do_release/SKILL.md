@@ -31,7 +31,31 @@ examples). The release notes should:
 - Reference module paths (e.g., `lythonic.compose.namespace`) where relevant
 - Do NOT list every commit — summarize the intent of related changes
 
-Commit and push release notes.
+### Update release index
+
+Add a row for `v$ARGUMENTS` at the top of the list in `docs/release_notes/index.md`,
+following the existing pattern (latest first):
+```
+* [v$ARGUMENTS](v$ARGUMENTS.md) [github](https://github.com/walnutgeek/lythonic/releases/tag/v$ARGUMENTS)
+```
+
+### Update mkdocs.yml nav
+
+Update the `Releases:` section in `mkdocs.yml` nav to list the 3 most recent
+releases (based on the full list in `release_notes/index.md`), followed by a
+`"..."` link to the index page for older releases. Example with v0.0.16 being new:
+```yaml
+  - Releases:
+      - v0.0.16: release_notes/v0.0.16.md
+      - v0.0.15: release_notes/v0.0.15.md
+      - v0.0.14: release_notes/v0.0.14.md
+      - "...": release_notes/index.md
+```
+
+Ensure the `not_in_nav` glob in `mkdocs.yml` covers older release note files
+(e.g. `/release_notes/v*.md`) so mkdocs doesn't warn about them.
+
+Commit and push release notes, index update, and mkdocs.yml changes together.
 
 ## Step 2: Draft release message
 

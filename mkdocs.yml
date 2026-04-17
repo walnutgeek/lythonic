@@ -56,8 +56,14 @@ markdown_extensions:
   - toc:
       permalink: true
 
+not_in_nav: |
+  /release_notes/v*.md
+  /open-questions.md
+
 nav:
   - Home: index.md
+  - Posts:
+      - "2026-04-13 Show HN": posts/2026-04-13-show-hn.md
   - Getting Started: getting-started.md
   - Tutorials:
       - Getting Started with lyth: tutorials/lyth-quickstart.md
@@ -86,12 +92,7 @@ nav:
       - lythonic.types: reference/types.md
       - lythonic.periodic: reference/periodic.md
       - lythonic.misc: reference/misc.md
-  - Posts:
-      - "2026-04-13 Show HN": posts/2026-04-13-show-hn.md
-  - Release Notes:
+  - Releases:
       - v0.0.14: release_notes/v0.0.14.md
       - v0.0.13: release_notes/v0.0.13.md
-      - v0.0.12: release_notes/v0.0.12.md
-      - v0.0.11: release_notes/v0.0.11.md
-      - v0.0.10: release_notes/v0.0.10.md
-      - v0.0.9: release_notes/v0.0.9.md
+      - "...": release_notes/index.md
