@@ -144,14 +144,8 @@ class DagRunner:
         source_labels = {n.label for n in self.dag.sources()}
         sink_labels = {n.label for n in self.dag.sinks()}
 
-        def _node_type(label: str) -> str:
-            if isinstance(self.dag.nodes[label], CompositeDagNode):
-                return "composite"
-            if label in source_labels:
-                return "source"
-            if label in sink_labels:
-                return "sink"
-            return "internal"
+        def _node_flags(label: str) -> tuple[bool, bool]:
+            return (label in source_labels, label in sink_labels)
 
         def _outgoing_edges(label: str) -> list[tuple[str, str]]:
             return [(e.upstream, e.downstream) for e in self.dag.edges if e.upstream == label]
@@ -162,16 +156,21 @@ class DagRunner:
             if dag_node.label in node_outputs:
                 continue
 
-            nt = _node_type(dag_node.label)
+            is_src, is_snk = _node_flags(dag_node.label)
 
             if isinstance(dag_node, CompositeDagNode):
+                upstream_data = self._get_upstream_output(dag_node, node_outputs)
+                input_json = json.dumps(upstream_data, default=json_default)
                 await loop.run_in_executor(
                     None,
-                    self.provenance.record_node_start,
-                    run_id,
-                    dag_node.label,
-                    json.dumps({"composite": type(dag_node).__name__}, default=json_default),
-                    nt,
+                    functools.partial(
+                        self.provenance.record_node_start,
+                        run_id,
+                        dag_node.label,
+                        input_json,
+                        is_source=is_src,
+                        is_sink=is_snk,
+                    ),
                 )
                 try:
                     if isinstance(dag_node, MapNode):
@@ -233,11 +232,14 @@ class DagRunner:
             kwargs = self._wire_inputs(dag_node, node_outputs, source_inputs)
             await loop.run_in_executor(
                 None,
-                self.provenance.record_node_start,
-                run_id,
-                dag_node.label,
-                json.dumps(kwargs, default=json_default),
-                nt,
+                functools.partial(
+                    self.provenance.record_node_start,
+                    run_id,
+                    dag_node.label,
+                    json.dumps(kwargs, default=json_default),
+                    is_source=is_src,
+                    is_sink=is_snk,
+                ),
             )
 
             try:
@@ -288,11 +290,18 @@ class DagRunner:
                     outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
                 )
 
-        await loop.run_in_executor(None, self.provenance.finish_run, run_id, "completed")
+        sink_outputs = {lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs}
+        sink_outputs_json = json.dumps(sink_outputs, default=json_default) if sink_outputs else None
+        await loop.run_in_executor(
+            None,
+            functools.partial(
+                self.provenance.finish_run, run_id, "completed", sink_outputs_json=sink_outputs_json
+            ),
+        )
         return DagRunResult(
             run_id=run_id,
             status="completed",
-            outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
+            outputs=sink_outputs,
         )
 
     def _get_upstream_output(
@@ -386,7 +395,7 @@ class DagRunner:
         """Execute a CallNode by running sub-DAG once with upstream output."""
         upstream = self._get_upstream_output(call_node, node_outputs)
         return await self._run_sub_dag(
-            call_node.sub_dag, upstream, f"{call_node.label}/call", dag_nsref, run_id
+            call_node.sub_dag, upstream, f"{call_node.label}[]", dag_nsref, run_id
         )
 
     async def _execute_switch_node(

@@ -134,11 +134,12 @@ def test_lyth_engine_e2e():
             assert run.finished_at is not None, f"Completed run {run.run_id} has no finished_at"
 
             # Each node should have a status
-            for node in run.nodes:
+            for node in run.nodes.values():
                 assert node.status in ("completed", "skipped"), (
                     f"Node {node.node_label} status: {node.status}"
                 )
-                assert node.node_type is not None, f"Node {node.node_label} has no node_type"
+                assert isinstance(node.is_source, bool), f"Node {node.node_label} missing is_source"
+                assert isinstance(node.is_sink, bool), f"Node {node.node_label} missing is_sink"
 
         # Verify trigger DB
         triggers_db = data_dir / "triggers.db"

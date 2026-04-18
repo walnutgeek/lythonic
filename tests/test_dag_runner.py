@@ -97,21 +97,21 @@ def test_provenance_get_missing_run():
         assert prov.get_run("nonexistent") is None
 
 
-def test_provenance_node_type():
+def test_provenance_node_flags():
     from lythonic.compose.dag_provenance import DagProvenance
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         prov = DagProvenance(Path(tmp) / "test.db")
         prov.create_run("run-1", "p:d", {})
-        prov.record_node_start("run-1", "fetch", "{}", node_type="source")
-        prov.record_node_start("run-1", "compute", "{}", node_type="internal")
-        prov.record_node_start("run-1", "report", "{}", node_type="sink")
+        prov.record_node_start("run-1", "fetch", "{}", is_source=True)
+        prov.record_node_start("run-1", "compute", "{}")
+        prov.record_node_start("run-1", "report", "{}", is_sink=True)
 
         nodes = prov.get_node_executions("run-1")
-        types = {n["node_label"]: n["node_type"] for n in nodes}
-        assert types["fetch"] == "source"
-        assert types["compute"] == "internal"
-        assert types["report"] == "sink"
+        flags = {n["node_label"]: (n["is_source"], n["is_sink"]) for n in nodes}
+        assert flags["fetch"] == (True, False)
+        assert flags["compute"] == (False, False)
+        assert flags["report"] == (False, True)
 
 
 async def test_edge_traversals_recorded_during_dag_run():
@@ -140,19 +140,128 @@ async def test_edge_traversals_recorded_during_dag_run():
 
         assert result.status == "completed"
 
-        # Check edge traversals
+        # Check edge traversals via raw API
         edges = prov.get_edge_traversals(result.run_id)
         edge_pairs = [(e["upstream_label"], e["downstream_label"]) for e in edges]
         assert ("source", "double") in edge_pairs
         assert ("double", "format") in edge_pairs
         assert len(edges) == 2
 
-        # Check node types
+        # Check node flags via raw API
         nodes = prov.get_node_executions(result.run_id)
-        types = {n["node_label"]: n["node_type"] for n in nodes}
-        assert types["source"] == "source"
-        assert types["double"] == "internal"
-        assert types["format"] == "sink"
+        flags = {n["node_label"]: (n["is_source"], n["is_sink"]) for n in nodes}
+        assert flags["source"] == (True, False)
+        assert flags["double"] == (False, False)
+        assert flags["format"] == (False, True)
+
+        # Check inspection models: nodes as dict, edges as list
+        dag_run = prov.inspect_run(result.run_id)
+        assert dag_run is not None
+        assert set(dag_run.nodes.keys()) == {"source", "double", "format"}
+        assert dag_run.nodes["source"].is_source is True
+        assert dag_run.nodes["source"].is_sink is False
+        assert dag_run.nodes["double"].is_source is False
+        assert dag_run.nodes["format"].is_sink is True
+
+        # Edges attached to upstream nodes
+        source_edges = dag_run.nodes["source"].edges
+        assert len(source_edges) == 1
+        assert source_edges[0].downstream_label == "double"
+        double_edges = dag_run.nodes["double"].edges
+        assert len(double_edges) == 1
+        assert double_edges[0].downstream_label == "format"
+        assert len(dag_run.nodes["format"].edges) == 0
+
+        # Non-composite nodes have sub_dags=None
+        for node in dag_run.nodes.values():
+            assert node.sub_dags is None
+
+
+async def test_sub_dags_loaded_on_composite_nodes():
+    """Composite nodes (MapNode, CallNode) get sub_dags populated from child runs."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_split, nsref="t:split")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_join, nsref="t:join")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:split"))
+    m = parent.map(sub, label="mapped")
+    j = parent.node(ns.get("t:join"))
+    s >> m >> j  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=prov)
+        result = await runner.run(
+            source_inputs={"split": {"text": "a,b,c"}},
+            dag_nsref="t:sub_dag_test",
+        )
+
+        assert result.status == "completed"
+        assert result.outputs["join"] == "A|B|C"
+
+        dag_run = prov.inspect_run(result.run_id)
+        assert dag_run is not None
+
+        # Non-composite nodes: sub_dags is None
+        assert dag_run.nodes["split"].sub_dags is None
+        assert dag_run.nodes["join"].sub_dags is None
+
+        # Composite node: sub_dags is a dict with expansion keys
+        mapped_node = dag_run.nodes["mapped"]
+        assert mapped_node.sub_dags is not None
+        assert len(mapped_node.sub_dags) == 3
+        assert "mapped[0]" in mapped_node.sub_dags
+        assert "mapped[1]" in mapped_node.sub_dags
+        assert "mapped[2]" in mapped_node.sub_dags
+
+        # Each sub-DAG run has its own nodes
+        for _key, sub_run in mapped_node.sub_dags.items():
+            assert sub_run.status == "completed"
+            assert "upper" in sub_run.nodes
+            assert sub_run.parent_run_id == dag_run.run_id
+
+
+async def test_sub_dags_call_node_convention():
+    """CallNode uses label[] convention for sub-DAG expansion key."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_make_text, nsref="t:make_text")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_upper, nsref="t:upper")  # pyright: ignore[reportPrivateUsage]
+
+    sub = Dag()
+    sub.node(ns.get("t:upper"))
+
+    parent = Dag()
+    s = parent.node(ns.get("t:make_text"))
+    c = parent.node(sub, label="shout")
+    s >> c  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "runs.db")
+        runner = DagRunner(parent, provenance=prov)
+        result = await runner.run(dag_nsref="t:call_key_test")
+
+        assert result.status == "completed"
+        assert result.outputs["shout"] == "HELLO"
+
+        dag_run = prov.inspect_run(result.run_id)
+        assert dag_run is not None
+        shout_node = dag_run.nodes["shout"]
+        assert shout_node.sub_dags is not None
+        assert "shout[]" in shout_node.sub_dags
+        sub_run = shout_node.sub_dags["shout[]"]
+        assert sub_run.status == "completed"
+        assert "upper" in sub_run.nodes
 
 
 async def _ctx_node(ctx: DagContext, value: float) -> str:  # pyright: ignore[reportUnusedFunction]
@@ -1326,3 +1435,83 @@ async def test_switch_inside_map_with_flatmap():
     assert "x2_a" in outputs
     assert "x2_b" in outputs
     assert len(outputs) == 5
+
+
+async def test_io_lazy_loading():
+    """io is None by default on inspection models, populated after load_io()."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="t:double")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:format")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    s = dag.node(ns.get("t:source"))
+    d = dag.node(ns.get("t:double"))
+    f = dag.node(ns.get("t:format"))
+    s >> d >> f  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=prov)
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:io_test",
+        )
+        assert result.status == "completed"
+
+        dag_run = prov.inspect_run(result.run_id)
+        assert dag_run is not None
+
+        # io is None by default
+        assert dag_run.io is None
+        for node in dag_run.nodes.values():
+            assert node.io is None
+
+        # After load_io, payloads are populated
+        prov.load_io(dag_run)
+        assert dag_run.io is not None
+        assert dag_run.io.input_json is not None  # source_inputs_json
+        for node in dag_run.nodes.values():
+            assert node.io is not None
+            assert node.io.input_json is not None
+
+        # Selective load_io: only one node
+        dag_run2 = prov.inspect_run(result.run_id)
+        assert dag_run2 is not None
+        prov.load_io(dag_run2, node_labels=["source"])
+        assert dag_run2.nodes["source"].io is not None
+        assert dag_run2.nodes["double"].io is None
+
+
+async def test_sink_outputs_json_recorded():
+    """Completed run has sink_outputs_json in raw dict."""
+    from lythonic.compose.dag_runner import DagRunner
+    from lythonic.compose.namespace import Dag, Namespace
+
+    ns = Namespace()
+    ns.register(this_module._async_source, nsref="t:source")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_format, nsref="t:format")  # pyright: ignore[reportPrivateUsage]
+
+    dag = Dag()
+    s = dag.node(ns.get("t:source"))
+    f = dag.node(ns.get("t:format"))
+    s >> f  # pyright: ignore[reportUnusedExpression]
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        prov = DagProvenance(Path(tmp) / "runs.db")
+        runner = DagRunner(dag, provenance=prov)
+        result = await runner.run(
+            source_inputs={"source": {"ticker": "X"}},
+            dag_nsref="t:sink_test",
+        )
+        assert result.status == "completed"
+
+        run = prov.get_run(result.run_id)
+        assert run is not None
+        assert run["sink_outputs_json"] is not None
+        sink_data = json.loads(run["sink_outputs_json"])
+        assert "format" in sink_data
+        assert sink_data["format"] == "result=100.0"
