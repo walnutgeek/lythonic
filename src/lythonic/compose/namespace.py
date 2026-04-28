@@ -460,6 +460,37 @@ class Namespace:
 
     def __init__(self) -> None:
         self._nodes = {}
+        self._storage: Any = None
+        self._provenance: Any = None
+
+    @property
+    def is_mounted(self) -> bool:
+        """True if mount() has been called."""
+        return self._storage is not None
+
+    @property
+    def requires_mount(self) -> bool:
+        """True if any node has cache config, triggers, or @mount_required."""
+        for node in self._nodes.values():
+            if isinstance(node.config, NsCacheConfig):
+                return True
+            if node.config.triggers:
+                return True
+            if getattr(node.method.o, "_is_mount_required", False):
+                return True
+        return False
+
+    @property
+    def has_mountable(self) -> bool:
+        """True if any node would alter behavior when mounted."""
+        if self.requires_mount:
+            return True
+        for node in self._nodes.values():
+            if node.dag is not None:
+                return True
+            if getattr(node.method.o, "_is_mountable", False):
+                return True
+        return False
 
     def register(
         self,
@@ -494,7 +525,9 @@ class Namespace:
         if nsref is None:
             nsref = f"{gref.module}:{gref.name}"
 
-        method = Method(gref)
+        # Pass c directly (not gref) so Method._o is set immediately, preserving
+        # any decorator attributes (e.g. _is_mount_required) on the callable.
+        method = Method(c) if callable(c) else Method(gref)
         decorated = decorate(method.o) if decorate else None
 
         if nsref in self._nodes:
@@ -632,8 +665,8 @@ class Namespace:
         return ns
 
     def __getattr__(self, name: str) -> Any:
-        # Avoid recursion for internal attributes.
-        if name == "_nodes":
+        # Avoid recursion for attributes set in __init__ before _nodes is populated.
+        if name in ("_nodes", "_storage", "_provenance"):
             raise AttributeError(name)
         # Look up by name as a leaf suffix (for simple nsrefs like "t:fetch" -> "fetch")
         for nsref, node in self._nodes.items():

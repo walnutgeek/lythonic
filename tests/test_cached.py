@@ -741,3 +741,66 @@ def test_mountable_and_mount_required_are_transparent_markers():
     assert getattr(required_fn, "_is_mount_required", False) is True
     assert getattr(optional_fn, "_is_mount_required", False) is False
     assert getattr(required_fn, "_is_mountable", False) is False
+
+
+def test_mount_awareness_properties():
+    from lythonic.compose.namespace import (
+        Namespace,
+        NsCacheConfig,
+        TriggerConfig,
+        mount_required,
+        mountable,
+    )
+
+    # Pure namespace: no mount needed
+    ns_pure = Namespace()
+    ns_pure.register(lambda: "ok", nsref="t:pure")
+    assert ns_pure.is_mounted is False
+    assert ns_pure.requires_mount is False
+    assert ns_pure.has_mountable is False
+
+    # Namespace with NsCacheConfig: requires mount
+    ns_cache = Namespace()
+    cache_cfg = NsCacheConfig(nsref="t:cached", gref=None, min_ttl=1.0, max_ttl=2.0)
+    ns_cache.register(lambda ticker="X": {"p": 1}, nsref="t:cached", config=cache_cfg)  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    assert ns_cache.requires_mount is True
+    assert ns_cache.has_mountable is True
+
+    # Namespace with triggers: requires mount
+    ns_trig = Namespace()
+    trig_cfg = TriggerConfig(name="my_trigger", type="poll", schedule="* * * * *")
+    from lythonic.compose.namespace import NsNodeConfig
+
+    node_cfg = NsNodeConfig(nsref="t:triggered", triggers=[trig_cfg])
+    ns_trig.register(lambda: None, nsref="t:triggered", config=node_cfg)
+    assert ns_trig.requires_mount is True
+
+    # Namespace with @mount_required callable
+    @mount_required
+    def needs_mount() -> str:
+        return "hi"
+
+    ns_req = Namespace()
+    ns_req.register(needs_mount, nsref="t:needs")
+    assert ns_req.requires_mount is True
+    assert ns_req.has_mountable is True
+
+    # Namespace with @mountable callable (not required, but mountable)
+    @mountable
+    def optional_mount() -> str:
+        return "hi"
+
+    ns_opt = Namespace()
+    ns_opt.register(optional_mount, nsref="t:opt")
+    assert ns_opt.requires_mount is False
+    assert ns_opt.has_mountable is True
+
+    # Namespace with a DAG: mountable (benefits from provenance)
+    from lythonic.compose.namespace import Dag
+
+    dag = Dag()
+    dag.node(lambda: "x", label="src")
+    ns_dag = Namespace()
+    ns_dag.register(dag, nsref="t:my_dag")
+    assert ns_dag.requires_mount is False
+    assert ns_dag.has_mountable is True
