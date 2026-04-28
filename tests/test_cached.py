@@ -804,3 +804,37 @@ def test_mount_awareness_properties():
     ns_dag.register(dag, nsref="t:my_dag")
     assert ns_dag.requires_mount is False
     assert ns_dag.has_mountable is True
+
+
+def test_namespace_mount_wraps_cached_nodes():
+    """mount() activates caching for NsCacheConfig nodes."""
+    import tests.test_cached as mod
+    from lythonic.compose.engine import StorageConfig
+    from lythonic.compose.namespace import Namespace, NsCacheConfig
+
+    mod._fake_fetch_count = 0  # pyright: ignore
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        cache_db = Path(tmp) / "cache.db"
+
+        ns = Namespace()
+        cfg = NsCacheConfig(
+            nsref="market:fetch",
+            gref="tests.test_cached:_fake_fetch",  # pyright: ignore[reportArgumentType]
+            min_ttl=1.0,
+            max_ttl=2.0,
+        )
+        ns.register("tests.test_cached:_fake_fetch", nsref="market:fetch", config=cfg)
+
+        assert ns.is_mounted is False
+        ns.mount(StorageConfig(cache_db=cache_db))
+        assert ns.is_mounted is True
+
+        result = ns.get("market:fetch")(ticker="AAPL")
+        assert result == {"price": 100.0, "ticker": "AAPL"}
+        assert mod._fake_fetch_count == 1  # pyright: ignore
+
+        # Second call served from cache
+        result2 = ns.get("market:fetch")(ticker="AAPL")
+        assert result2 == {"price": 100.0, "ticker": "AAPL"}
+        assert mod._fake_fetch_count == 1  # pyright: ignore

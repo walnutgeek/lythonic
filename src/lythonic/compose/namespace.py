@@ -492,6 +492,22 @@ class Namespace:
                 return True
         return False
 
+    def mount(self, storage: Any) -> None:
+        """Activate persistence features for all declared nodes."""
+        self._storage = storage
+
+        if storage.dag_db is not None:
+            from lythonic.compose.dag_provenance import DagProvenance
+
+            self._provenance = DagProvenance(storage.dag_db)
+
+        if storage.cache_db is not None:
+            from lythonic.compose.cached import mount_cached_node
+
+            for node in self._nodes.values():
+                if isinstance(node.config, NsCacheConfig):
+                    mount_cached_node(node, storage.cache_db)
+
     def register(
         self,
         c: Callable[..., Any] | str | Dag,

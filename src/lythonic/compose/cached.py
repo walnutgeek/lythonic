@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """
 Cached: caching layer for callables via `register_cached_callable`.
 
