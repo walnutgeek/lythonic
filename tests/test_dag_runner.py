@@ -1348,7 +1348,7 @@ async def test_runtime_resolution_attached_dag_succeeds_with_cache():
         # Register guarded function with NsCacheConfig
         cfg = NsCacheConfig(
             nsref="tests.test_dag_runner:_guarded_fetch",
-            gref="tests.test_dag_runner:_guarded_fetch",
+            gref="tests.test_dag_runner:_guarded_fetch",  # pyright: ignore[reportArgumentType]
             min_ttl=1.0,
             max_ttl=2.0,
         )
