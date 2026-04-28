@@ -722,3 +722,22 @@ def test_guarded_method_fails_when_called_directly():
         raise AssertionError("Expected CacheProhibitDirectCall")
     except CacheProhibitDirectCall:
         pass
+
+
+def test_mountable_and_mount_required_are_transparent_markers():
+    from lythonic.compose.namespace import mount_required, mountable
+
+    @mountable
+    def optional_fn(x: int) -> int:
+        return x + 1
+
+    @mount_required
+    def required_fn(x: int) -> int:
+        return x + 2
+
+    assert optional_fn(1) == 2
+    assert required_fn(1) == 3
+    assert getattr(optional_fn, "_is_mountable", False) is True
+    assert getattr(required_fn, "_is_mount_required", False) is True
+    assert getattr(optional_fn, "_is_mount_required", False) is False
+    assert getattr(required_fn, "_is_mountable", False) is False

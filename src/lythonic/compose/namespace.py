@@ -187,6 +187,18 @@ def dag_factory(fn: _F) -> _F:
     return fn
 
 
+def mountable(fn: _F) -> _F:
+    """Mark a callable as benefiting from a mounted namespace."""
+    fn._is_mountable = True  # pyright: ignore[reportFunctionMemberAccess]
+    return fn
+
+
+def mount_required(fn: _F) -> _F:
+    """Mark a callable as requiring a mounted namespace."""
+    fn._is_mount_required = True  # pyright: ignore[reportFunctionMemberAccess]
+    return fn
+
+
 class DagContext(BaseModel):
     """
     Base context injected into DAG-participating callables.
