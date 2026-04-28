@@ -23,7 +23,6 @@ from typing import Any
 import yaml
 from pydantic import Field
 
-from lythonic import GlobalRef
 from lythonic.compose.cli import ActionTree, Main, RunContext
 from lythonic.compose.engine import EngineConfig
 
@@ -88,14 +87,11 @@ def _setup_file_logging(log_file: Path) -> None:
 
 
 def _build_namespace(engine_config: EngineConfig) -> Any:
-    """Build a live Namespace from EngineConfig."""
+    """Build a live Namespace from EngineConfig: load declaratively, then mount."""
     from lythonic.compose.namespace import Namespace
 
-    ns = Namespace()
-    for entry in engine_config.namespace:
-        if entry.gref is not None:
-            gref = GlobalRef(str(entry.gref))
-            ns.register(gref.get_instance(), nsref=entry.nsref, config=entry)
+    ns = Namespace.from_dict([e.model_dump(exclude_none=True) for e in engine_config.namespace])
+    ns.mount(engine_config.storage)
     return ns
 
 
