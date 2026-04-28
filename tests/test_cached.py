@@ -10,6 +10,22 @@ from typing import Any
 import tests.test_cached as this_module
 
 
+def _mount_cached(
+    ns: Any, gref: str, min_ttl: float, max_ttl: float, db_path: Path, nsref: str
+) -> None:
+    """Register a callable with NsCacheConfig and mount/wrap."""
+    from lythonic.compose.cached import mount_cached_node
+    from lythonic.compose.engine import StorageConfig
+    from lythonic.compose.namespace import NsCacheConfig
+
+    cfg = NsCacheConfig(nsref=nsref, gref=gref, min_ttl=min_ttl, max_ttl=max_ttl)  # pyright: ignore[reportArgumentType]
+    ns.register(gref, nsref=nsref, config=cfg)
+    if not ns.is_mounted:
+        ns.mount(StorageConfig(cache_db=db_path))
+    else:
+        mount_cached_node(ns.get(nsref), db_path)
+
+
 def _ns_test_ok() -> str:  # pyright: ignore[reportUnusedFunction]
     return "ok"
 
@@ -83,7 +99,6 @@ _fake_fetch2_count = 0
 
 def test_sync_wrapper_miss_fetches_and_caches():
     """On cache miss, the wrapper calls the original and stores the result."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     this_module._fake_fetch_count = 0  # pyright: ignore
@@ -91,9 +106,7 @@ def test_sync_wrapper_miss_fetches_and_caches():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, nsref="market:fetch"
-        )
+        _mount_cached(ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, "market:fetch")
 
         result = ns.get("market:fetch")(ticker="AAPL")
         assert result == {"price": 100.0, "ticker": "AAPL"}
@@ -107,7 +120,6 @@ def test_sync_wrapper_miss_fetches_and_caches():
 
 def test_sync_wrapper_expired_refetches():
     """Past max_ttl, the wrapper must re-fetch."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     this_module._fake_fetch2_count = 0  # pyright: ignore
@@ -115,9 +127,7 @@ def test_sync_wrapper_expired_refetches():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch2", 0.0001, 0.0002, db_path, nsref="fetch2"
-        )
+        _mount_cached(ns, "tests.test_cached:_fake_fetch2", 0.0001, 0.0002, db_path, "fetch2")
 
         ns.fetch2(ticker="X")  # pyright: ignore
         assert this_module._fake_fetch2_count == 1  # pyright: ignore
@@ -144,7 +154,6 @@ _fake_async_count = 0
 
 
 async def test_async_wrapper_miss_fetches_and_caches():
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     this_module._fake_async_count = 0  # pyright: ignore
@@ -152,8 +161,8 @@ async def test_async_wrapper_miss_fetches_and_caches():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_fake_async_fetch", 1.0, 2.0, db_path, nsref="async_market:fetch"
+        _mount_cached(
+            ns, "tests.test_cached:_fake_async_fetch", 1.0, 2.0, db_path, "async_market:fetch"
         )
 
         result = await ns.get("async_market:fetch")(ticker="GOOG")
@@ -181,15 +190,12 @@ def _fetch_typed(ticker: str) -> PriceResult:  # pyright: ignore[reportUnusedFun
 
 
 def test_pydantic_return_type_cached():
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_fetch_typed", 1.0, 2.0, db_path, nsref="typed_fetch"
-        )
+        _mount_cached(ns, "tests.test_cached:_fetch_typed", 1.0, 2.0, db_path, "typed_fetch")
 
         result = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
         assert isinstance(result, PriceResult)
@@ -215,7 +221,6 @@ _prob_fetch_count = 0
 
 def test_probabilistic_refresh_between_ttls():
     """Between min_ttl and max_ttl, refresh probability increases with age."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     this_module._prob_fetch_count = 0  # pyright: ignore
@@ -223,9 +228,7 @@ def test_probabilistic_refresh_between_ttls():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_prob_fetch", 1.0, 3.0, db_path, nsref="prob"
-        )
+        _mount_cached(ns, "tests.test_cached:_prob_fetch", 1.0, 3.0, db_path, "prob")
 
         ns.prob(key="A")  # pyright: ignore
         assert this_module._prob_fetch_count == 1  # pyright: ignore
@@ -260,15 +263,12 @@ def _my_download(tag: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFun
 
 def test_default_namespace_path_uses_function_name():
     """When namespace_path is None, uses the original function name at root."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_my_download", 1.0, 2.0, db_path, nsref="_my_download"
-        )
+        _mount_cached(ns, "tests.test_cached:_my_download", 1.0, 2.0, db_path, "_my_download")
 
         result = ns._my_download(tag="hello")  # pyright: ignore
         assert result == {"tag": "hello"}
@@ -369,17 +369,14 @@ def test_pushback_expired_not_matched():
             assert _pushback_check(conn, "market.fetch") is None
 
 
-def test_pushback_table_created_on_register():
-    """register_cached_callable creates the _pushback table."""
-    from lythonic.compose.cached import register_cached_callable
+def test_pushback_table_created_on_mount():
+    """mount() creates the _pushback table."""
     from lythonic.compose.namespace import Namespace
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, nsref="market:fetch"
-        )
+        _mount_cached(ns, "tests.test_cached:_fake_fetch", 1.0, 2.0, db_path, "market:fetch")
 
         with closing(sqlite3.connect(str(db_path))) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM _pushback")
@@ -397,10 +394,7 @@ _pushback_fetch_count = 0
 
 def test_pushback_suppresses_probabilistic_refresh():
     """When pushback is active, probabilistic refresh is skipped and stale data returned."""
-    from lythonic.compose.cached import (
-        _pushback_set,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
-    )
+    from lythonic.compose.cached import _pushback_set  # pyright: ignore[reportPrivateUsage]
     from lythonic.compose.namespace import Namespace
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
@@ -408,13 +402,8 @@ def test_pushback_suppresses_probabilistic_refresh():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns,
-            "tests.test_cached:_pushback_fetch",
-            1.0,
-            3.0,
-            db_path,
-            nsref="market:pushback_fetch",
+        _mount_cached(
+            ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, "market:pushback_fetch"
         )
 
         # Initial fetch to populate cache
@@ -452,10 +441,7 @@ _async_pushback_fetch_count = 0
 
 async def test_async_pushback_suppresses_probabilistic_refresh():
     """Async wrapper: pushback suppresses probabilistic refresh."""
-    from lythonic.compose.cached import (
-        _pushback_set,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
-    )
+    from lythonic.compose.cached import _pushback_set  # pyright: ignore[reportPrivateUsage]
     from lythonic.compose.namespace import Namespace
 
     this_module._async_pushback_fetch_count = 0  # pyright: ignore
@@ -463,13 +449,13 @@ async def test_async_pushback_suppresses_probabilistic_refresh():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
+        _mount_cached(
             ns,
             "tests.test_cached:_async_pushback_fetch",
             1.0,
             3.0,
             db_path,
-            nsref="async_market:pushback_fetch",
+            "async_market:pushback_fetch",
         )
 
         result = await ns.get("async_market:pushback_fetch")(ticker="GOOG")
@@ -508,10 +494,7 @@ _rate_limited_count = 0
 
 def test_pushback_recorded_on_exception():
     """When a method raises CacheRefreshPushback, pushback is recorded and stale returned."""
-    from lythonic.compose.cached import (
-        _pushback_check,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
-    )
+    from lythonic.compose.cached import _pushback_check  # pyright: ignore[reportPrivateUsage]
     from lythonic.compose.namespace import Namespace
 
     this_module._rate_limited_count = 0  # pyright: ignore
@@ -519,8 +502,8 @@ def test_pushback_recorded_on_exception():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, nsref="api:rate_limited"
+        _mount_cached(
+            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, "api:rate_limited"
         )
 
         # First call succeeds
@@ -554,7 +537,6 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
     from lythonic.compose.cached import (
         CacheRefreshSuppressed,
         _pushback_set,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
     )
     from lythonic.compose.namespace import Namespace
 
@@ -563,13 +545,8 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns,
-            "tests.test_cached:_pushback_fetch",
-            1.0,
-            3.0,
-            db_path,
-            nsref="market:pushback_fetch",
+        _mount_cached(
+            ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, "market:pushback_fetch"
         )
 
         # Populate cache
@@ -599,10 +576,7 @@ def test_past_max_ttl_with_pushback_raises_suppressed():
 
 def test_cache_miss_ignores_pushback():
     """On cache miss, method is called even if pushback is active."""
-    from lythonic.compose.cached import (
-        _pushback_set,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
-    )
+    from lythonic.compose.cached import _pushback_set  # pyright: ignore[reportPrivateUsage]
     from lythonic.compose.namespace import Namespace
 
     this_module._pushback_fetch_count = 0  # pyright: ignore
@@ -610,13 +584,8 @@ def test_cache_miss_ignores_pushback():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns,
-            "tests.test_cached:_pushback_fetch",
-            1.0,
-            3.0,
-            db_path,
-            nsref="market:pushback_fetch",
+        _mount_cached(
+            ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, "market:pushback_fetch"
         )
 
         # Set pushback before any cache entry exists
@@ -631,10 +600,7 @@ def test_cache_miss_ignores_pushback():
 
 def test_default_scope_uses_method_namespace_path():
     """CacheRefreshPushback with no prefix scopes to the raising method only."""
-    from lythonic.compose.cached import (
-        _pushback_check,  # pyright: ignore[reportPrivateUsage]
-        register_cached_callable,
-    )
+    from lythonic.compose.cached import _pushback_check  # pyright: ignore[reportPrivateUsage]
     from lythonic.compose.namespace import Namespace
 
     this_module._rate_limited_count = 0  # pyright: ignore
@@ -643,12 +609,10 @@ def test_default_scope_uses_method_namespace_path():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ns = Namespace()
         db_path = Path(tmp) / "cache.db"
-        register_cached_callable(
-            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, nsref="api:rate_limited"
+        _mount_cached(
+            ns, "tests.test_cached:_rate_limited_fetch", 1.0, 3.0, db_path, "api:rate_limited"
         )
-        register_cached_callable(
-            ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, nsref="api:other"
-        )
+        _mount_cached(ns, "tests.test_cached:_pushback_fetch", 1.0, 3.0, db_path, "api:other")
 
         # Populate both caches
         ns.get("api:rate_limited")(ticker="X")
@@ -696,18 +660,12 @@ def test_require_cache_context_raises_outside_wrapper():
 
 def test_require_cache_context_passes_through_wrapper():
     """CacheProhibitDirectCall.require() does not raise inside cache wrapper."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.namespace import Namespace
 
     ns = Namespace()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        register_cached_callable(
-            ns,
-            gref="tests.test_cached:_guarded_sync",
-            nsref="t:guarded",
-            min_ttl=1.0,
-            max_ttl=2.0,
-            db_path=Path(tmp) / "cache.db",
+        _mount_cached(
+            ns, "tests.test_cached:_guarded_sync", 1.0, 2.0, Path(tmp) / "cache.db", "t:guarded"
         )
         result = ns.get("t:guarded")(ticker="AAPL")
         assert result == {"ticker": "AAPL", "price": "100"}
