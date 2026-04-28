@@ -1336,26 +1336,29 @@ async def test_runtime_resolution_detached_dag_fails_with_guard():
 
 async def test_runtime_resolution_attached_dag_succeeds_with_cache():
     """An attached DAG resolves to the cached version and succeeds."""
-    from lythonic.compose.cached import register_cached_callable
     from lythonic.compose.dag_runner import DagRunner
-    from lythonic.compose.namespace import Dag, Namespace
+    from lythonic.compose.engine import StorageConfig
+    from lythonic.compose.namespace import Dag, Namespace, NsCacheConfig
 
     ns = Namespace()
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db_path = Path(tmp) / "cache.db"
 
-        # Register guarded function WITH cache wrapping in the namespace
-        register_cached_callable(
-            ns,
+        # Register guarded function with NsCacheConfig
+        cfg = NsCacheConfig(
+            nsref="tests.test_dag_runner:_guarded_fetch",
             gref="tests.test_dag_runner:_guarded_fetch",
             min_ttl=1.0,
             max_ttl=2.0,
-            db_path=db_path,
         )
+        ns.register(
+            "tests.test_dag_runner:_guarded_fetch",
+            config=cfg,
+        )
+        ns.mount(StorageConfig(cache_db=db_path))
 
         # Build a DAG using the namespace nodes
-
         dag = Dag()
         f = dag.node(this_module._guarded_fetch)  # pyright: ignore[reportPrivateUsage]
         p = dag.node(this_module._format_price)  # pyright: ignore[reportPrivateUsage]
