@@ -514,34 +514,7 @@ class Namespace:
                 if isinstance(node.config, NsCacheConfig):
                     mount_cached_node(node, storage.cache_db)
 
-        if storage.log_file is not None:
-            self._setup_logging(storage)
-
-    def _setup_logging(self, storage: Any) -> None:
-        """Configure file logging from storage config."""
-        import logging
-
-        from lythonic.compose.log_context import NodeRunLogFilter
-
-        log_file = storage.log_file
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-
-        handler = logging.FileHandler(log_file)
-        handler.addFilter(NodeRunLogFilter())
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)-8s [%(name)s] run=%(run_id)s node=%(node_label)s %(message)s"
-            )
-        )
-
-        root = logging.getLogger()
-        root.addHandler(handler)
-        root.setLevel(getattr(logging, storage.log_level.upper(), logging.DEBUG))
-
-        for logger_name, level_name in storage.loggers.items():
-            logging.getLogger(logger_name).setLevel(
-                getattr(logging, level_name.upper(), logging.DEBUG)
-            )
+        storage.setup_logging()
 
     def register(
         self,

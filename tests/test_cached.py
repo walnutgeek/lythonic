@@ -920,3 +920,28 @@ def test_mount_configures_logging_when_log_file_set():
         # Reset logger levels
         root.setLevel(logging.WARNING)
         cached_logger.setLevel(logging.NOTSET)
+
+
+def test_setup_logging_standalone():
+    """LogConfig.setup_logging() works without a Namespace or mount()."""
+    import logging
+
+    from lythonic.compose.engine import LogConfig
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        log_file = Path(tmp) / "standalone.log"
+        cfg = LogConfig(log_file=log_file, log_level="ERROR", loggers={"myapp": "INFO"})
+        cfg.setup_logging()
+
+        root = logging.getLogger()
+        assert root.level == logging.ERROR
+        assert logging.getLogger("myapp").level == logging.INFO
+        assert log_file.exists()
+
+        for h in root.handlers[:]:
+            if isinstance(h, logging.FileHandler) and str(log_file) in str(h.baseFilename):
+                root.removeHandler(h)
+                h.close()
+
+        root.setLevel(logging.WARNING)
+        logging.getLogger("myapp").setLevel(logging.NOTSET)
