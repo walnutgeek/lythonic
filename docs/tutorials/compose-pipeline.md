@@ -221,25 +221,27 @@ With provenance enabled, you can also restart paused or failed runs with
 
 ## Add Caching
 
-For expensive callables (API calls, slow computations), wrap them with
-`register_cached_callable`. This adds SQLite-backed caching with
+For expensive callables (API calls, slow computations), declare them with
+`NsCacheConfig` and mount the namespace. This adds SQLite-backed caching with
 configurable TTL.
 
-`register_cached_callable` takes a `GlobalRef` string (module path +
-callable name) and registers a cache-wrapped version in the namespace:
+Declare a cache-wrapped callable using `NsCacheConfig` and mount the namespace
+with a `StorageConfig`:
 
 ```python
 from pathlib import Path
-from lythonic.compose.cached import register_cached_callable
+from lythonic.compose.namespace import Namespace, NsCacheConfig
+from lythonic.compose.engine import StorageConfig
 
-register_cached_callable(
-    ns,
-    gref="lythonic.compose.namespace:_parse_nsref",  # any importable callable
+ns = Namespace()
+cfg = NsCacheConfig(
+    nsref="cache:parse_nsref",
+    gref="lythonic.compose.namespace:_parse_nsref",
     min_ttl=0.5,   # days — fresh for 12 hours
     max_ttl=2.0,   # days — force refresh after 2 days
-    db_path=Path("cache.db"),
-    nsref="cache:parse_nsref",
 )
+ns.register("lythonic.compose.namespace:_parse_nsref", nsref="cache:parse_nsref", config=cfg)
+ns.mount(StorageConfig(cache_db=Path("cache.db")))
 
 # First call hits the original function and caches the result
 result = ns.cache.parse_nsref(nsref="market.data:fetch_prices")
@@ -268,6 +270,6 @@ All cached method parameters must be "simple types" (primitives, `date`,
 - [API Reference: lythonic.compose.dag_runner](../reference/compose-dag-runner.md)
   — DagRunner, DagPause, restart, replay
 - [API Reference: lythonic.compose.cached](../reference/compose-cached.md)
-  — register_cached_callable, TTL, pushback
+  — mount_cached_node, TTL, pushback
 - [Your First Schema](first-schema.md) — learn the state pillar for
   structured data persistence

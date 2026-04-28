@@ -1,6 +1,6 @@
 # pyright: reportImportCycles=false
 """
-Cached: caching layer for callables via `register_cached_callable`.
+Cached: SQLite-backed caching layer for namespace callables.
 
 Wraps sync or async methods that return `dict` or Pydantic `BaseModel` with
 SQLite-backed caching. Each cached method gets its own table with typed
@@ -9,26 +9,24 @@ primary key.
 
 ## Usage
 
+Declare cached callables in namespace config using `NsCacheConfig`, then
+call `ns.mount(storage)` to activate caching:
+
 ```python
 from pathlib import Path
-from lythonic.compose.cached import register_cached_callable
-from lythonic.compose.namespace import Namespace
+from lythonic.compose.namespace import Namespace, NsCacheConfig
+from lythonic.compose.engine import StorageConfig
 
 ns = Namespace()
-register_cached_callable(
-    ns, "myapp.downloads:fetch_prices",
-    min_ttl=0.5, max_ttl=2.0, db_path=Path("cache.db"), nsref="market:fetch_prices",
+cfg = NsCacheConfig(
+    nsref="market:fetch_prices",
+    gref="myapp.downloads:fetch_prices",
+    min_ttl=0.5, max_ttl=2.0,
 )
+ns.register("myapp.downloads:fetch_prices", nsref="market:fetch_prices", config=cfg)
+ns.mount(StorageConfig(cache_db=Path("cache.db")))
 
-# Sync method — served from cache when fresh
 result = ns.market.fetch_prices(ticker="AAPL")
-
-# Async method — awaited on cache miss or hard expiry
-register_cached_callable(
-    ns, "myapp.downloads:get_exchange_rate",
-    min_ttl=0.25, max_ttl=1.0, db_path=Path("cache.db"), nsref="get_exchange_rate",
-)
-rate = await ns.get_exchange_rate(from_currency="USD", to_currency="EUR")
 ```
 
 ## TTL Behavior
@@ -41,8 +39,8 @@ rate = await ns.get_exchange_rate(from_currency="USD", to_currency="EUR")
 ## Validation
 
 All method parameters must have types registered as `simple_type` in
-`KNOWN_TYPES` (primitives, date, datetime, Path). Validated at registration
-time via `Method.validate_simple_type_args()`.
+`KNOWN_TYPES` (primitives, date, datetime, Path). Validated at mount time
+via `Method.validate_simple_type_args()`.
 
 ## Pushback
 
@@ -53,12 +51,6 @@ If `namespace_prefix` is omitted, only the raising method is suppressed.
 - During the probabilistic window with active pushback: returns stale data.
 - Past `max_ttl` with active pushback: raises `CacheRefreshSuppressed`.
 - Cache miss: always calls the method regardless of pushback.
-
-## Namespace
-
-Wrapped methods are installed on a `Namespace` object with nested attribute
-access. The `nsref` uses colon-separated format
-(e.g., `"market:fetch_prices"` becomes `ns.market.fetch_prices(...)`).
 """
 
 from __future__ import annotations
@@ -75,7 +67,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from lythonic import GlobalRef
 from lythonic.compose import Method
 from lythonic.compose.namespace import Namespace as Namespace
 from lythonic.state import execute_sql, open_sqlite_db
@@ -453,66 +444,3 @@ def mount_cached_node(node: NamespaceNode, db_path: Path) -> None:
         )
 
     node._decorated = wrapper  # pyright: ignore[reportPrivateUsage]
-
-
-def register_cached_callable(
-    ns: Namespace,
-    gref: str,
-    min_ttl: float,
-    max_ttl: float,
-    db_path: Path,
-    nsref: str | None = None,
-) -> NamespaceNode:
-    """
-    Register a callable with cache wrapping. Handles DDL generation,
-    wrapper building, pushback table creation, and namespace registration.
-    Stores cache config in `node.metadata["cache"]`.
-    """
-
-    gref_obj = GlobalRef(gref)
-    if nsref is None:
-        nsref = str(gref)
-    method = Method(gref_obj)
-    method.validate_simple_type_args()
-
-    # Derive table name from nsref (convert : and . to __)
-    tbl_name = table_name_from_path(nsref.replace(":", "__").replace(".", "__"))
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create cache table and pushback table
-    ddl = generate_cache_table_ddl(tbl_name, method)
-    with open_sqlite_db(db_path) as conn:
-        cursor = conn.cursor()
-        execute_sql(cursor, ddl)
-        execute_sql(
-            cursor,
-            "CREATE TABLE IF NOT EXISTS _pushback "
-            "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)",
-        )
-        conn.commit()
-
-    min_ttl_s = min_ttl * DAYS_TO_SECONDS
-    max_ttl_s = max_ttl * DAYS_TO_SECONDS
-
-    # namespace_path for pushback matching (use nsref with : replaced by .)
-    namespace_path = nsref.replace(":", ".")
-
-    if gref_obj.is_async():
-        wrapper = _build_async_wrapper(
-            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
-        )
-    else:
-        wrapper = _build_sync_wrapper(
-            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
-        )
-
-    from lythonic.compose.namespace import NsCacheConfig
-
-    cache_config = NsCacheConfig(
-        nsref=nsref or str(gref_obj), gref=gref_obj, min_ttl=min_ttl, max_ttl=max_ttl
-    )
-    node: NamespaceNode = ns.register(gref, nsref=nsref, decorate=lambda _: wrapper)
-    node.config = cache_config
-    node.metadata["cache"] = {"min_ttl": min_ttl, "max_ttl": max_ttl}
-    return node

@@ -6,8 +6,9 @@ Cache utilities for wrapping callables with SQLite-backed caching.
     options:
       show_root_heading: false
       members:
-        - register_cached_callable
+        - mount_cached_node
         - CacheRefreshPushback
         - CacheRefreshSuppressed
+        - CacheProhibitDirectCall
         - generate_cache_table_ddl
         - table_name_from_path
