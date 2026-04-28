@@ -18,6 +18,8 @@ class StorageConfig(BaseModel):
     dag_db: Path | None = None
     trigger_db: Path | None = None
     log_file: Path | None = None
+    log_level: str = "DEBUG"
+    loggers: dict[str, str] = {}
 
 
 class EngineConfig(BaseModel):

@@ -879,3 +879,44 @@ async def test_dag_works_without_mount():
     result = await ns.get("t:simple_dag")(x=10)
     assert result.status == "completed"
     assert result.outputs["add_one"] == 11
+
+
+def test_mount_configures_logging_when_log_file_set():
+    """mount() sets up file logging with configured level and per-category overrides."""
+    import logging
+
+    from lythonic.compose.engine import StorageConfig
+    from lythonic.compose.namespace import Namespace
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        log_file = Path(tmp) / "test.log"
+        storage = StorageConfig(
+            log_file=log_file,
+            log_level="WARNING",
+            loggers={"lythonic.compose.cached": "DEBUG"},
+        )
+
+        ns = Namespace()
+        ns.register(lambda: "ok", nsref="t:plain")
+        ns.mount(storage)
+
+        # Root logger level set to WARNING
+        root = logging.getLogger()
+        assert root.level == logging.WARNING
+
+        # Per-category override applied
+        cached_logger = logging.getLogger("lythonic.compose.cached")
+        assert cached_logger.level == logging.DEBUG
+
+        # Log file created
+        assert log_file.exists()
+
+        # Clean up: remove the handler we added (avoid polluting other tests)
+        for h in root.handlers[:]:
+            if isinstance(h, logging.FileHandler) and str(log_file) in str(h.baseFilename):
+                root.removeHandler(h)
+                h.close()
+
+        # Reset logger levels
+        root.setLevel(logging.WARNING)
+        cached_logger.setLevel(logging.NOTSET)

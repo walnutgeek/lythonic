@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import signal
 import sys
@@ -69,23 +68,6 @@ def _resolve_config(ctx: RunContext) -> tuple[Path, EngineConfig]:
     return data_dir, engine_config
 
 
-def _setup_file_logging(log_file: Path) -> None:
-    """Set up file logging with NodeRunLogFilter and context-aware formatter."""
-    from lythonic.compose.log_context import NodeRunLogFilter
-
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(log_file)
-    handler.addFilter(NodeRunLogFilter())
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)-8s [%(name)s] run=%(run_id)s node=%(node_label)s %(message)s"
-        )
-    )
-    root = logging.getLogger()
-    root.addHandler(handler)
-    root.setLevel(logging.DEBUG)
-
-
 def _build_namespace(engine_config: EngineConfig) -> Any:
     """Build a live Namespace from EngineConfig: load declaratively, then mount."""
     from lythonic.compose.namespace import Namespace
@@ -113,10 +95,8 @@ def start(ctx: RunContext) -> None:
     ns = _build_namespace(engine_config)
     storage = engine_config.storage
 
-    # Set up file logging
-    assert storage.log_file is not None
-    _setup_file_logging(storage.log_file)
-    ctx.run_result.print(f"Logging to {storage.log_file}")
+    if storage.log_file:
+        ctx.run_result.print(f"Logging to {storage.log_file}")
 
     # Write PID file
     pid_path = _pid_file(data_dir)
