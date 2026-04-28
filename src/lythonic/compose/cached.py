@@ -406,6 +406,54 @@ def _build_async_wrapper(
     return wrapper
 
 
+def mount_cached_node(node: NamespaceNode, db_path: Path) -> None:
+    """
+    Activate caching on a node that has `NsCacheConfig`. Builds the
+    sync/async wrapper, creates DDL, and sets `node._decorated`.
+    Called by `Namespace.mount()`.
+    """
+    from lythonic.compose.namespace import NsCacheConfig
+
+    config = node.config
+    if not isinstance(config, NsCacheConfig):
+        raise TypeError(f"Expected NsCacheConfig, got {type(config).__name__}")
+
+    method = node.method
+    method.validate_simple_type_args()
+
+    nsref = node.nsref
+    tbl_name = table_name_from_path(nsref.replace(":", "__").replace(".", "__"))
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ddl = generate_cache_table_ddl(tbl_name, method)
+    with open_sqlite_db(db_path) as conn:
+        cursor = conn.cursor()
+        execute_sql(cursor, ddl)
+        execute_sql(
+            cursor,
+            "CREATE TABLE IF NOT EXISTS _pushback "
+            "(namespace_prefix TEXT NOT NULL, suppressed_until REAL NOT NULL)",
+        )
+        conn.commit()
+
+    min_ttl_s = config.min_ttl * DAYS_TO_SECONDS
+    max_ttl_s = config.max_ttl * DAYS_TO_SECONDS
+    namespace_path = nsref.replace(":", ".")
+
+    gref = node.method.gref
+    if gref.is_async():
+        wrapper = _build_async_wrapper(
+            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
+        )
+    else:
+        wrapper = _build_sync_wrapper(
+            method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
+        )
+
+    node._decorated = wrapper  # pyright: ignore[reportPrivateUsage]
+
+
 def register_cached_callable(
     ns: Namespace,
     gref: str,
