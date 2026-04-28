@@ -838,3 +838,33 @@ def test_namespace_mount_wraps_cached_nodes():
         result2 = ns.get("market:fetch")(ticker="AAPL")
         assert result2 == {"price": 100.0, "ticker": "AAPL"}
         assert mod._fake_fetch_count == 1  # pyright: ignore
+
+
+def test_from_dict_deserializes_cache_config():
+    """from_dict creates NsCacheConfig for type='cache' entries."""
+    from lythonic.compose.namespace import Namespace, NsCacheConfig
+
+    entries = [
+        {
+            "type": "cache",
+            "nsref": "market:fetch",
+            "gref": "tests.test_cached:_fake_fetch",
+            "min_ttl": 0.5,
+            "max_ttl": 2.0,
+        },
+        {
+            "nsref": "t:plain",
+            "gref": "tests.test_cached:_ns_test_ok",
+        },
+    ]
+
+    ns = Namespace.from_dict(entries)
+
+    cache_node = ns.get("market:fetch")
+    assert isinstance(cache_node.config, NsCacheConfig)
+    assert cache_node.config.min_ttl == 0.5
+    assert cache_node.config.max_ttl == 2.0
+
+    plain_node = ns.get("t:plain")
+    assert not isinstance(plain_node.config, NsCacheConfig)
+    assert plain_node.config.type == "auto"

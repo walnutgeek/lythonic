@@ -389,6 +389,12 @@ class NsCacheConfig(NsNodeConfig):
     max_ttl: float
 
 
+_CONFIG_TYPES: dict[str, type[NsNodeConfig]] = {
+    "auto": NsNodeConfig,
+    "cache": NsCacheConfig,
+}
+
+
 class NamespaceNode:
     """
     Wraps a `Method` with namespace identity. Callable -- delegates to the
@@ -671,7 +677,8 @@ class Namespace:
         """Build a Namespace from a list of serialized node configs."""
         ns = cls()
         for entry in entries:
-            config = NsNodeConfig.model_validate(entry)
+            config_cls = _CONFIG_TYPES.get(entry.get("type", "auto"), NsNodeConfig)
+            config = config_cls.model_validate(entry)
             if config.gref is not None:
                 gref = GlobalRef(config.gref)
                 instance = gref.get_instance()
