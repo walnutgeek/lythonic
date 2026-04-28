@@ -586,11 +586,12 @@ class Namespace:
 
         dag.parent_namespace = self
 
-        from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
-
-        runner = DagRunner(dag)
+        ns_ref = self
 
         async def dag_wrapper(**kwargs: Any) -> Any:
+            from lythonic.compose.dag_runner import DagRunner  # pyright: ignore[reportImportCycles]
+
+            runner = DagRunner(dag, provenance=ns_ref._provenance)
             source_labels = {n.label for n in dag.sources()}
             source_inputs: dict[str, dict[str, Any]] = {}
             for label in source_labels:

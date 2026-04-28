@@ -868,3 +868,56 @@ def test_from_dict_deserializes_cache_config():
     plain_node = ns.get("t:plain")
     assert not isinstance(plain_node.config, NsCacheConfig)
     assert plain_node.config.type == "auto"
+
+
+async def test_dag_uses_provenance_when_mounted():
+    """A mounted namespace provides provenance to DAG runners."""
+    from lythonic.compose.engine import StorageConfig
+    from lythonic.compose.namespace import Dag, Namespace
+
+    async def step_a(x: int) -> int:
+        return x + 1
+
+    async def step_b(data: int) -> int:
+        return data * 2
+
+    dag = Dag()
+    _ = dag.node(step_a) >> dag.node(step_b)
+
+    ns = Namespace()
+    ns.register(dag, nsref="t:my_dag")
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        dag_db = Path(tmp) / "dags.db"
+        ns.mount(StorageConfig(dag_db=dag_db))
+
+        result = await ns.get("t:my_dag")(x=5)
+        assert result.status == "completed"
+        assert result.outputs["step_b"] == 12
+
+        # Verify provenance was recorded (DB should have dag_runs)
+        from lythonic.state import execute_sql, open_sqlite_db
+
+        with open_sqlite_db(dag_db) as conn:
+            cursor = conn.cursor()
+            execute_sql(cursor, "SELECT COUNT(*) FROM dag_runs")
+            count = cursor.fetchone()[0]
+            assert count >= 1
+
+
+async def test_dag_works_without_mount():
+    """An unmounted namespace DAG uses NullProvenance (no DB)."""
+    from lythonic.compose.namespace import Dag, Namespace
+
+    async def add_one(x: int) -> int:
+        return x + 1
+
+    dag = Dag()
+    dag.node(add_one)
+
+    ns = Namespace()
+    ns.register(dag, nsref="t:simple_dag")
+
+    result = await ns.get("t:simple_dag")(x=10)
+    assert result.status == "completed"
+    assert result.outputs["add_one"] == 11
