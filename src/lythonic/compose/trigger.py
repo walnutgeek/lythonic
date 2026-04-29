@@ -310,7 +310,7 @@ class TriggerManager:
                             continue
                         payload = dict(result) if isinstance(result, dict) else {"data": result}  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
                     else:
-                        payload = {}
+                        payload = None
 
                     try:
                         await self.fire(activation["name"], payload=payload)
