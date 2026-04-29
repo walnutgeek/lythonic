@@ -502,10 +502,10 @@ class Namespace:
         """Activate persistence features for all declared nodes."""
         self._storage = storage
 
-        if storage.dag_db is not None:
+        if storage.dags_db is not None:
             from lythonic.compose.dag_provenance import DagProvenance
 
-            self._provenance = DagProvenance(storage.dag_db)
+            self._provenance = DagProvenance(storage.dags_db)
 
         if storage.cache_db is not None:
             from lythonic.compose.cached import mount_cached_node

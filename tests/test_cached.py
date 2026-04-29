@@ -847,7 +847,7 @@ async def test_dag_uses_provenance_when_mounted():
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         dag_db = Path(tmp) / "dags.db"
-        ns.mount(StorageConfig(dag_db=dag_db))
+        ns.mount(StorageConfig(dags_db=dag_db))
 
         result = await ns.get("t:my_dag")(x=5)
         assert result.status == "completed"

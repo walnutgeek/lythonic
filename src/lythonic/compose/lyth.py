@@ -46,25 +46,7 @@ def _resolve_config(ctx: RunContext) -> tuple[Path, EngineConfig]:
     raw = yaml.safe_load(config_path.read_text())
     engine_config = EngineConfig.model_validate(raw)
 
-    # Apply storage defaults relative to data dir
-    storage = engine_config.storage
-    if storage.cache_db is None:
-        storage.cache_db = data_dir / "cache.db"
-    elif not storage.cache_db.is_absolute():
-        storage.cache_db = data_dir / storage.cache_db
-    if storage.dag_db is None:
-        storage.dag_db = data_dir / "dags.db"
-    elif not storage.dag_db.is_absolute():
-        storage.dag_db = data_dir / storage.dag_db
-    if storage.trigger_db is None:
-        storage.trigger_db = data_dir / "triggers.db"
-    elif not storage.trigger_db.is_absolute():
-        storage.trigger_db = data_dir / storage.trigger_db
-    if storage.log_file is None:
-        storage.log_file = data_dir / "lyth.log"
-    elif not storage.log_file.is_absolute():
-        storage.log_file = data_dir / storage.log_file
-
+    engine_config.storage.resolve_paths(data_dir)
     return data_dir, engine_config
 
 
@@ -108,11 +90,11 @@ def start(ctx: RunContext) -> None:
         from lythonic.compose.dag_provenance import DagProvenance
         from lythonic.compose.trigger import TriggerManager, TriggerStore
 
-        assert storage.trigger_db is not None
-        assert storage.dag_db is not None
+        assert storage.triggers_db is not None
+        assert storage.dags_db is not None
 
-        trigger_store = TriggerStore(storage.trigger_db)
-        provenance = DagProvenance(storage.dag_db)
+        trigger_store = TriggerStore(storage.triggers_db)
+        provenance = DagProvenance(storage.dags_db)
         manager = TriggerManager(namespace=ns, store=trigger_store, provenance=provenance)
 
         # Activate all triggers from node configs
@@ -201,11 +183,11 @@ def fire(ctx: RunContext, trigger_name: str) -> None:
         from lythonic.compose.dag_provenance import DagProvenance
         from lythonic.compose.trigger import TriggerManager, TriggerStore
 
-        assert storage.trigger_db is not None
-        assert storage.dag_db is not None
+        assert storage.triggers_db is not None
+        assert storage.dags_db is not None
 
-        trigger_store = TriggerStore(storage.trigger_db)
-        provenance = DagProvenance(storage.dag_db)
+        trigger_store = TriggerStore(storage.triggers_db)
+        provenance = DagProvenance(storage.dags_db)
         manager = TriggerManager(namespace=ns, store=trigger_store, provenance=provenance)
         manager.activate(trigger_name)
 
@@ -227,8 +209,8 @@ def status(ctx: RunContext) -> None:
     data_dir, engine_config = _resolve_config(ctx)
     storage = engine_config.storage
 
-    assert storage.trigger_db is not None
-    assert storage.dag_db is not None
+    assert storage.triggers_db is not None
+    assert storage.dags_db is not None
 
     # Check PID
     pid_path = _pid_file(data_dir)
@@ -240,11 +222,11 @@ def status(ctx: RunContext) -> None:
 
     # Show trigger activations
 
-    if storage.trigger_db.exists():
+    if storage.triggers_db.exists():
         # Read all activations for a complete picture
         from lythonic.state import execute_sql, open_sqlite_db
 
-        with open_sqlite_db(storage.trigger_db) as conn:
+        with open_sqlite_db(storage.triggers_db) as conn:
             cursor = conn.cursor()
             execute_sql(
                 cursor,

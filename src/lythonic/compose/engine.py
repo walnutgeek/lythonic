@@ -51,8 +51,39 @@ class StorageConfig(LogConfig):
     """Storage paths for cache DB, DAG provenance DB, and trigger DB."""
 
     cache_db: Path | None = None
-    dag_db: Path | None = None
-    trigger_db: Path | None = None
+    dags_db: Path | None = None
+    triggers_db: Path | None = None
+
+    def get_cache_db(self, root: Path) -> Path:
+        """Resolve cache_db: absolute as-is, relative to root, or default."""
+        if self.cache_db is None:
+            return root / "cache.db"
+        return self.cache_db if self.cache_db.is_absolute() else root / self.cache_db
+
+    def get_dags_db(self, root: Path) -> Path:
+        """Resolve dags_db: absolute as-is, relative to root, or default."""
+        if self.dags_db is None:
+            return root / "dags.db"
+        return self.dags_db if self.dags_db.is_absolute() else root / self.dags_db
+
+    def get_triggers_db(self, root: Path) -> Path:
+        """Resolve triggers_db: absolute as-is, relative to root, or default."""
+        if self.triggers_db is None:
+            return root / "triggers.db"
+        return self.triggers_db if self.triggers_db.is_absolute() else root / self.triggers_db
+
+    def get_log_file(self, root: Path) -> Path:
+        """Resolve log_file: absolute as-is, relative to root, or default."""
+        if self.log_file is None:
+            return root / "lyth.log"
+        return self.log_file if self.log_file.is_absolute() else root / self.log_file
+
+    def resolve_paths(self, root: Path) -> None:
+        """Resolve all paths in-place relative to root directory."""
+        self.cache_db = self.get_cache_db(root)
+        self.dags_db = self.get_dags_db(root)
+        self.triggers_db = self.get_triggers_db(root)
+        self.log_file = self.get_log_file(root)  # pyright: ignore[reportUnannotatedClassAttribute]
 
 
 class EngineConfig(BaseModel):
