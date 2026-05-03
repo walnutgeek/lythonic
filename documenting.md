@@ -36,7 +36,6 @@ docs/
     types.md                  # ::: lythonic.types (KnownType, MapPair, etc.)
     compose.md                # ::: lythonic.compose (Method, ArgInfo, etc.)
     compose-cli.md            # ::: lythonic.compose.cli (ActionTree, RunContext)
-    periodic.md               # ::: lythonic.periodic (Frequency, Interval, etc.)
     misc.md                   # ::: lythonic.misc (ensure_dir, tabula_rasa_path)
 
 mkdocs.yml                    # Site configuration and nav structure

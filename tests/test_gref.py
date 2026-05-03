@@ -203,8 +203,6 @@ def test_nsref_repr():
 
 # GlobalRef / GlobalRef tests
 
-from lythonic import GlobalRef  # pyright: ignore[reportPrivateUsage]
-
 
 def test_globalref_is_nsref_subclass():
     gref = GlobalRef("lythonic.compose:Namespace")

@@ -1,24 +1,23 @@
 import logging
+import sqlite3
 from collections.abc import Generator
 from datetime import UTC, date, datetime
 from pathlib import Path
-import sqlite3
 from typing import Literal
 
-from pydantic import BaseModel, Field
 import pytest
+from pydantic import BaseModel, Field
 
-from lythonic import utc_now
-from lythonic.state.user import User, UserContext, UserOwned
 import tests.rag_schema as rag
+from lythonic import utc_now
 from lythonic.misc import tabula_rasa_path
 from lythonic.state import (
     FieldInfo,
     Schema,
     open_sqlite_db,
 )
+from lythonic.state.user import User, UserContext, UserOwned
 from lythonic.types import JsonBase, KnownType
-
 
 AccountType = Literal["cash", "credit_card"]
 EventType = Literal["deposit", "payment", "set_balance"]
@@ -82,7 +81,6 @@ class ScheduledEvent(UserOwned["ScheduledEvent"]):
     )  # default is not important as it is overridden by save_versioned()
     end_date: date | None = Field(default=None, description="End date of the event")
     modified_at: datetime = Field(default_factory=utc_now)
-
 
     def save_versioned(self, user_ctx: UserContext, conn: sqlite3.Connection, as_of: date) -> None:
         assert self.end_date is None, (
@@ -184,21 +182,6 @@ class CashEventNotification(UserOwned["CashEventNotification"]):
     note_date: date = Field(description="Date of the notification")
     muted: bool = Field(default=False, description="Whether the notification is muted")
     event_date: date = Field(description="Date of the event")
-
-    @classmethod
-    def from_scheduled_event(
-        cls, scheduled_event: ScheduledEvent, event_date: date
-    ) -> "CashEventNotification":
-        assert scheduled_event.amount is not None and scheduled_event.amount_type == "variable", (
-            "Scheduled event amount cannot be None for variable amount type"
-        )
-        return cls(
-            sch_id=scheduled_event.sch_id,
-            user_id=scheduled_event.user_id,
-            note_date=event_date + timedelta(days=scheduled_event.reminder_days or 1),
-            muted=False,
-            event_date=event_date,
-        )
 
 
 class FlowItem(BaseModel):

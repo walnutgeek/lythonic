@@ -120,6 +120,6 @@ class UserOwned(DbModel[UO]):
     def load_by_id_with_ctx(
         cls: type[UO], conn: sqlite3.Connection, user_ctx: UserContext, id: int
     ) -> UO | None:
-        rr: list[UO] = cls.select(conn, user_ctx=user_ctx, **{cls._ensure_pk().name: id})
+        rr: list[UO] = cls.select(conn, user_ctx=user_ctx, **{cls._ensure_pk().name: id})  # pyright: ignore[reportUnknownVariableType]
         assert len(rr) <= 1
         return rr[0] if rr else None

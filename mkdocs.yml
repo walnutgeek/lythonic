@@ -90,7 +90,6 @@ nav:
           - lythonic.state: reference/state.md
           - "...user": reference/user.md
       - lythonic.types: reference/types.md
-      - lythonic.periodic: reference/periodic.md
       - lythonic.misc: reference/misc.md
   - Releases:
       - v0.0.16: release_notes/v0.0.16.md
