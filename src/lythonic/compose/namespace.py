@@ -168,7 +168,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from lythonic import GlobalRef
+from lythonic import GlobalRef, NsRef
 from lythonic.compose import Method
 from lythonic.compose._inline import inline as inline
 
@@ -208,29 +208,6 @@ class DagContext(BaseModel):
     dag_nsref: str
     node_label: str
     run_id: str
-
-
-def _parse_nsref(nsref: str) -> tuple[list[str], str]:
-    """
-    Parse nsref into (branch_parts, leaf_name).
-
-    >>> _parse_nsref('market.data:fetch_prices')
-    (['market', 'data'], 'fetch_prices')
-    >>> _parse_nsref('market:fetch_prices')
-    (['market'], 'fetch_prices')
-    >>> _parse_nsref('fetch_prices')
-    ([], 'fetch_prices')
-    >>> _parse_nsref(':fetch_prices')
-    ([], 'fetch_prices')
-
-    """
-    if ":" in nsref:
-        branch_path, leaf_name = nsref.rsplit(":", 1)
-        branch_parts = branch_path.split(".") if branch_path else []
-    else:
-        branch_parts = []
-        leaf_name = nsref
-    return branch_parts, leaf_name
 
 
 def _resolve_first_param_type(func: Callable[..., Any]) -> type | None:
@@ -696,7 +673,7 @@ class Namespace:
             raise AttributeError(name)
         # Look up by name as a leaf suffix (for simple nsrefs like "t:fetch" -> "fetch")
         for nsref, node in self._nodes.items():
-            _, leaf = _parse_nsref(nsref)
+            leaf = NsRef(nsref).name
             if leaf == name:
                 return node
         raise AttributeError(f"'{name}' not found in namespace")
@@ -887,7 +864,7 @@ class Dag:
                 ns_node = self.namespace.register(source)
 
         if label is None:
-            _, leaf = _parse_nsref(ns_node.nsref)
+            leaf = NsRef(ns_node.nsref).name
             label = leaf
 
         if label in self.nodes:
