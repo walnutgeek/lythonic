@@ -1,27 +1,30 @@
-# Reference Type Hierarchy: NSRef, GlobalRef, ModuleRef
+# Reference Type Hierarchy: NsRef, GlobalRef, ModuleRef
 
 ## Problem
 
 `GlobalRef` combines two concerns: module importing and name-within-scope
-resolution. `NSRef` isn't even a class — it's a string format parsed by
-`_parse_nsref()` in namespace.py. Both share the `"scope:name"` pattern
-with dot-hierarchical scope, but there's no shared abstraction.
+resolution. Namespace references aren't even a class — just a string format
+parsed by `_parse_nsref()` in namespace.py. Both share the `"scope:name"`
+pattern with dot-hierarchical scope, but there's no shared abstraction.
 
 ## Solution
 
 Split into three types in `lythonic/__init__.py`:
 
-- **NSRef** — base class: parses `"scope.path:name"`, provides string repr
-  and Pydantic schema
-- **GlobalRef(NSRef)** — adds Python module import and object resolution
-- **ModuleRef** — standalone class for module-only references
+- **`_NsRefBase`** — internal base class: parses `"scope.path:name"`,
+  string repr, Pydantic schema, equality/hashing
+- **`NsRef`** — annotated alias of `_NsRefBase` for use in Pydantic models
+- **`_GlobalRefBase(_NsRefBase)`** — internal class adding module import
+  and object resolution
+- **`GlobalRef`** — annotated alias of `_GlobalRefBase` (replaces `GRef`)
+- **`ModuleRef`** — standalone class for module-only references
 
 ## Design
 
-### NSRef (base class)
+### `_NsRefBase` (internal base class)
 
 ```python
-class NSRef:
+class _NsRefBase:
     scope: list[str]   # dot-hierarchical path (left of colon)
     name: str          # leaf identifier (right of colon)
 ```
@@ -32,21 +35,21 @@ class NSRef:
 - `":leaf"` → scope=`[]`, name=`"leaf"`
 - `"branch.path:"` → scope=`["branch", "path"]`, name=`""`
 
-**Constructor accepts:** `str`, another `NSRef`, or `GlobalRef` (copy).
+**Constructor accepts:** `str`, another `_NsRefBase` (or subclass).
 
 **`__str__`:** returns `"scope.parts:name"` (or just `"name"` if scope is empty).
 
-**Pydantic integration:** accepts `str` or `NSRef`, serializes to string.
-Same `__get_pydantic_core_schema__` pattern as current `GlobalRef`.
+**Pydantic integration:** `__get_pydantic_core_schema__` accepts `str` or
+instance, serializes to string.
 
 **Equality/hashing:** based on `(tuple(scope), name)` so usable as dict keys.
 
-### GlobalRef(NSRef)
+### `_GlobalRefBase(_NsRefBase)` (internal subclass)
 
-Extends NSRef. The `scope` is interpreted as a Python module path.
+Extends `_NsRefBase`. The `scope` is interpreted as a Python module path.
 
 ```python
-class GlobalRef(NSRef):
+class _GlobalRefBase(_NsRefBase):
     def get_module(self) -> ModuleType: ...
     def get_instance(self) -> Any: ...
     def is_module(self) -> bool: ...
@@ -82,45 +85,49 @@ class ModuleRef:
 
 **Pydantic integration:** accepts `str`, serializes to string.
 
-**Relationship to GlobalRef:** `GlobalRef.get_module()` can internally create
-a `ModuleRef` from its scope, or just inline the import. No inheritance
-relationship — `ModuleRef` is a sibling, not parent/child.
+**Relationship to GlobalRef:** `_GlobalRefBase.get_module()` can internally
+create a `ModuleRef` from its scope, or just inline the import. No
+inheritance relationship — `ModuleRef` is a sibling, not parent/child.
 
-### Pydantic Annotations
-
-`NSRef` gets Pydantic schema support (`__get_pydantic_core_schema__`) so it
-can be used directly in model fields. Accepts `str` or `NSRef` input,
-serializes to string.
+### Public Annotated Aliases
 
 ```python
 NsRef = Annotated[
-    NSRef,
+    _NsRefBase,
     WithJsonSchema({"type": "string"}, mode="serialization"),
 ]
 
-GRef = Annotated[
-    GlobalRef,
+GlobalRef = Annotated[
+    _GlobalRefBase,
     WithJsonSchema({"type": "string"}, mode="serialization"),
 ]
 ```
 
+`NsRef` and `GlobalRef` are the public names used everywhere: type
+annotations, Pydantic model fields, isinstance checks, constructors.
+The `_Base` classes are internal implementation details.
+
+`GRef` is removed — all usages replaced with `GlobalRef`.
+
 ### Migration in namespace.py
 
-- `_parse_nsref()` removed — `NSRef` replaces it everywhere.
-- `NsNodeConfig.nsref` typed as `NsRef` (accepts str input, stores NSRef).
-- `Namespace._nodes` dict key: `NSRef`. Lookup methods accept `str | NSRef`.
+- `_parse_nsref()` removed — `NsRef(s)` replaces it everywhere.
+- `NsNodeConfig.nsref` typed as `NsRef`.
+- `Namespace._nodes` dict key: `NsRef`. Lookup methods accept `str | NsRef`.
 - `DagContext.dag_nsref` typed as `NsRef`.
 - All internal code that previously called `_parse_nsref(s)` uses
-  `NSRef(s).scope` / `NSRef(s).name` directly.
+  `NsRef(s).scope` / `NsRef(s).name` directly.
 
 ### File Changes
 
-1. **`src/lythonic/__init__.py`** — define `NSRef`, refactor `GlobalRef` to
-   extend it, add `ModuleRef`, keep `GRef` annotation
+1. **`src/lythonic/__init__.py`** — define `_NsRefBase`, refactor
+   `_GlobalRefBase` to extend it, add `ModuleRef`, export `NsRef` and
+   `GlobalRef` as annotated aliases. Remove `GRef`.
 2. **`src/lythonic/compose/namespace.py`** — remove `_parse_nsref()`, use
-   `NSRef` directly where branch parsing is needed
-3. **Tests** — existing `GlobalRef` tests should continue passing (backward
-   compat). Add tests for `NSRef` parsing and `ModuleRef`.
+   `NsRef` throughout. Change `_nodes` key type.
+3. **All files using `GRef`** — replace with `GlobalRef`.
+4. **Tests** — existing `GlobalRef` tests should continue passing (backward
+   compat). Add tests for `NsRef` parsing and `ModuleRef`.
 
 ## Verification
 
