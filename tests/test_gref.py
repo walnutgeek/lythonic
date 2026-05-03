@@ -142,3 +142,138 @@ def test_result_ok_err_unwrap():
 
     assert repr(ok) == "Ok(123)"
     assert repr(err) == "Err('fail')"
+
+
+# _NsRefBase / NsRef tests
+
+from lythonic import _NsRefBase  # pyright: ignore[reportPrivateUsage]
+
+
+def test_nsref_parse_scope_and_name():
+    ref = _NsRefBase("market.data:fetch_prices")
+    assert ref.scope == ["market", "data"]
+    assert ref.name == "fetch_prices"
+    assert str(ref) == "market.data:fetch_prices"
+
+
+def test_nsref_parse_simple_name():
+    ref = _NsRefBase("fetch_prices")
+    assert ref.scope == []
+    assert ref.name == "fetch_prices"
+    assert str(ref) == "fetch_prices"
+
+
+def test_nsref_parse_empty_scope():
+    ref = _NsRefBase(":fetch_prices")
+    assert ref.scope == []
+    assert ref.name == "fetch_prices"
+    assert str(ref) == "fetch_prices"
+
+
+def test_nsref_parse_empty_name():
+    ref = _NsRefBase("branch.path:")
+    assert ref.scope == ["branch", "path"]
+    assert ref.name == ""
+    assert str(ref) == "branch.path:"
+
+
+def test_nsref_equality_and_hash():
+    a = _NsRefBase("market:fetch")
+    b = _NsRefBase("market:fetch")
+    c = _NsRefBase("market:other")
+    assert a == b
+    assert a != c
+    assert hash(a) == hash(b)
+    d = {a: 1}
+    assert d[b] == 1
+
+
+def test_nsref_copy_constructor():
+    original = _NsRefBase("x.y:z")
+    copy = _NsRefBase(original)
+    assert copy.scope == ["x", "y"]
+    assert copy.name == "z"
+    assert copy == original
+
+
+def test_nsref_repr():
+    ref = _NsRefBase("market:fetch")
+    assert repr(ref) == "NsRef('market:fetch')"
+
+
+# _GlobalRefBase / GlobalRef tests
+
+from lythonic import _GlobalRefBase  # pyright: ignore[reportPrivateUsage]
+
+
+def test_globalref_is_nsref_subclass():
+    gref = _GlobalRefBase("lythonic.compose:Namespace")
+    assert isinstance(gref, _NsRefBase)
+    assert gref.scope == ["lythonic", "compose"]
+    assert gref.name == "Namespace"
+    assert str(gref) == "lythonic.compose:Namespace"
+
+
+def test_globalref_module_property():
+    gref = _GlobalRefBase("lythonic.compose:Namespace")
+    assert gref.module == "lythonic.compose"
+
+
+def test_globalref_from_module_uses_scope():
+    import json
+
+    gref = _GlobalRefBase(json)
+    assert isinstance(gref, _NsRefBase)
+    assert gref.scope == ["json"]
+    assert gref.name == ""
+    assert gref.is_module()
+    assert gref.module == "json"
+
+
+def test_globalref_from_class_uses_scope():
+    gref = _GlobalRefBase(_GlobalRefBase)
+    assert gref.scope == ["lythonic"]
+    assert gref.name == "_GlobalRefBase"
+    assert gref.module == "lythonic"
+
+
+# ModuleRef tests
+
+from lythonic import ModuleRef
+
+
+def test_moduleref_from_string():
+    ref = ModuleRef("lythonic.compose.namespace")
+    assert ref.path == "lythonic.compose.namespace"
+    assert str(ref) == "lythonic.compose.namespace"
+    mod = ref.import_module()
+    assert mod.__name__ == "lythonic.compose.namespace"
+
+
+def test_moduleref_from_module():
+    import json
+
+    ref = ModuleRef(json)
+    assert ref.path == "json"
+    mod = ref.import_module()
+    assert mod is json
+
+
+def test_moduleref_from_globalref():
+    gref = GlobalRef("lythonic.compose:Namespace")
+    ref = ModuleRef(gref)
+    assert ref.path == "lythonic.compose"
+
+
+def test_moduleref_repr():
+    ref = ModuleRef("json")
+    assert repr(ref) == "ModuleRef('json')"
+
+
+def test_moduleref_equality():
+    a = ModuleRef("json")
+    b = ModuleRef("json")
+    c = ModuleRef("os")
+    assert a == b
+    assert a != c
+    assert hash(a) == hash(b)

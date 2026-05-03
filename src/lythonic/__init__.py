@@ -5,6 +5,7 @@ This module provides foundational types and utilities used throughout Lythonic:
 
 - `GlobalRef`: Reference any Python object by its module path (e.g., `"mymodule:MyClass"`).
   Useful for configuration files and lazy loading.
+- `ModuleRef`: Reference a Python module by its import path (e.g., `"json"`).
 - `Result[TOk, TErr]`: A Rust-inspired Result type for explicit error handling without exceptions.
 - `utc_now()`: Get the current UTC datetime.
 - `get_module()`: Import a module by name.
@@ -21,6 +22,20 @@ dumps_func = ref.get_instance()
 # Reference from an object
 ref = GlobalRef(MyClass)
 print(ref)  # "mymodule:MyClass"
+```
+
+## ModuleRef Usage
+
+```python
+from lythonic import ModuleRef
+
+# Reference a module by string
+ref = ModuleRef("json")
+mod = ref.import_module()
+
+# Reference from a module object
+ref = ModuleRef(json)
+print(ref)  # "json"
 ```
 
 ## Result Usage
@@ -282,6 +297,70 @@ class _GlobalRefBase(_NsRefBase):
 
 
 GlobalRef = _GlobalRefBase
+
+
+class ModuleRef:
+    """
+    Reference to a Python module by its import path.
+
+    >>> ref = ModuleRef("json")
+    >>> ref.path
+    'json'
+    >>> ref.import_module().__name__
+    'json'
+    """
+
+    path: str
+
+    def __init__(self, s: Any) -> None:
+        if isinstance(s, ModuleRef):
+            self.path = s.path
+        elif isinstance(s, _NsRefBase):
+            self.path = ".".join(s.scope)
+        elif ismodule(s):
+            self.path = s.__name__
+        elif isinstance(s, str):
+            self.path = s
+        else:
+            raise TypeError(f"Cannot create ModuleRef from {type(s).__name__}")
+
+    def import_module(self) -> ModuleType:
+        return __import__(self.path, fromlist=[""])
+
+    @override
+    def __str__(self) -> str:
+        return self.path
+
+    @override
+    def __repr__(self) -> str:
+        return f"ModuleRef({repr(self.path)})"
+
+    @override
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, ModuleRef):
+            return self.path == other.path
+        if isinstance(other, str):
+            return self.path == other
+        return NotImplemented
+
+    @override
+    def __hash__(self) -> int:
+        return hash(self.path)
+
+    @override
+    def __ne__(self, other: Any) -> bool:
+        return not self == other
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
+    ) -> CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            lambda v: v if isinstance(v, ModuleRef) else ModuleRef(v),
+            serialization=core_schema.plain_serializer_function_ser_schema(str),
+        )
 
 
 def get_module(name: str) -> ModuleType:
