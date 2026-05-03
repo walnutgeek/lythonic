@@ -113,7 +113,7 @@ from pydantic import (
 )
 from typing_extensions import override
 
-from lythonic import GlobalRef, GRef, str_or_none
+from lythonic import GlobalRef, str_or_none
 
 # using this to allow for monkeypatching for NumPy
 json_loads = _json.loads
@@ -125,7 +125,7 @@ def base_model_to_json(bm: BaseModel) -> dict[str, Any]:
 
 
 class JsonBase(BaseModel):
-    type_gref: GRef | None = None
+    type_gref: GlobalRef | None = None
 
     @model_validator(mode="before")
     @classmethod

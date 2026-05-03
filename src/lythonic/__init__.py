@@ -3,7 +3,7 @@ Core utilities for the Lythonic library.
 
 This module provides foundational types and utilities used throughout Lythonic:
 
-- `GlobalRef` / `GRef`: Reference any Python object by its module path (e.g., `"mymodule:MyClass"`).
+- `GlobalRef`: Reference any Python object by its module path (e.g., `"mymodule:MyClass"`).
   Useful for configuration files and lazy loading.
 - `Result[TOk, TErr]`: A Rust-inspired Result type for explicit error handling without exceptions.
 - `utc_now()`: Get the current UTC datetime.
@@ -44,11 +44,10 @@ import sys
 from datetime import UTC, datetime
 from inspect import isclass, iscoroutinefunction, isfunction, ismodule
 from types import ModuleType
-from typing import Annotated, Any, Generic, TypeVar, final
+from typing import Any, Generic, TypeVar, final
 
 from pydantic import (
     GetCoreSchemaHandler,
-    WithJsonSchema,
 )
 from pydantic_core import CoreSchema, core_schema
 from typing_extensions import override
@@ -56,86 +55,174 @@ from typing_extensions import override
 log = logging.getLogger(__name__)
 
 
-class GlobalRef:
+class _NsRefBase:
     """
-    >>> ref = GlobalRef('lythonic:GlobalRef')
+    Base class for "scope:name" references with dot-separated scope paths.
+
+    Parses strings of the form `"branch.path:leaf"` into a scope list and a
+    name. The colon is the separator between scope and name; if absent, scope
+    is empty.
+
+    >>> ref = _NsRefBase("market.data:fetch_prices")
+    >>> ref.scope
+    ['market', 'data']
+    >>> ref.name
+    'fetch_prices'
+    >>> str(ref)
+    'market.data:fetch_prices'
+    >>> repr(ref)
+    "NsRef('market.data:fetch_prices')"
+    >>> _NsRefBase("fetch_prices").scope
+    []
+    >>> str(_NsRefBase("fetch_prices"))
+    'fetch_prices'
+    >>> str(_NsRefBase(":fetch_prices"))
+    'fetch_prices'
+    >>> _NsRefBase("branch.path:") == _NsRefBase("branch.path:")
+    True
+    >>> str(_NsRefBase("branch.path:"))
+    'branch.path:'
+    """
+
+    scope: list[str]
+    name: str
+
+    def __init__(self, s: "_NsRefBase | str") -> None:
+        if isinstance(s, _NsRefBase):
+            self.scope, self.name = list(s.scope), s.name
+        else:
+            if ":" in s:
+                scope_part, self.name = s.split(":", 1)
+                self.scope = scope_part.split(".") if scope_part else []
+            else:
+                self.scope = []
+                self.name = s
+
+    @override
+    def __str__(self) -> str:
+        if not self.scope:
+            return self.name
+        scope_str = ".".join(self.scope)
+        return f"{scope_str}:{self.name}"
+
+    @override
+    def __repr__(self) -> str:
+        return f"NsRef({repr(str(self))})"
+
+    @override
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, _NsRefBase):
+            return self.scope == other.scope and self.name == other.name
+        if isinstance(other, str):
+            return str(self) == other
+        return NotImplemented
+
+    @override
+    def __hash__(self) -> int:
+        return hash((tuple(self.scope), self.name))
+
+    @override
+    def __ne__(self, other: Any) -> bool:
+        return not self == other
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
+    ) -> CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            lambda v: v if isinstance(v, _NsRefBase) else _NsRefBase(v),
+            serialization=core_schema.plain_serializer_function_ser_schema(str),
+        )
+
+
+NsRef = _NsRefBase
+
+
+class _GlobalRefBase(_NsRefBase):
+    """
+    A reference to a Python object identified by module path and name.
+
+    Accepts a string `"module.path:name"`, a module, a class, a function,
+    or another `_GlobalRefBase` instance. Module-only references use an empty name.
+
+    The string representation is always `"module.path:name"` (or `"module.path:"`
+    for module-only refs), matching `_NsRefBase` format where scope is the module
+    path parts.
+
+    >>> ref = _GlobalRefBase('lythonic:_GlobalRefBase')
     >>> ref
-    GlobalRef('lythonic:GlobalRef')
+    GlobalRef('lythonic:_GlobalRefBase')
     >>> ref.get_instance().__name__
-    'GlobalRef'
+    '_GlobalRefBase'
     >>> ref.is_module()
     False
     >>> ref.get_module().__name__
     'lythonic'
-    >>> grgr = GlobalRef(GlobalRef)
+    >>> grgr = _GlobalRefBase(_GlobalRefBase)
     >>> grgr
-    GlobalRef('lythonic:GlobalRef')
+    GlobalRef('lythonic:_GlobalRefBase')
     >>> grgr.get_instance()
-    <class 'lythonic.GlobalRef'>
+    <class 'lythonic._GlobalRefBase'>
     >>> grgr.is_class()
     True
     >>> grgr.is_function()
     False
     >>> grgr.is_module()
     False
-    >>> uref = GlobalRef('lythonic:')
+    >>> uref = _GlobalRefBase('lythonic:')
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
     'lythonic'
-    >>> uref = GlobalRef('lythonic')
+    >>> uref = _GlobalRefBase('lythonic')
     >>> uref.is_module()
     True
-    >>> uref = GlobalRef(uref)
+    >>> uref = _GlobalRefBase(uref)
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
     'lythonic'
-    >>> uref = GlobalRef(uref.get_module())
+    >>> uref = _GlobalRefBase(uref.get_module())
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
     'lythonic'
     """
 
-    module: str
+    scope: list[str]
     name: str
 
-    def __init__(self, s: Any) -> None:
-        if isinstance(s, GlobalRef):
-            self.module, self.name = s.module, s.name
+    def __init__(self, s: Any) -> None:  # pyright: ignore[reportMissingSuperCall]
+        if isinstance(s, _NsRefBase):
+            self.scope, self.name = list(s.scope), s.name
         elif ismodule(s):
-            self.module, self.name = s.__name__, ""
+            self.scope = s.__name__.split(".")
+            self.name = ""
         elif isclass(s) or isfunction(s):
-            self.module, self.name = s.__module__, s.__name__
+            self.scope = s.__module__.split(".")
+            self.name = s.__name__
         else:
             split = s.split(":")
             if len(split) == 1:
                 assert bool(split[0]), f"is {repr(s)} empty?"
-                split.append("")
+                # Module-only string: split on "." for scope, no name
+                self.scope = split[0].split(".")
+                self.name = ""
             else:
                 assert len(split) == 2, f"too many ':' in: {repr(s)}"
-            self.module, self.name = split
+                scope_str, self.name = split
+                self.scope = scope_str.split(".") if scope_str else []
+
+    @property
+    def module(self) -> str:
+        """Backward compat: dot-joined scope as module path."""
+        return ".".join(self.scope)
 
     @override
-    def __str__(self):
-        return f"{self.module}:{self.name}"
-
-    @override
-    def __repr__(self):
-        return f"{self.__class__.__name__}({repr(str(self))})"
-
-    @override
-    def __eq__(self, other: Any) -> bool:
-        return str(self) == str(other)
-
-    @override
-    def __hash__(self) -> int:
-        return hash(str(self))
-
-    @override
-    def __ne__(self, other: Any) -> bool:
-        return not self == other
+    def __repr__(self) -> str:
+        return f"GlobalRef({repr(str(self))})"
 
     def get_module(self) -> ModuleType:
         return __import__(self.module, fromlist=[""])
@@ -180,23 +267,21 @@ class GlobalRef:
                 return factory()
             raise
 
+    @override
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
         source_type: Any,
         handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
     ) -> CoreSchema:
-        # Accept both str and GlobalRef, normalize to GlobalRef
+        # Accept both str and _GlobalRefBase, normalize to _GlobalRefBase
         return core_schema.no_info_plain_validator_function(
-            lambda v: v if isinstance(v, GlobalRef) else GlobalRef(v),
+            lambda v: v if isinstance(v, _GlobalRefBase) else _GlobalRefBase(v),
             serialization=core_schema.plain_serializer_function_ser_schema(str),
         )
 
 
-GRef = Annotated[
-    GlobalRef,
-    WithJsonSchema({"type": "string"}, mode="serialization"),
-]
+GlobalRef = _GlobalRefBase
 
 
 def get_module(name: str) -> ModuleType:

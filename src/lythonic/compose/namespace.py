@@ -168,7 +168,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from lythonic import GlobalRef, GRef
+from lythonic import GlobalRef
 from lythonic.compose import Method
 from lythonic.compose._inline import inline as inline
 
@@ -362,7 +362,7 @@ class TriggerConfig(BaseModel):
     name: str
     type: str  # "poll" or "push"
     schedule: str | None = None
-    poll_fn: GRef | None = None
+    poll_fn: GlobalRef | None = None
     payload: dict[str, Any] | None = None
 
 
@@ -371,12 +371,12 @@ class NsNodeConfig(BaseModel):
     Serializable configuration for a namespace node. The `type` field
     acts as a discriminator for Pydantic deserialization — subclasses
     set a literal `type` value so `model_validate` picks the right class.
-    Use `GRef` for the `gref` field (serializes as string automatically).
+    Use `GlobalRef` for the `gref` field (serializes as string automatically).
     """
 
     type: str = "auto"
     nsref: str
-    gref: GRef | None = None
+    gref: GlobalRef | None = None
     tags: list[str] | None = None
     triggers: list[TriggerConfig] = []
 
