@@ -143,10 +143,13 @@ Always use full type annotations, generics, and other modern practices.
 
 ## Coding Conventions and Imports
 
-- Use `GRef` (from `lythonic`) for `GlobalRef` fields in Pydantic models.
-  `GRef` is `Annotated[GlobalRef, ...]` that accepts both `str` and `GlobalRef` as
-  input and serializes to string. Use it instead of `str` for callable reference fields
-  in config models (e.g., `NsNodeConfig.gref: GRef | None`).
+- Use `GlobalRef` (from `lythonic`) for callable reference fields in Pydantic models
+  (e.g., `NsNodeConfig.gref: GlobalRef | None`). `GlobalRef` accepts both `str` and
+  `GlobalRef` instances as input and serializes to string.
+
+- Use `NsRef` (from `lythonic`) for namespace reference fields (e.g.,
+  `DagContext.dag_nsref: NsRef`). `NsRef` accepts both `str` and `NsRef` instances
+  and serializes to string.
 
 - Always use full, absolute imports for paths.
   do NOT use `from .module1.module2 import ...`. Such relative paths make it hard to
