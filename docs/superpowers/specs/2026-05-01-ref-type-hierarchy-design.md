@@ -86,11 +86,18 @@ class ModuleRef:
 a `ModuleRef` from its scope, or just inline the import. No inheritance
 relationship — `ModuleRef` is a sibling, not parent/child.
 
-### GRef Annotation
+### Pydantic Annotations
 
-Unchanged externally:
+`NSRef` gets Pydantic schema support (`__get_pydantic_core_schema__`) so it
+can be used directly in model fields. Accepts `str` or `NSRef` input,
+serializes to string.
 
 ```python
+NsRef = Annotated[
+    NSRef,
+    WithJsonSchema({"type": "string"}, mode="serialization"),
+]
+
 GRef = Annotated[
     GlobalRef,
     WithJsonSchema({"type": "string"}, mode="serialization"),
@@ -99,12 +106,12 @@ GRef = Annotated[
 
 ### Migration in namespace.py
 
-- `_parse_nsref()` removed — replaced by `NSRef(s).scope` / `NSRef(s).name`
-- `NsNodeConfig.nsref` stays `str` for now (Pydantic config compat). Code
-  that parses it uses `NSRef(config.nsref)`.
-- `Namespace._nodes` dict key: `str` (the string form of nsref). Node lookup
-  does `ns.get("market:fetch")` — internally `NSRef(key)` is used only where
-  branch traversal is needed.
+- `_parse_nsref()` removed — `NSRef` replaces it everywhere.
+- `NsNodeConfig.nsref` typed as `NsRef` (accepts str input, stores NSRef).
+- `Namespace._nodes` dict key: `NSRef`. Lookup methods accept `str | NSRef`.
+- `DagContext.dag_nsref` typed as `NsRef`.
+- All internal code that previously called `_parse_nsref(s)` uses
+  `NSRef(s).scope` / `NSRef(s).name` directly.
 
 ### File Changes
 
