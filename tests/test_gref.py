@@ -144,43 +144,43 @@ def test_result_ok_err_unwrap():
     assert repr(err) == "Err('fail')"
 
 
-# _NsRefBase / NsRef tests
+# NsRef / NsRef tests
 
-from lythonic import _NsRefBase  # pyright: ignore[reportPrivateUsage]
+from lythonic import NsRef  # pyright: ignore[reportPrivateUsage]
 
 
 def test_nsref_parse_scope_and_name():
-    ref = _NsRefBase("market.data:fetch_prices")
+    ref = NsRef("market.data:fetch_prices")
     assert ref.scope == ["market", "data"]
     assert ref.name == "fetch_prices"
     assert str(ref) == "market.data:fetch_prices"
 
 
 def test_nsref_parse_simple_name():
-    ref = _NsRefBase("fetch_prices")
+    ref = NsRef("fetch_prices")
     assert ref.scope == []
     assert ref.name == "fetch_prices"
     assert str(ref) == "fetch_prices"
 
 
 def test_nsref_parse_empty_scope():
-    ref = _NsRefBase(":fetch_prices")
+    ref = NsRef(":fetch_prices")
     assert ref.scope == []
     assert ref.name == "fetch_prices"
     assert str(ref) == "fetch_prices"
 
 
 def test_nsref_parse_empty_name():
-    ref = _NsRefBase("branch.path:")
+    ref = NsRef("branch.path:")
     assert ref.scope == ["branch", "path"]
     assert ref.name == ""
     assert str(ref) == "branch.path:"
 
 
 def test_nsref_equality_and_hash():
-    a = _NsRefBase("market:fetch")
-    b = _NsRefBase("market:fetch")
-    c = _NsRefBase("market:other")
+    a = NsRef("market:fetch")
+    b = NsRef("market:fetch")
+    c = NsRef("market:other")
     assert a == b
     assert a != c
     assert hash(a) == hash(b)
@@ -189,41 +189,41 @@ def test_nsref_equality_and_hash():
 
 
 def test_nsref_copy_constructor():
-    original = _NsRefBase("x.y:z")
-    copy = _NsRefBase(original)
+    original = NsRef("x.y:z")
+    copy = NsRef(original)
     assert copy.scope == ["x", "y"]
     assert copy.name == "z"
     assert copy == original
 
 
 def test_nsref_repr():
-    ref = _NsRefBase("market:fetch")
+    ref = NsRef("market:fetch")
     assert repr(ref) == "NsRef('market:fetch')"
 
 
-# _GlobalRefBase / GlobalRef tests
+# GlobalRef / GlobalRef tests
 
-from lythonic import _GlobalRefBase  # pyright: ignore[reportPrivateUsage]
+from lythonic import GlobalRef  # pyright: ignore[reportPrivateUsage]
 
 
 def test_globalref_is_nsref_subclass():
-    gref = _GlobalRefBase("lythonic.compose:Namespace")
-    assert isinstance(gref, _NsRefBase)
+    gref = GlobalRef("lythonic.compose:Namespace")
+    assert isinstance(gref, NsRef)
     assert gref.scope == ["lythonic", "compose"]
     assert gref.name == "Namespace"
     assert str(gref) == "lythonic.compose:Namespace"
 
 
 def test_globalref_module_property():
-    gref = _GlobalRefBase("lythonic.compose:Namespace")
+    gref = GlobalRef("lythonic.compose:Namespace")
     assert gref.module == "lythonic.compose"
 
 
 def test_globalref_from_module_uses_scope():
     import json
 
-    gref = _GlobalRefBase(json)
-    assert isinstance(gref, _NsRefBase)
+    gref = GlobalRef(json)
+    assert isinstance(gref, NsRef)
     assert gref.scope == ["json"]
     assert gref.name == ""
     assert gref.is_module()
@@ -231,9 +231,9 @@ def test_globalref_from_module_uses_scope():
 
 
 def test_globalref_from_class_uses_scope():
-    gref = _GlobalRefBase(_GlobalRefBase)
+    gref = GlobalRef(GlobalRef)
     assert gref.scope == ["lythonic"]
-    assert gref.name == "_GlobalRefBase"
+    assert gref.name == "GlobalRef"
     assert gref.module == "lythonic"
 
 

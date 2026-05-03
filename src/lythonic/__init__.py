@@ -70,7 +70,7 @@ from typing_extensions import override
 log = logging.getLogger(__name__)
 
 
-class _NsRefBase:
+class NsRef:
     """
     Base class for "scope:name" references with dot-separated scope paths.
 
@@ -78,7 +78,7 @@ class _NsRefBase:
     name. The colon is the separator between scope and name; if absent, scope
     is empty.
 
-    >>> ref = _NsRefBase("market.data:fetch_prices")
+    >>> ref = NsRef("market.data:fetch_prices")
     >>> ref.scope
     ['market', 'data']
     >>> ref.name
@@ -87,23 +87,23 @@ class _NsRefBase:
     'market.data:fetch_prices'
     >>> repr(ref)
     "NsRef('market.data:fetch_prices')"
-    >>> _NsRefBase("fetch_prices").scope
+    >>> NsRef("fetch_prices").scope
     []
-    >>> str(_NsRefBase("fetch_prices"))
+    >>> str(NsRef("fetch_prices"))
     'fetch_prices'
-    >>> str(_NsRefBase(":fetch_prices"))
+    >>> str(NsRef(":fetch_prices"))
     'fetch_prices'
-    >>> _NsRefBase("branch.path:") == _NsRefBase("branch.path:")
+    >>> NsRef("branch.path:") == NsRef("branch.path:")
     True
-    >>> str(_NsRefBase("branch.path:"))
+    >>> str(NsRef("branch.path:"))
     'branch.path:'
     """
 
     scope: list[str]
     name: str
 
-    def __init__(self, s: "_NsRefBase | str") -> None:
-        if isinstance(s, _NsRefBase):
+    def __init__(self, s: "NsRef | str") -> None:
+        if isinstance(s, NsRef):
             self.scope, self.name = list(s.scope), s.name
         else:
             if ":" in s:
@@ -126,7 +126,7 @@ class _NsRefBase:
 
     @override
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, _NsRefBase):
+        if isinstance(other, NsRef):
             return self.scope == other.scope and self.name == other.name
         if isinstance(other, str):
             return str(self) == other
@@ -147,59 +147,56 @@ class _NsRefBase:
         handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
     ) -> CoreSchema:
         return core_schema.no_info_plain_validator_function(
-            lambda v: v if isinstance(v, _NsRefBase) else _NsRefBase(v),
+            lambda v: v if isinstance(v, NsRef) else NsRef(v),
             serialization=core_schema.plain_serializer_function_ser_schema(str),
         )
 
 
-NsRef = _NsRefBase
-
-
-class _GlobalRefBase(_NsRefBase):
+class GlobalRef(NsRef):
     """
     A reference to a Python object identified by module path and name.
 
     Accepts a string `"module.path:name"`, a module, a class, a function,
-    or another `_GlobalRefBase` instance. Module-only references use an empty name.
+    or another `GlobalRef` instance. Module-only references use an empty name.
 
     The string representation is always `"module.path:name"` (or `"module.path:"`
-    for module-only refs), matching `_NsRefBase` format where scope is the module
+    for module-only refs), matching `NsRef` format where scope is the module
     path parts.
 
-    >>> ref = _GlobalRefBase('lythonic:_GlobalRefBase')
+    >>> ref = GlobalRef('lythonic:GlobalRef')
     >>> ref
-    GlobalRef('lythonic:_GlobalRefBase')
+    GlobalRef('lythonic:GlobalRef')
     >>> ref.get_instance().__name__
-    '_GlobalRefBase'
+    'GlobalRef'
     >>> ref.is_module()
     False
     >>> ref.get_module().__name__
     'lythonic'
-    >>> grgr = _GlobalRefBase(_GlobalRefBase)
+    >>> grgr = GlobalRef(GlobalRef)
     >>> grgr
-    GlobalRef('lythonic:_GlobalRefBase')
+    GlobalRef('lythonic:GlobalRef')
     >>> grgr.get_instance()
-    <class 'lythonic._GlobalRefBase'>
+    <class 'lythonic.GlobalRef'>
     >>> grgr.is_class()
     True
     >>> grgr.is_function()
     False
     >>> grgr.is_module()
     False
-    >>> uref = _GlobalRefBase('lythonic:')
+    >>> uref = GlobalRef('lythonic:')
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
     'lythonic'
-    >>> uref = _GlobalRefBase('lythonic')
+    >>> uref = GlobalRef('lythonic')
     >>> uref.is_module()
     True
-    >>> uref = _GlobalRefBase(uref)
+    >>> uref = GlobalRef(uref)
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
     'lythonic'
-    >>> uref = _GlobalRefBase(uref.get_module())
+    >>> uref = GlobalRef(uref.get_module())
     >>> uref.is_module()
     True
     >>> uref.get_module().__name__
@@ -210,7 +207,7 @@ class _GlobalRefBase(_NsRefBase):
     name: str
 
     def __init__(self, s: Any) -> None:  # pyright: ignore[reportMissingSuperCall]
-        if isinstance(s, _NsRefBase):
+        if isinstance(s, NsRef):
             self.scope, self.name = list(s.scope), s.name
         elif ismodule(s):
             self.scope = s.__name__.split(".")
@@ -289,14 +286,14 @@ class _GlobalRefBase(_NsRefBase):
         source_type: Any,
         handler: GetCoreSchemaHandler,  # pyright: ignore[reportUnusedParameter]
     ) -> CoreSchema:
-        # Accept both str and _GlobalRefBase, normalize to _GlobalRefBase
+        # Accept both str and GlobalRef, normalize to GlobalRef
         return core_schema.no_info_plain_validator_function(
-            lambda v: v if isinstance(v, _GlobalRefBase) else _GlobalRefBase(v),
+            lambda v: v if isinstance(v, GlobalRef) else GlobalRef(v),
             serialization=core_schema.plain_serializer_function_ser_schema(str),
         )
 
 
-GlobalRef = _GlobalRefBase
+GlobalRef = GlobalRef
 
 
 class ModuleRef:
@@ -315,7 +312,7 @@ class ModuleRef:
     def __init__(self, s: Any) -> None:
         if isinstance(s, ModuleRef):
             self.path = s.path
-        elif isinstance(s, _NsRefBase):
+        elif isinstance(s, NsRef):
             self.path = ".".join(s.scope)
         elif ismodule(s):
             self.path = s.__name__
