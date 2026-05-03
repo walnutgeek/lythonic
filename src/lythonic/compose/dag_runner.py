@@ -37,6 +37,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from lythonic import NsRef
 from lythonic.compose.dag_provenance import DagProvenance, NullProvenance, json_default
 from lythonic.compose.log_context import reset_node_run_context, set_node_run_context
 from lythonic.compose.namespace import (
@@ -498,7 +499,7 @@ class DagRunner:
             if resolved.expects_dag_context():
                 ctx_type = resolved.dag_context_type() or DagContext
                 ctx = ctx_type(
-                    dag_nsref=dag_nsref,
+                    dag_nsref=NsRef(dag_nsref),
                     node_label=dag_node.label,
                     run_id=run_id,
                 )

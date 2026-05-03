@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 import tests.test_namespace as this_module
+from lythonic import NsRef
 from lythonic.compose.namespace import DagContext
 
 
 def test_dag_context_fields():
     from lythonic.compose.namespace import DagContext
 
-    ctx = DagContext(dag_nsref="pipelines:daily", node_label="fetch", run_id="abc123")
+    ctx = DagContext(dag_nsref=NsRef("pipelines:daily"), node_label="fetch", run_id="abc123")
     assert ctx.dag_nsref == "pipelines:daily"
     assert ctx.node_label == "fetch"
     assert ctx.run_id == "abc123"

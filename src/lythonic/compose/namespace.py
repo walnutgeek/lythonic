@@ -205,7 +205,7 @@ class DagContext(BaseModel):
     Subclass to add domain-specific fields.
     """
 
-    dag_nsref: str
+    dag_nsref: NsRef
     node_label: str
     run_id: str
 
