@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """
 Lightweight SQLite ORM with Pydantic-based schema definition.
 
@@ -654,9 +655,38 @@ def open_sqlite_db(db_name: str | Path):
 
 class Schema:
     tables: list[type[DbModel[Any]]]
+    table_map: dict[str, type[DbModel[Any]]]
 
     def __init__(self, tables: list[type[DbModel[Any]]]):
         self.tables = tables
+        self.table_map = {t.get_table_name(): t for t in tables}
+        self._validate_alt_keys()
+
+    def _validate_alt_keys(self) -> None:
+        """Validate AK-FK consistency across all tables."""
+        from lythonic.state.alt_key import AltKey
+
+        for table in self.tables:
+            ak = AltKey.from_model(table)
+            if ak is None:
+                continue
+            table_name = table.get_table_name()
+            for field in ak.fields:
+                if field.foreign_key is None:
+                    continue
+                ref_table_name, _ref_field = field.foreign_key
+                assert ref_table_name != table_name, (
+                    f"{table_name}.{field.name}: self-referential FK in AK is disallowed"
+                )
+                assert ref_table_name in self.table_map, (
+                    f"{table_name}.{field.name}: FK references '{ref_table_name}' "
+                    f"which is not in schema"
+                )
+                ref_ak = AltKey.from_model(self.table_map[ref_table_name])
+                assert ref_ak is not None, (
+                    f"{table_name}.{field.name}: FK references '{ref_table_name}' "
+                    f"which has no alternative key"
+                )
 
     def check_all_tables_exist(self, conn: sqlite3.Connection):
         cursor = conn.cursor()

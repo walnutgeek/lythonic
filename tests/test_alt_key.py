@@ -117,3 +117,49 @@ def test_altkey_from_model_none():
     """Model without AK fields returns None."""
     ak = AltKey.from_model(Stat)
     assert ak is None
+
+
+from lythonic.state import Schema
+
+
+def test_schema_table_map():
+    """Schema builds a table_map keyed by table name."""
+    schema = Schema([Region, Team, Player, Stat])
+    assert "Region" in schema.table_map
+    assert "Team" in schema.table_map
+    assert schema.table_map["Region"] is Region
+
+
+def test_schema_validates_fk_ak_references():
+    """Schema rejects FK-AK that references a table without its own AK."""
+
+    class Orphan(DbModel["Orphan"]):
+        id: int = Field(default=-1, description="(PK)")
+        stat_id: int = Field(description="(FK:Stat.id)(AK)")
+        label: str = Field(description="(AK)")
+
+    with pytest.raises(AssertionError, match="has no alternative key"):
+        Schema([Stat, Orphan])
+
+
+def test_schema_validates_self_ref_fk_ak():
+    """Schema rejects self-referential FK in AK."""
+
+    class SelfRef(DbModel["SelfRef"]):
+        id: int = Field(default=-1, description="(PK)")
+        parent_id: int = Field(description="(FK:SelfRef.id)(AK)")
+        code: str = Field(description="(AK)")
+
+    with pytest.raises(AssertionError, match="[Ss]elf-referential"):
+        Schema([SelfRef])
+
+
+def test_schema_validates_missing_table():
+    """Schema rejects FK-AK referencing a table not in the schema."""
+
+    class Dangling(DbModel["Dangling"]):
+        id: int = Field(default=-1, description="(PK)")
+        region_id: int = Field(description="(FK:Region.id)(AK)")
+
+    with pytest.raises(AssertionError, match="not in schema"):
+        Schema([Dangling])
