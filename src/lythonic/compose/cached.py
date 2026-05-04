@@ -413,7 +413,7 @@ def mount_cached_node(node: NamespaceNode, db_path: Path) -> None:
     method = node.method
     method.validate_simple_type_args()
 
-    nsref = node.nsref
+    nsref = str(node.nsref)
     tbl_name = table_name_from_path(nsref.replace(":", "__").replace(".", "__"))
 
     db_path.parent.mkdir(parents=True, exist_ok=True)

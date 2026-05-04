@@ -3,14 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 import tests.test_namespace as this_module
-from lythonic import NsRef
-from lythonic.compose.namespace import DagContext
+from lythonic.compose.namespace import DagContext, DagPath
 
 
 def test_dag_context_fields():
     from lythonic.compose.namespace import DagContext
 
-    ctx = DagContext(dag_nsref=NsRef("pipelines:daily"), node_label="fetch", run_id="abc123")
+    ctx = DagContext(dag_nsref=DagPath("pipelines:daily"), node_label="fetch", run_id="abc123")
     assert ctx.dag_nsref == "pipelines:daily"
     assert ctx.node_label == "fetch"
     assert ctx.run_id == "abc123"
@@ -200,36 +199,6 @@ def test_register_with_decorate():
     result = node(ticker="X")
     assert result == {"decorated": True}
     assert node.method.args[0].name == "ticker"
-
-
-def test_getattr_by_leaf_name():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register(this_module._sample_fn, nsref="market:fetch")  # pyright: ignore[reportPrivateUsage]
-    node = ns.fetch  # pyright: ignore
-    assert node.nsref == "market:fetch"
-    assert node(ticker="A") == {"ticker": "A", "limit": 10}
-
-
-def test_getattr_root_level():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    ns.register(this_module._sample_fn, nsref="_my_download")  # pyright: ignore[reportPrivateUsage]
-    node = ns._my_download  # pyright: ignore
-    assert node.nsref == "_my_download"
-
-
-def test_getattr_missing_raises():
-    from lythonic.compose.namespace import Namespace
-
-    ns = Namespace()
-    try:
-        _ = ns.nonexistent  # pyright: ignore
-        raise AssertionError("Expected AttributeError")
-    except AttributeError:
-        pass
 
 
 def test_register_duplicate_leaf_raises():

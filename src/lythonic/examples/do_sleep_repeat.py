@@ -8,13 +8,15 @@ namespace:
       - name: "task1_repeat"
         type: "poll"
         schedule: "*/19 * * * * *"
+  - gref: "lythonic.examples.do_sleep_repeat:play_with_ctx"
+    triggers:
+      - name: "*/13 * * * * *"
   - nsref: "examples:dag1"
     gref: "lythonic.examples.do_sleep_repeat:dag1__"
     triggers:
       - name: dag1_repeat
         type: "poll"
         schedule: "*/17 * * * * *"
-
   - nsref: "examples:map_switch_flat_map"
     gref: "lythonic.examples.do_sleep_repeat:map_switch_flat_map__"
     triggers:
@@ -33,7 +35,7 @@ from pydantic import BaseModel
 
 from lythonic.compose._inline import inline
 from lythonic.compose.log_context import get_node_run_context
-from lythonic.compose.namespace import Dag, LabelSwitch, dag_factory
+from lythonic.compose.namespace import Dag, DagContext, LabelSwitch, dag_factory
 
 _log = logging.getLogger(__name__)
 
@@ -52,6 +54,11 @@ async def task1():
     _log.debug(f"After sleep task1 {info()}")
     await asyncio.sleep(1.0)
     _log.warning(f"Done task1 {info()}")
+
+
+async def play_with_ctx(ctx: DagContext) -> DagContext:
+    _log.warning(f"Done play_with_ctx {info()} {ctx}")
+    return ctx
 
 
 @dag_factory

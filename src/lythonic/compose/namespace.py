@@ -166,7 +166,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 if TYPE_CHECKING:
     from lythonic.compose.dag_runner import DagRunResult  # pyright: ignore[reportImportCycles]
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from lythonic import GlobalRef, NsRef
 from lythonic.compose import Method
@@ -199,13 +199,74 @@ def mount_required(fn: _F) -> _F:
     return fn
 
 
+class DagPath:
+    """
+    DAG execution path: a base NsRef plus an optional label path for sub-DAG
+    iterations. Top-level runs have just the nsref (e.g., `"module:dag__"`).
+    Sub-DAG iterations append slash-separated segments
+    (e.g., `"module:dag__/chunks[0]"`).
+    """
+
+    __slots__: tuple[str, ...] = ("nsref", "path")
+
+    nsref: NsRef
+    path: str
+
+    def __init__(self, s: str | NsRef | DagPath) -> None:
+        if isinstance(s, DagPath):
+            self.nsref = s.nsref
+            self.path = s.path
+        elif isinstance(s, NsRef):
+            self.nsref = s
+            self.path = ""
+        else:
+            # Split on first "/" to separate nsref from path
+            if "/" in s:
+                nsref_part, rest = s.split("/", 1)
+                self.nsref = NsRef(nsref_part)
+                self.path = "/" + rest
+            else:
+                self.nsref = NsRef(s)
+                self.path = ""
+
+    def __str__(self) -> str:  # pyright: ignore[reportImplicitOverride]
+        return str(self.nsref) + self.path
+
+    def __repr__(self) -> str:  # pyright: ignore[reportImplicitOverride]
+        return f"DagPath({str(self)!r})"
+
+    def __eq__(self, other: object) -> bool:  # pyright: ignore[reportImplicitOverride]
+        if isinstance(other, DagPath):
+            return self.nsref == other.nsref and self.path == other.path
+        if isinstance(other, str):
+            return str(self) == other
+        return NotImplemented
+
+    def __hash__(self) -> int:  # pyright: ignore[reportImplicitOverride]
+        return hash(str(self))
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> Any:
+        from pydantic_core import core_schema
+
+        def validate(v: Any) -> DagPath:
+            if isinstance(v, DagPath):
+                return v
+            return DagPath(v)
+
+        return core_schema.no_info_plain_validator_function(
+            validate,
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+
 class DagContext(BaseModel):
     """
     Base context injected into DAG-participating callables.
     Subclass to add domain-specific fields.
     """
 
-    dag_nsref: NsRef
+    dag_nsref: DagPath
     node_label: str
     run_id: str
 
@@ -349,13 +410,26 @@ class NsNodeConfig(BaseModel):
     acts as a discriminator for Pydantic deserialization — subclasses
     set a literal `type` value so `model_validate` picks the right class.
     Use `GlobalRef` for the `gref` field (serializes as string automatically).
+
+    If `nsref` is omitted, it defaults to `NsRef(str(gref))` — so `gref`
+    must be provided in that case.
     """
 
     type: str = "auto"
-    nsref: str
+    nsref: NsRef | str | None = None
     gref: GlobalRef | None = None
     tags: list[str] | None = None
     triggers: list[TriggerConfig] = []
+
+    @model_validator(mode="after")
+    def _default_nsref_from_gref(self) -> NsNodeConfig:
+        if self.nsref is None:
+            if self.gref is None:
+                raise ValueError("Either nsref or gref must be provided")
+            self.nsref = NsRef(str(self.gref))
+        elif isinstance(self.nsref, str):
+            self.nsref = NsRef(self.nsref)
+        return self
 
 
 class NsCacheConfig(NsNodeConfig):
@@ -379,15 +453,15 @@ class NamespaceNode:
     """
 
     method: Method
-    namespace: Namespace
+    namespace: Namespace | None
     config: NsNodeConfig
     _decorated: Callable[..., Any] | None
 
     def __init__(
         self,
         method: Method,
-        nsref: str,
-        namespace: Namespace,
+        nsref: str | NsRef | None = None,
+        namespace: Namespace | None = None,
         decorated: Callable[..., Any] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
@@ -400,14 +474,16 @@ class NamespaceNode:
         self.metadata: dict[str, Any] = {}
         validated_tags = _validate_tags(tags)
         self.config = config or NsNodeConfig(
-            nsref=nsref,
+            nsref=NsRef(nsref) if isinstance(nsref, str) else nsref,
             gref=method.gref if method.gref else None,
             tags=sorted(validated_tags) if validated_tags else None,
         )
 
     @property
-    def nsref(self) -> str:
-        return self.config.nsref
+    def nsref(self) -> NsRef:
+        ref = self.config.nsref
+        assert isinstance(ref, NsRef)
+        return ref
 
     @property
     def tags(self) -> frozenset[str]:
@@ -496,7 +572,7 @@ class Namespace:
     def register(
         self,
         c: Callable[..., Any] | str | Dag,
-        nsref: str | None = None,
+        nsref: str | NsRef | None = None,
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
@@ -526,13 +602,15 @@ class Namespace:
         if nsref is None:
             nsref = f"{gref.module}:{gref.name}"
 
+        key = str(nsref)
+
         # Pass c directly (not gref) so Method._o is set immediately, preserving
         # any decorator attributes (e.g. _is_mount_required) on the callable.
         method = Method(c) if callable(c) else Method(gref)
         decorated = decorate(method.o) if decorate else None
 
-        if nsref in self._nodes:
-            raise ValueError(f"'{nsref}' already exists in namespace")
+        if key in self._nodes:
+            raise ValueError(f"'{key}' already exists in namespace")
 
         node = NamespaceNode(
             method=method,
@@ -542,13 +620,13 @@ class Namespace:
             tags=tags,
             config=config,
         )
-        self._nodes[nsref] = node
+        self._nodes[key] = node
         return node
 
     def _register_dag(
         self,
         dag: Dag,
-        nsref: str | None,
+        nsref: str | NsRef | None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
     ) -> NamespaceNode:
@@ -560,8 +638,10 @@ class Namespace:
         if nsref is None:
             raise ValueError("nsref is required when registering a Dag")
 
+        key = str(nsref)
+
         if dag.parent_namespace is self:
-            raise ValueError(f"Dag '{nsref}' is already registered with this namespace")
+            raise ValueError(f"Dag '{key}' is already registered with this namespace")
 
         dag.parent_namespace = self
 
@@ -586,26 +666,27 @@ class Namespace:
                 node_kwargs = {a.name: kwargs[a.name] for a in node_args if a.name in kwargs}
                 if node_kwargs:
                     source_inputs[label] = node_kwargs
-            return await runner.run(source_inputs=source_inputs, dag_nsref=nsref)
+            return await runner.run(source_inputs=source_inputs, dag_nsref=key)
 
         method = Method(dag_wrapper)
 
-        if nsref in self._nodes:
-            raise ValueError(f"'{nsref}' already exists in namespace")
+        if key in self._nodes:
+            raise ValueError(f"'{key}' already exists in namespace")
 
         node = NamespaceNode(
             method=method, nsref=nsref, namespace=self, tags=tags, config=config, dag=dag
         )
-        self._nodes[nsref] = node
+        self._nodes[key] = node
         return node
 
-    def get(self, nsref: str) -> NamespaceNode:
+    def get(self, nsref: str | NsRef) -> NamespaceNode:
         """Retrieve a node by nsref. Raises `KeyError` if not found."""
-        if nsref not in self._nodes:
-            raise KeyError(f"'{nsref}' not found in namespace")
-        return self._nodes[nsref]
+        key = str(nsref)
+        if key not in self._nodes:
+            raise KeyError(f"'{key}' not found in namespace")
+        return self._nodes[key]
 
-    def get_as_dag(self, nsref: str) -> Dag:
+    def get_as_dag(self, nsref: str | NsRef) -> Dag:
         """
         Return a DAG for any node. If the node wraps a DAG (registered
         via `_register_dag`), return that DAG. Otherwise create a
@@ -666,17 +747,6 @@ class Namespace:
             else:
                 ns.register(lambda: None, nsref=config.nsref, config=config)
         return ns
-
-    def __getattr__(self, name: str) -> Any:
-        # Avoid recursion for attributes set in __init__ before _nodes is populated.
-        if name in ("_nodes", "_storage", "_provenance"):
-            raise AttributeError(name)
-        # Look up by name as a leaf suffix (for simple nsrefs like "t:fetch" -> "fetch")
-        for nsref, node in self._nodes.items():
-            leaf = NsRef(nsref).name
-            if leaf == name:
-                return node
-        raise AttributeError(f"'{name}' not found in namespace")
 
 
 class DagEdge(BaseModel):
@@ -805,7 +875,7 @@ class Dag:
         self.namespace = Namespace()
         self.parent_namespace: Namespace | None = None
 
-    def resolve(self, nsref: str) -> NamespaceNode:
+    def resolve(self, nsref: str | NsRef) -> NamespaceNode:
         """
         Resolve a callable by nsref. Tries `parent_namespace` first
         (if set), then falls back to the DAG's own namespace.
@@ -864,8 +934,7 @@ class Dag:
                 ns_node = self.namespace.register(source)
 
         if label is None:
-            leaf = NsRef(ns_node.nsref).name
-            label = leaf
+            label = ns_node.nsref.name
 
         if label in self.nodes:
             raise ValueError(

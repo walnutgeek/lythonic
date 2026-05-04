@@ -214,7 +214,7 @@ class TriggerManager:
     def activate(self, name: str) -> None:
         """Activate a trigger by name (found in node configs)."""
         node, tc = self.namespace.get_trigger(name)
-        self.store.activate(tc, dag_nsref=node.nsref)
+        self.store.activate(tc, dag_nsref=str(node.nsref))
 
     def deactivate(self, name: str) -> None:
         """Deactivate a trigger."""

@@ -42,7 +42,7 @@ def test_namespace_nested_access():
     ns.register(this_module._ns_test_data, nsref="get_data")  # pyright: ignore[reportPrivateUsage]
 
     assert ns.get("market:fetch_prices")() == "ok"
-    assert ns.get_data() == "data"  # pyright: ignore
+    assert ns.get("get_data")() == "data"
 
 
 def test_namespace_path_generates_table_name():
@@ -129,7 +129,7 @@ def test_sync_wrapper_expired_refetches():
         db_path = Path(tmp) / "cache.db"
         _mount_cached(ns, "tests.test_cached:_fake_fetch2", 0.0001, 0.0002, db_path, "fetch2")
 
-        ns.fetch2(ticker="X")  # pyright: ignore
+        ns.get("fetch2")(ticker="X")
         assert this_module._fake_fetch2_count == 1  # pyright: ignore
 
         # Backdate fetched_at to simulate expiry
@@ -140,7 +140,7 @@ def test_sync_wrapper_expired_refetches():
             )
             conn.commit()
 
-        ns.fetch2(ticker="X")  # pyright: ignore
+        ns.get("fetch2")(ticker="X")
         assert this_module._fake_fetch2_count == 2  # pyright: ignore
 
 
@@ -197,12 +197,12 @@ def test_pydantic_return_type_cached():
         db_path = Path(tmp) / "cache.db"
         _mount_cached(ns, "tests.test_cached:_fetch_typed", 1.0, 2.0, db_path, "typed_fetch")
 
-        result = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
+        result = ns.get("typed_fetch")(ticker="MSFT")
         assert isinstance(result, PriceResult)
         assert result.ticker == "MSFT"
         assert result.price == 42.0
 
-        result2 = ns.typed_fetch(ticker="MSFT")  # pyright: ignore
+        result2 = ns.get("typed_fetch")(ticker="MSFT")
         assert isinstance(result2, PriceResult)
         assert result2.ticker == "MSFT"
 
@@ -230,7 +230,7 @@ def test_probabilistic_refresh_between_ttls():
         db_path = Path(tmp) / "cache.db"
         _mount_cached(ns, "tests.test_cached:_prob_fetch", 1.0, 3.0, db_path, "prob")
 
-        ns.prob(key="A")  # pyright: ignore
+        ns.get("prob")(key="A")
         assert this_module._prob_fetch_count == 1  # pyright: ignore
 
         # Set fetched_at to almost max_ttl ago (p ~= 1, almost certain refresh)
@@ -246,7 +246,7 @@ def test_probabilistic_refresh_between_ttls():
         refreshed = False
         for _ in range(20):
             before = this_module._prob_fetch_count  # pyright: ignore
-            ns.prob(key="A")  # pyright: ignore
+            ns.get("prob")(key="A")
             if this_module._prob_fetch_count > before:  # pyright: ignore
                 refreshed = True
                 break
@@ -270,7 +270,7 @@ def test_default_namespace_path_uses_function_name():
         db_path = Path(tmp) / "cache.db"
         _mount_cached(ns, "tests.test_cached:_my_download", 1.0, 2.0, db_path, "_my_download")
 
-        result = ns._my_download(tag="hello")  # pyright: ignore
+        result = ns.get("_my_download")(tag="hello")
         assert result == {"tag": "hello"}
 
 

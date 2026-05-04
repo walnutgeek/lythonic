@@ -136,6 +136,13 @@ class NsRef:
     def __hash__(self) -> int:
         return hash((tuple(self.scope), self.name))
 
+    def __lt__(self, other: Any) -> bool:
+        if isinstance(other, NsRef):
+            return str(self) < str(other)
+        if isinstance(other, str):
+            return str(self) < other
+        return NotImplemented
+
     @override
     def __ne__(self, other: Any) -> bool:
         return not self == other
