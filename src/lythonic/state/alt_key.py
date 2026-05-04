@@ -12,6 +12,7 @@ no `(AK)`-annotated fields.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from lythonic.state import execute_sql
@@ -58,6 +59,7 @@ class AltKey:
     fields: list[AltKeyField]
     _join_chain: list[JoinStep]
     _local_ak_columns: list[str]
+    _table_map: dict[str, type[DbModel[Any]]]
 
     def __init__(
         self,
@@ -68,12 +70,14 @@ class AltKey:
         self.fields = fields
         self._join_chain = []
         self._local_ak_columns = [f.name for f in fields if f.foreign_key is None]
+        self._table_map = {}
 
     def build_chain(self, table_map: dict[str, type[DbModel[Any]]]) -> None:
         """Precompute the JOIN chain by walking FK references recursively.
 
         Must be called after Schema construction provides the table_map.
         """
+        self._table_map = table_map
         self._join_chain = []
         alias_counter = 0
         base_alias = "_t"
@@ -167,6 +171,133 @@ class AltKey:
         execute_sql(cursor, sql, tuple(args))
         row = cursor.fetchone()
         return row[0] if row else None
+
+    def to_ak_dict(self, conn: sqlite3.Connection, record: DbModel[Any]) -> dict[str, Any]:
+        """Serialize a record's AK, resolving FK integers to referenced AK values."""
+        if not self._join_chain:
+            return {col: getattr(record, col) for col in self._local_ak_columns}
+        return self._serialize_records(conn, [record])[0]
+
+    def to_ak_dicts(
+        self, conn: sqlite3.Connection, records: Sequence[DbModel[Any]]
+    ) -> list[dict[str, Any]]:
+        """Batch serialize multiple records' AK fields."""
+        if not records:
+            return []
+        if not self._join_chain:
+            return [{col: getattr(r, col) for col in self._local_ak_columns} for r in records]
+        return self._serialize_records(conn, records)
+
+    def _serialize_records(
+        self, conn: sqlite3.Connection, records: Sequence[DbModel[Any]]
+    ) -> list[dict[str, Any]]:
+        """Query to fetch leaf AK values via JOINs, then assemble structured dicts."""
+        table_name = self.model_cls.get_table_name()
+        pk_field = self.model_cls._ensure_pk()  # pyright: ignore[reportPrivateUsage]
+        base_alias = "_t"
+
+        # SELECT: pk, then leaf columns from each join step, then local AK columns
+        select_parts: list[str] = [f"{base_alias}.{pk_field.name}"]
+        joins: list[str] = []
+
+        for step in self._join_chain:
+            joins.append(
+                f"JOIN {step.remote_table} {step.alias} "
+                f"ON {step.source_alias}.{step.local_field} = {step.alias}.{step.remote_field}"
+            )
+            for col in step.leaf_columns:
+                select_parts.append(f"{step.alias}.{col}")
+
+        for col in self._local_ak_columns:
+            select_parts.append(f"{base_alias}.{col}")
+
+        pk_values = [getattr(r, pk_field.name) for r in records]
+        placeholders = ",".join("?" * len(pk_values))
+        sql = (
+            f"SELECT {', '.join(select_parts)} FROM {table_name} {base_alias} "
+            + " ".join(joins)
+            + f" WHERE {base_alias}.{pk_field.name} IN ({placeholders})"
+        )
+        cursor = conn.cursor()
+        execute_sql(cursor, sql, tuple(pk_values))
+
+        row_by_pk: dict[int, tuple[Any, ...]] = {}
+        for row in cursor.fetchall():
+            row_by_pk[row[0]] = row
+
+        results: list[dict[str, Any]] = []
+        for record in records:
+            pk_val = getattr(record, pk_field.name)
+            row = row_by_pk[pk_val]
+            # col_idx[0] is a mutable index into row, starting after pk
+            col_idx = [1]
+            result = self._build_ak_result(row, col_idx)
+            results.append(result)
+        return results
+
+    def _build_ak_result(self, row: tuple[Any, ...], col_idx: list[int]) -> dict[str, Any]:
+        """Build a structured AK dict from a flat query result row.
+
+        Walks `self.fields` in order. FK fields recursively consume columns
+        from the join steps that cascade through the referenced table's AK.
+        Local fields consume from the end of the row (after all join columns).
+        """
+        result: dict[str, Any] = {}
+        # FK fields consume join-step columns first (depth-first order)
+        for field in self.fields:
+            if field.foreign_key is not None:
+                ref_table_name = field.foreign_key[0]
+                result[field.name] = self._consume_fk_ak(row, col_idx, ref_table_name)
+
+        # Local columns are appended after all join columns in the SELECT
+        for col in self._local_ak_columns:
+            result[col] = row[col_idx[0]]
+            col_idx[0] += 1
+        return result
+
+    def _consume_fk_ak(self, row: tuple[Any, ...], col_idx: list[int], ref_table_name: str) -> Any:
+        """Consume columns for a FK field's referenced AK from the row.
+
+        Returns a scalar if the referenced AK has exactly one field (after
+        full cascade). Returns a nested dict with the referenced table's
+        AK field names as keys otherwise.
+
+        Columns must be consumed in the same order as `build_chain` emits
+        them: each step's leaf_columns (non-FK AK fields) first, then
+        child steps from FK recursion. So local fields are consumed before
+        FK fields at each level.
+        """
+        ref_ak = AltKey.from_model(self._table_map[ref_table_name])
+        assert ref_ak is not None
+
+        total_leaves = self._count_ref_leaves(ref_table_name)
+        if total_leaves == 1:
+            val = row[col_idx[0]]
+            col_idx[0] += 1
+            return val
+
+        # Consume in chain order: local AK columns first, then FK cascades
+        nested: dict[str, Any] = {}
+        local_fields = [f for f in ref_ak.fields if f.foreign_key is None]
+        fk_fields = [f for f in ref_ak.fields if f.foreign_key is not None]
+
+        for ref_field in local_fields:
+            nested[ref_field.name] = row[col_idx[0]]
+            col_idx[0] += 1
+        for ref_field in fk_fields:
+            assert ref_field.foreign_key is not None
+            nested[ref_field.name] = self._consume_fk_ak(row, col_idx, ref_field.foreign_key[0])
+        return nested
+
+    def _count_ref_leaves(self, ref_table_name: str) -> int:
+        """Count the total number of leaf AK columns for a referenced table."""
+        ref_ak = AltKey.from_model(self._table_map[ref_table_name])
+        assert ref_ak is not None
+        count = len([f for f in ref_ak.fields if f.foreign_key is None])
+        for f in ref_ak.fields:
+            if f.foreign_key is not None:
+                count += self._count_ref_leaves(f.foreign_key[0])
+        return count
 
     @classmethod
     def from_model(cls, model_cls: type[DbModel[Any]]) -> AltKey | None:

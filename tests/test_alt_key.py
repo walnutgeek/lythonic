@@ -262,3 +262,56 @@ def test_resolve_ak_two_levels():
         pk = ak.resolve(conn, code="us-west", name="Eagles", jersey_number=7)
         assert pk is not None
         assert ak.resolve(conn, code="us-west", name="Eagles", jersey_number=99) is None
+
+
+def test_to_ak_dict_local_only():
+    """Serialize Region (local-only AK) — no query needed."""
+    ak = AltKey.from_model(Region)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        r1 = Region.select(conn, code="us-west")[0]
+        result = ak.to_ak_dict(conn, r1)
+        assert result == {"code": "us-west"}
+
+
+def test_to_ak_dict_one_level():
+    """Serialize Team — resolves region_id FK to Region.code."""
+    ak = AltKey.from_model(Team)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        t1 = Team.select(conn, name="Eagles")[0]
+        result = ak.to_ak_dict(conn, t1)
+        assert result == {"region_id": "us-west", "name": "Eagles"}
+
+
+def test_to_ak_dict_two_levels():
+    """Serialize Player — cascades through Team to Region."""
+    ak = AltKey.from_model(Player)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        p1 = Player.select(conn, jersey_number=7)[0]
+        result = ak.to_ak_dict(conn, p1)
+        assert result == {
+            "team_id": {"region_id": "us-west", "name": "Eagles"},
+            "jersey_number": 7,
+        }
+
+
+def test_to_ak_dicts_batch():
+    """Batch serialize multiple records in one query."""
+    ak = AltKey.from_model(Team)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        teams = Team.select(conn)
+        results = ak.to_ak_dicts(conn, teams)
+        assert len(results) == 2
+        codes = {r["region_id"] for r in results}
+        assert codes == {"us-west", "eu-north"}
