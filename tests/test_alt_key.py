@@ -1,10 +1,14 @@
 # pyright: reportPrivateUsage=false
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 from pydantic import Field
 
-from lythonic.state import DbModel
+from lythonic.misc import tabula_rasa_path
+from lythonic.state import DbModel, open_sqlite_db
 
 
 class Region(DbModel["Region"]):
@@ -198,9 +202,63 @@ def test_altkey_chain_two_levels():
     ak.build_chain(SCHEMA.table_map)
     assert len(ak._join_chain) == 2
     # First join: Player.team_id -> Team.id
+    assert ak._join_chain[0].source_alias == "_t"
     assert ak._join_chain[0].local_field == "team_id"
     assert ak._join_chain[0].remote_table == "Team"
     # Second join: Team.region_id -> Region.id (chained from first)
+    assert ak._join_chain[1].source_alias == "_j1"
     assert ak._join_chain[1].local_field == "region_id"
     assert ak._join_chain[1].remote_table == "Region"
     assert ak._join_chain[1].leaf_columns == ["code"]
+
+
+ak_db_path = tabula_rasa_path(Path("build/tests/ak.db"))
+
+
+def _seed_db(conn: sqlite3.Connection) -> tuple[Region, Region, Team, Team, Player]:
+    """Insert test data and return the records with their assigned PKs."""
+    r1 = Region(code="us-west", name="US West").save(conn)
+    r2 = Region(code="eu-north", name="EU North").save(conn)
+    t1 = Team(region_id=r1.id, name="Eagles", founded=2010).save(conn)
+    t2 = Team(region_id=r2.id, name="Vikings", founded=2015).save(conn)
+    p1 = Player(team_id=t1.id, jersey_number=7, player_name="Alice").save(conn)
+    conn.commit()
+    return r1, r2, t1, t2, p1
+
+
+def test_resolve_ak_single():
+    """Resolve a single-field AK (Region.code) to integer PK."""
+    SCHEMA.create_schema(ak_db_path)
+    ak = AltKey.from_model(Region)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        r1, r2, _t1, _t2, _p1 = _seed_db(conn)
+        assert ak.resolve(conn, code="us-west") == r1.id
+        assert ak.resolve(conn, code="eu-north") == r2.id
+        assert ak.resolve(conn, code="nonexistent") is None
+
+
+def test_resolve_ak_composite_one_level():
+    """Resolve composite AK (Team: region code + name) with one FK cascade."""
+    ak = AltKey.from_model(Team)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        assert ak.resolve(conn, code="us-west", name="Eagles") is not None
+        assert ak.resolve(conn, code="eu-north", name="Vikings") is not None
+        assert ak.resolve(conn, code="us-west", name="Vikings") is None
+
+
+def test_resolve_ak_two_levels():
+    """Resolve 2-level cascade AK. All leaf values are flattened into kwargs."""
+    ak = AltKey.from_model(Player)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+
+    with open_sqlite_db(ak_db_path) as conn:
+        pk = ak.resolve(conn, code="us-west", name="Eagles", jersey_number=7)
+        assert pk is not None
+        assert ak.resolve(conn, code="us-west", name="Eagles", jersey_number=99) is None
