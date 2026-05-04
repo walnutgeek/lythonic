@@ -310,6 +310,7 @@ class FieldInfo(NamedTuple):
     primary_key: bool
     foreign_key: tuple[str, str] | None
     fixed_choices: list[Any] | None  # For enum types and literal types
+    alt_key: bool
 
     @classmethod
     def build(cls, name: str, field_info: Any) -> "FieldInfo":
@@ -355,11 +356,18 @@ class FieldInfo(NamedTuple):
 
         is_foreign_key = description.startswith("(FK:")
         if is_foreign_key:
-            x, description = description[4:].strip().split(")")
+            x, description = description[4:].strip().split(")", 1)
             table_name, field_name = x.split(".")
             foreign_key = table_name, field_name
         else:
             foreign_key = None
+
+        is_alt_key = description.startswith("(AK)")
+        if is_alt_key:
+            description = description[4:].strip()
+        assert not (is_alt_key and is_nullable), (
+            f"Field {name} cannot be both an alternative key and nullable"
+        )
 
         return cls(
             name=name,
@@ -369,6 +377,7 @@ class FieldInfo(NamedTuple):
             primary_key=is_primary_key,
             foreign_key=foreign_key,
             fixed_choices=fixed_choices,
+            alt_key=is_alt_key,
         )
 
     def check_constraint_ddl(self) -> str:

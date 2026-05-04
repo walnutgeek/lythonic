@@ -254,6 +254,7 @@ def test_type_info():
         False,
         None,
         None,
+        False,
     )
 
 
