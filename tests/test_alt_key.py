@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 from __future__ import annotations
 
 import pytest
@@ -163,3 +164,43 @@ def test_schema_validates_missing_table():
 
     with pytest.raises(AssertionError, match="not in schema"):
         Schema([Dangling])
+
+
+SCHEMA = Schema([Region, Team, Player, Stat])
+
+
+def test_altkey_chain_local_only():
+    """Region AK has no joins — all fields are local."""
+    ak = AltKey.from_model(Region)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+    assert ak._join_chain == []
+    assert ak._local_ak_columns == ["code"]
+
+
+def test_altkey_chain_one_level():
+    """Team AK cascades region_id through one JOIN to Region."""
+    ak = AltKey.from_model(Team)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+    assert len(ak._join_chain) == 1
+    step = ak._join_chain[0]
+    assert step.local_field == "region_id"
+    assert step.remote_table == "Region"
+    assert step.remote_field == "id"
+    assert step.leaf_columns == ["code"]
+
+
+def test_altkey_chain_two_levels():
+    """Player AK cascades team_id through Team, which cascades to Region."""
+    ak = AltKey.from_model(Player)
+    assert ak is not None
+    ak.build_chain(SCHEMA.table_map)
+    assert len(ak._join_chain) == 2
+    # First join: Player.team_id -> Team.id
+    assert ak._join_chain[0].local_field == "team_id"
+    assert ak._join_chain[0].remote_table == "Team"
+    # Second join: Team.region_id -> Region.id (chained from first)
+    assert ak._join_chain[1].local_field == "region_id"
+    assert ak._join_chain[1].remote_table == "Region"
+    assert ak._join_chain[1].leaf_columns == ["code"]
