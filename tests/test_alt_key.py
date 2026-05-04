@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import Field
@@ -298,7 +299,7 @@ def test_to_ak_dict_two_levels():
         p1 = Player.select(conn, jersey_number=7)[0]
         result = ak.to_ak_dict(conn, p1)
         assert result == {
-            "team_id": {"region_id": "us-west", "name": "Eagles"},
+            "team_id": {"code": "us-west", "name": "Eagles"},
             "jersey_number": 7,
         }
 
@@ -360,3 +361,57 @@ def test_dbmodel_no_ak_raises():
     with open_sqlite_db(ak_db_path) as conn:
         with pytest.raises(AssertionError, match="no alternative key"):
             Stat.resolve_ak(conn, id=1)
+
+
+def test_full_lifecycle():
+    """End-to-end: create schema, insert via integer PKs, query via alt keys, serialize."""
+    db_path = tabula_rasa_path(Path("build/tests/ak_lifecycle.db"))
+    schema = Schema([Region, Team, Player, Stat])
+    schema.create_schema(db_path)
+
+    with open_sqlite_db(db_path) as conn:
+        r1 = Region(code="us-west", name="US West").save(conn)
+        r2 = Region(code="eu-north", name="EU North").save(conn)
+        t1 = Team(region_id=r1.id, name="Eagles", founded=2010).save(conn)
+        t2 = Team(region_id=r2.id, name="Vikings").save(conn)
+        p1 = Player(team_id=t1.id, jersey_number=7, player_name="Alice").save(conn)
+        _p2 = Player(team_id=t1.id, jersey_number=10, player_name="Bob").save(conn)
+        _p3 = Player(team_id=t2.id, jersey_number=7, player_name="Charlie").save(conn)
+        conn.commit()
+
+        # UNIQUE constraint enforced: duplicate AK raises IntegrityError
+        import sqlite3 as sqlite_mod
+
+        with pytest.raises(sqlite_mod.IntegrityError):
+            Player(team_id=t1.id, jersey_number=7, player_name="Duplicate").insert(conn)
+        conn.rollback()
+
+        # Resolve AK -> PK
+        assert Region.resolve_ak(conn, code="us-west") == r1.id
+        assert Team.resolve_ak(conn, code="us-west", name="Eagles") == t1.id
+        assert Player.resolve_ak(conn, code="us-west", name="Eagles", jersey_number=7) == p1.id
+
+        # Load by AK
+        loaded_team = Team.load_by_ak(conn, code="eu-north", name="Vikings")
+        assert loaded_team is not None
+        assert loaded_team.id == t2.id
+
+        # Serialize single
+        ak = p1.to_ak_dict(conn)
+        assert ak["jersey_number"] == 7
+
+        # Serialize batch
+        all_players = Player.select(conn)
+        ak_dicts = Player.to_ak_dicts(conn, all_players)
+        assert len(ak_dicts) == 3
+
+        # Roundtrip: serialize then resolve
+        for player, ak_dict in zip(all_players, ak_dicts, strict=True):
+            flat: dict[str, Any] = {}
+            for k, v in ak_dict.items():
+                if isinstance(v, dict):
+                    flat.update(v)  # pyright: ignore[reportUnknownArgumentType]
+                else:
+                    flat[k] = v
+            resolved_pk = Player.resolve_ak(conn, **flat)
+            assert resolved_pk == player.id

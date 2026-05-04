@@ -276,7 +276,9 @@ class AltKey:
             col_idx[0] += 1
             return val
 
-        # Consume in chain order: local AK columns first, then FK cascades
+        # Consume in chain order: local AK columns first, then FK cascades.
+        # Keys use leaf column names so the dict can be flattened and passed
+        # directly to resolve_ak().
         nested: dict[str, Any] = {}
         local_fields = [f for f in ref_ak.fields if f.foreign_key is None]
         fk_fields = [f for f in ref_ak.fields if f.foreign_key is not None]
@@ -286,7 +288,15 @@ class AltKey:
             col_idx[0] += 1
         for ref_field in fk_fields:
             assert ref_field.foreign_key is not None
-            nested[ref_field.name] = self._consume_fk_ak(row, col_idx, ref_field.foreign_key[0])
+            child = self._consume_fk_ak(row, col_idx, ref_field.foreign_key[0])
+            if isinstance(child, dict):
+                nested.update(child)  # pyright: ignore[reportUnknownArgumentType]
+            else:
+                # Single-leaf FK: use the leaf column name as key
+                ref_child_ak = AltKey.from_model(self._table_map[ref_field.foreign_key[0]])
+                assert ref_child_ak is not None
+                leaf_name = [f.name for f in ref_child_ak.fields if f.foreign_key is None][0]
+                nested[leaf_name] = child
         return nested
 
     def _count_ref_leaves(self, ref_table_name: str) -> int:
