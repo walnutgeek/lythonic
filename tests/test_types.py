@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
+from lythonic import GlobalRef, NsRef
 from lythonic.types import KNOWN_TYPES, JsonBase, KnownType
 
 
@@ -28,6 +29,11 @@ class CookingModel(JsonBase):
 class CookingBase(BaseModel):
     fruit: FruitEnum = FruitEnum.pear
     tool: ToolEnum = ToolEnum.spanner
+
+
+class Refs(BaseModel):
+    n: NsRef
+    g: GlobalRef
 
 
 def test_enum():
@@ -141,6 +147,11 @@ def test_known_types():
     assert CookingBase in KNOWN_TYPES.types_by_type
     assert CookingModel not in KNOWN_TYPES.types_by_type
 
+    do_roundtrip_by_type(
+        Refs(g=GlobalRef(Refs), n=NsRef("abc:xyz")),  # pyright: ignore
+        """mapped_str='{"n": "abc:xyz", "g": "tests.test_types:Refs"}' -> mapped_json={'n': 'abc:xyz', 'g': 'tests.test_types:Refs'} -> mapped_db='{"n": "abc:xyz", "g": "tests.test_types:Refs"}'""",
+    )
+
 
 def test_simple_type_primitives():
     for t in (int, float, bool, str):
@@ -152,6 +163,30 @@ def test_simple_type_date_datetime_path():
     for t in (date, datetime, Path):
         kt = KNOWN_TYPES.resolve_type(t)
         assert kt.simple_type
+
+
+def test_simple_type_nsref_globalref():
+    for t in (NsRef, GlobalRef):
+        kt = KNOWN_TYPES.resolve_type(t)
+        assert kt.simple_type
+
+    nsref = NsRef("branch.path:leaf")
+    kt_ns = KNOWN_TYPES.resolve_type(type(nsref))
+    assert kt_ns.string.map_to(nsref) == "branch.path:leaf"
+    assert kt_ns.json.map_to(nsref) == "branch.path:leaf"
+    assert kt_ns.db.map_to(nsref) == "branch.path:leaf"
+    assert kt_ns.string.map_from("branch.path:leaf") == nsref
+    assert kt_ns.json.map_from("branch.path:leaf") == nsref
+    assert kt_ns.db.map_from("branch.path:leaf") == nsref
+
+    gref = GlobalRef("lythonic.compose:Namespace")
+    kt_gr = KNOWN_TYPES.resolve_type(type(gref))
+    assert kt_gr.string.map_to(gref) == "lythonic.compose:Namespace"
+    assert kt_gr.json.map_to(gref) == "lythonic.compose:Namespace"
+    assert kt_gr.db.map_to(gref) == "lythonic.compose:Namespace"
+    assert kt_gr.string.map_from("lythonic.compose:Namespace") == gref
+    assert kt_gr.json.map_from("lythonic.compose:Namespace") == gref
+    assert kt_gr.db.map_from("lythonic.compose:Namespace") == gref
 
 
 def test_non_simple_type():

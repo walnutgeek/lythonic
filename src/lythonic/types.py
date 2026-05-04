@@ -113,7 +113,7 @@ from pydantic import (
 )
 from typing_extensions import override
 
-from lythonic import GlobalRef, str_or_none
+from lythonic import GlobalRef, NsRef, str_or_none
 
 # using this to allow for monkeypatching for NumPy
 json_loads = _json.loads
@@ -634,6 +634,8 @@ KNOWN_TYPES.register(
         map_from_string=datetime.fromisoformat,
         simple_type=True,
     ),
+    KnownTypeArgs(concrete_type=NsRef, map_from_string=NsRef, simple_type=True),
+    KnownTypeArgs(concrete_type=GlobalRef, map_from_string=GlobalRef, simple_type=True),
     KnownTypeArgs(abstract_type=Path, map_from_string=Path, simple_type=True),
     KnownTypeArgs(
         abstract_type=Enum,
