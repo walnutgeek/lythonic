@@ -1,0 +1,1802 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Lightweight pythonic toolkit for building complex workflows">
+      
+      
+      
+        <link rel="canonical" href="https://walnutgeek.github.io/lythonic/open-questions/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>open questions / issues / design decisions - Lythonic</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#open-questions-issues-design-decisions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Lythonic" class="md-header__button md-logo" aria-label="Lythonic" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Lythonic
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              open questions / issues / design decisions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/walnutgeek/lythonic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    walnutgeek/lythonic
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Lythonic" class="md-nav__button md-logo" aria-label="Lythonic" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Lythonic
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/walnutgeek/lythonic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    walnutgeek/lythonic
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Posts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Posts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../posts/2026-04-13-show-hn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2026-04-13 Show HN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/lyth-quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started with lyth
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/compose-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build a Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/first-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your First Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/crud-operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CRUD Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/cashflow-example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cashflow Tracking Example
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/scheduled-triggers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled Triggers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How-To Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    How-To Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/define-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Define a Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/multi-tenant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-Tenant Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/composable-dags/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composable DAGs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lythonic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    compose
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    compose
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lythonic.compose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-namespace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...namespace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-dag-runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...dag_runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-dag-provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...dag_provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-cached/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...cached
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/compose-trigger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...trigger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    state
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    state
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lythonic.state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/user/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...user
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lythonic.types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/misc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lythonic.misc
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release_notes/v0.0.16/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.0.16
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release_notes/v0.0.15/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.0.15
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release_notes/v0.0.14/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.0.14
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release_notes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ...
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="open-questions-issues-design-decisions">open questions / issues / design decisions<a class="headerlink" href="#open-questions-issues-design-decisions" title="Permanent link">&para;</a></h1>
+<h1 id="api-facade">API Facade<a class="headerlink" href="#api-facade" title="Permanent link">&para;</a></h1>
+<p>[x] We need api_facade module will be implemneted in  in woodglue.</p>
+<h2 id="non-practical-e2e-example">Non-practical E2E example<a class="headerlink" href="#non-practical-e2e-example" title="Permanent link">&para;</a></h2>
+<p>I want to create an end-to-end test using do_sleep_repeat.py example. Extract the yaml file from a do_sleep_repeat.py doc string, save it in a temporary directory, and run lyth start on this directory, ensure that lyth is running, keep it running for two minutes, then run CLI lyth stop command to shut down the server. Ensure that it stopped. instantiat dag_provenance on that directory and run test that use DagRun and other pydantic objects to query runs that already completed.</p>
+<p>[x] Validated </p>
+<h2 id="sub-dag-awareness-in-provenance-inspection-models">Sub-DAG awareness in provenance inspection models<a class="headerlink" href="#sub-dag-awareness-in-provenance-inspection-models" title="Permanent link">&para;</a></h2>
+<p>@src/lythonic/compose/dag_provenance.py I added few to do's. I want a DAGs to be fully aware of sub DAGs that is running. It means that we need to capture edge traversals to sub_dags as well on composite
+  node executions.</p>
+<p>For Label Path - Compute at load time, Especially that dag_nsref is is not only NSREF, but it's NSREF with Label Path to dag so all we need is just to add node_label.
+For Back-refs - It was bad idea. I removed them</p>
+<p>About Current sub-DAG nsref patterns (from dag_runner.py):
+- MapNode: f"{dag_nsref}/{map_node.label}[{k}]" → e.g., "pipeline/chunks[0]" -&gt; ok</p>
+<ul>
+<li>
+<p>CallNode: f"{dag_nsref}/{call_node.label}/call" → e.g., "pipeline/enrich/call" -&gt; I don't like that extra path element was introduced. It might create impression that there is two DAGs 'enrich' and 'call' stacked on top of eachother. Just "pipeline/enrich" or "pipeline/enrich[]" would be better. </p>
+</li>
+<li>
+<p>SwitchNode: f"{dag_nsref}/{switch_node.label}[{switch_label}]" → e.g., "pipeline/router[text]" -&gt; ok</p>
+</li>
+<li>
+<p>MapSwitchNode: f"{dag_nsref}/{node.label}[{idx}:{switch_label}]" → e.g., "pipeline/map_route[0:text]" -&gt; ok</p>
+</li>
+</ul>
+<p>So for EdgeTraversal for composite nodes,  we can generate one for {upsream.label} -&gt; {composite.label} when we left upstream node, same as with any other node.</p>
+<p>sub_dags now in NodeExecution</p>
+<p>sub_dags: dict[str,"DagRun"]|None # TODO not None for composite nodes only. Key is label with item qualifier {composite.label}[...whatever] infered from dag_nsref so no need for schema change.</p>
+<p>❯ I'm still not getting necessity of dictionary to capture edges.  Talking about "Build edges as dict[str, list[EdgeTraversal]] (keyed by downstream_label)". Code Assume there is many edges possible with same downstream label which is possible in a database but should not happening from from a
+  business logic sense. I would rather store them as a list and enforce it in database as a composite primary key for all 3: run_id, upstream_label, downstream_label. We don't want to store labels with item qualifiers like "enrich[]" as edges. they are not structural edges and not captured in
+  edge_traversals. they barely are dag invocations within composite nodes and captured only in dag_nsref in dag_runs. And let keep convention for call node to have empty item qualifier so we always see dags invocations in the path:  "_run_sub_dag key param at call site (line 389):"    should be -&gt;
+  f"{call_node.label}/call" -&gt; f"{call_node.label}[]"</p>
+<p>[ ] Validated </p>
+<h2 id="schema-tweaks-and-json-lazy-loads">Schema tweaks and, Json lazy loads.<a class="headerlink" href="#schema-tweaks-and-json-lazy-loads" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p>on dag_runs we need: sink_outputs_json TEXT to present consolidated outputs from sinks
+[x] Validated </p>
+</li>
+<li>
+<p>node_type cannot capture all types. Node could be source, sink and composite at the same time. Knowing that it is source and sink is very important. Fact that it is composite is not very important.
+[x] Validated </p>
+</li>
+<li>
+<p>*_json fields coud be fairly big so we should not load them by default.
+[ ] Validated </p>
+</li>
+<li>
+<p>input_json is wrong for CompositeNodes. consider:</p>
+</li>
+</ol>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$ sqlite3 data/dags.db &#39;select * from node_executions&#39; |grep 807d1392-abfc-4dfe-86bc-21dcf881c0cf\|map
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>807d1392-abfc-4dfe-86bc-21dcf881c0cf|map|completed|composite|{&quot;composite&quot;: &quot;MapSwitchNode&quot;}|[&quot;a&quot;, &quot;b&quot;, &quot;d&quot;, &quot;e&quot;, &quot;w&quot;, &quot;x&quot;, &quot;y&quot;, &quot;z&quot;, &quot;A B C&quot;, &quot;X Y Z&quot;]|1776492844.9625|1776492845.98714|
+</code></pre></div>
+input_json is not what "807d1392-abfc-4dfe-86bc-21dcf881c0cf|input|" returned.
+[x] Validated</p>
+<ol>
+<li>JSON fields in node execution and in the DAG runs could be fairly big. So, we should not load them by default. By default, we should set those fields to None. There should be a method that allows to load a fully populated object with JSONs and it should be done for specified nodes or specified DAGs, not for whole hierarchy.
+[ ] Validated </li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$ sqlite3 data/dags.db &#39;select * from dag_runs&#39;
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>...
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>807d1392-abfc-4dfe-86bc-21dcf881c0cf|examples:map_switch_flat_map||completed|1776492844.95916|1776492845.98841|{}
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>26e9e0f7-f084-4eeb-932e-710b447158ae|examples:map_switch_flat_map/map[0:split_dag]|807d1392-abfc-4dfe-86bc-21dcf881c0cf|completed|1776492844.96415|1776492844.97169|{&quot;split&quot;: {&quot;ss&quot;: {&quot;s1&quot;: &quot;a/b&quot;, &quot;s2&quot;: &quot;d/e&quot;}}}
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>5c9ba9c3-c408-4259-a5d4-e6bfb90e24fa|examples:map_switch_flat_map/map[3:join]|807d1392-abfc-4dfe-86bc-21dcf881c0cf|completed|1776492844.96496|1776492845.98031|{&quot;join&quot;: {&quot;ss&quot;: {&quot;s1&quot;: &quot;X Y&quot;, &quot;s2&quot;: &quot;Z&quot;}}}
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>4aae6ab3-de63-45d3-8d8e-8b4e4ed1cb78|examples:map_switch_flat_map/map[1:split]|807d1392-abfc-4dfe-86bc-21dcf881c0cf|completed|1776492844.96428|1776492844.97372|{&quot;split&quot;: {&quot;ss&quot;: {&quot;s1&quot;: &quot;w/x&quot;, &quot;s2&quot;: &quot;y/z&quot;}}}
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>5b92466f-c192-4290-984e-94d0ed00db55|examples:map_switch_flat_map/map[2:join_dag]|807d1392-abfc-4dfe-86bc-21dcf881c0cf|completed|1776492844.96445|1776492845.98206|{&quot;join&quot;: {&quot;ss&quot;: {&quot;s1&quot;: &quot;A&quot;, &quot;s2&quot;: &quot;B C&quot;}}}
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>...
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>$ sqlite3 data/dags.db &#39;select * from node_executions&#39;
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>...
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>807d1392-abfc-4dfe-86bc-21dcf881c0cf|input|completed|source|{}|[[&quot;split_dag&quot;, {&quot;s1&quot;: &quot;a/b&quot;, &quot;s2&quot;: &quot;d/e&quot;}], [&quot;split&quot;, {&quot;s1&quot;: &quot;w/x&quot;, &quot;s2&quot;: &quot;y/z&quot;}], [&quot;join_dag&quot;, {&quot;s1&quot;: &quot;A&quot;, &quot;s2&quot;: &quot;B C&quot;}], [&quot;join&quot;, {&quot;s1&quot;: &quot;X Y&quot;, &quot;s2&quot;: &quot;Z&quot;}]]|1776492844.96032|1776492844.96155|
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>807d1392-abfc-4dfe-86bc-21dcf881c0cf|map|completed|composite|{&quot;composite&quot;: &quot;MapSwitchNode&quot;}|[&quot;a&quot;, &quot;b&quot;, &quot;d&quot;, &quot;e&quot;, &quot;w&quot;, &quot;x&quot;, &quot;y&quot;, &quot;z&quot;, &quot;A B C&quot;, &quot;X Y Z&quot;]|1776492844.9625|1776492845.98714|
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>4aae6ab3-de63-45d3-8d8e-8b4e4ed1cb78|split|completed|source|{&quot;ss&quot;: {&quot;s1&quot;: &quot;w/x&quot;, &quot;s2&quot;: &quot;y/z&quot;}}|[&quot;w&quot;, &quot;x&quot;, &quot;y&quot;, &quot;z&quot;]|1776492844.9696|1776492844.97052|
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>26e9e0f7-f084-4eeb-932e-710b447158ae|split|completed|source|{&quot;ss&quot;: {&quot;s1&quot;: &quot;a/b&quot;, &quot;s2&quot;: &quot;d/e&quot;}}|[&quot;a&quot;, &quot;b&quot;, &quot;d&quot;, &quot;e&quot;]|1776492844.96666|1776492844.97098|
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>5c9ba9c3-c408-4259-a5d4-e6bfb90e24fa|join|completed|source|{&quot;ss&quot;: {&quot;s1&quot;: &quot;X Y&quot;, &quot;s2&quot;: &quot;Z&quot;}}|&quot;X Y Z&quot;|1776492844.96868|1776492845.97528|
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>5b92466f-c192-4290-984e-94d0ed00db55|join|completed|source|{&quot;ss&quot;: {&quot;s1&quot;: &quot;A&quot;, &quot;s2&quot;: &quot;B C&quot;}}|&quot;A B C&quot;|1776492844.97501|1776492845.98038|
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>...
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>$ sqlite3 data/dags.db &#39;select * from edge_traversals&#39;
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>807d1392-abfc-4dfe-86bc-21dcf881c0cf|input|map|1776492844.96184
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>...
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>$ 
+</code></pre></div>
+<h3 id="plan-schema-tweaks-and-lazy-json-loading-for-provenance-models">Plan: Schema tweaks and lazy JSON loading for provenance models<a class="headerlink" href="#plan-schema-tweaks-and-lazy-json-loading-for-provenance-models" title="Permanent link">&para;</a></h3>
+<p>Context</p>
+<p>Follow-up to the sub-DAG awareness work. Four issues to address:</p>
+<ol>
+<li>dag_runs needs sink_outputs_json to surface consolidated sink outputs</li>
+<li>node_type is a single string but nodes can be source AND sink AND composite
+simultaneously. Source/sink matter; composite is derivable from sub_dags.</li>
+<li>*_json fields can be large — don't load them by default in inspection models</li>
+<li>Composite nodes record {"composite": "MapNode"} as input_json instead of
+the actual upstream data</li>
+</ol>
+<p>Files to modify</p>
+<ol>
+<li>src/lythonic/compose/dag_provenance.py — schema, models, load logic</li>
+<li>src/lythonic/compose/dag_runner.py — node flags, composite input, sink outputs</li>
+<li>tests/test_dag_runner.py — update assertions</li>
+<li>tests/test_lyth_e2e.py — update node_type assertions</li>
+</ol>
+<p>Changes</p>
+<ol>
+<li>Schema changes</li>
+</ol>
+<p>_NODE_EXECUTIONS_DDL: replace node_type TEXT with:
+is_source INTEGER DEFAULT 0,
+is_sink INTEGER DEFAULT 0,</p>
+<p>_DAG_RUNS_DDL: add sink_outputs_json TEXT</p>
+<ol>
+<li>Add IoPayload model, update NodeExecution and DagRun</li>
+</ol>
+<p>class IoPayload(BaseModel):
+    """Input/output JSON payload. Loaded on demand via <code>load_io()</code>."""
+    input_json: str | None = None
+    output_json: str | None = None</p>
+<p>NodeExecution — replace node_type with flags, replace input_json/
+output_json with io:
+class NodeExecution(BaseModel):
+    node_label: str
+    status: str
+    is_source: bool = False
+    is_sink: bool = False
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    edges: list[EdgeTraversal] = []
+    sub_dags: dict[str, "DagRun"] | None = None
+    io: IoPayload | None = None</p>
+<p>DagRun — replace source_inputs_json with io:
+class DagRun(BaseModel):
+    run_id: str
+    dag_nsref: str
+    parent_run_id: str | None = None
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    nodes: dict[str, NodeExecution] = {}
+    io: IoPayload | None = None  # input=source_inputs, output=sink_outputs</p>
+<ol>
+<li>Update private DB helpers</li>
+</ol>
+<p>_insert_node_start: change node_type: str | None to
+is_source: bool = False, is_sink: bool = False. Update SQL columns.</p>
+<p>_finish_run: add sink_outputs_json: str | None = None param.
+Update SQL to also SET sink_outputs_json.</p>
+<ol>
+<li>Update DagProvenance public API</li>
+</ol>
+<p>record_node_start: node_type → is_source/is_sink.</p>
+<p>finish_run: add sink_outputs_json param.</p>
+<p>get_run raw dict: add sink_outputs_json to SELECT and result.</p>
+<p>get_node_executions raw dict: return is_source/is_sink instead
+of node_type.</p>
+<p>NullProvenance: update matching signatures.</p>
+<ol>
+<li>_load_dag_runs — lazy JSON, no node_type column</li>
+</ol>
+<p>_load_dag_runs never loads JSON fields. io stays None on all
+returned models.</p>
+<p>Node query selects only:
+run_id, node_label, status, is_source, is_sink, started_at, finished_at, error</p>
+<p>Run rows (from _fetch_run_rows) select only:
+run_id, dag_nsref, parent_run_id, status, started_at, finished_at
+(drop source_inputs_json from the SELECT)</p>
+<ol>
+<li>Add load_io method</li>
+</ol>
+<p>def load_io(
+    self,
+    dag_run: DagRun,
+    node_labels: Sequence[str] | None = None,
+) -&gt; None:</p>
+<p>Single DB round-trip populates:
+- dag_run.io — from source_inputs_json and sink_outputs_json columns
+on the dag_runs row
+- node.io — from input_json and output_json columns on
+node_executions rows, filtered by node_labels if provided
+(all nodes if None)</p>
+<p>Does NOT recurse into sub-DAGs. To load sub-DAG IO, call load_io on
+the sub-DAG's DagRun separately.</p>
+<ol>
+<li>Detect composite nodes from child runs</li>
+</ol>
+<p>In _load_dag_runs: build all nodes with sub_dags=None, then query for
+child runs across ALL loaded run_ids. When a child matches a node via
+expansion key prefix, lazily init sub_dags={} on that node and attach.</p>
+<p>No DB column needed for composite detection.</p>
+<ol>
+<li>Fix composite node input recording (dag_runner.py)</li>
+</ol>
+<p>Replace _node_type() with _node_flags():
+def _node_flags(label: str) -&gt; tuple[bool, bool]:
+    return (label in source_labels, label in sink_labels)</p>
+<p>Composite node record_node_start: get upstream output first via
+_get_upstream_output(), record it as input_json (instead of the
+{"composite": "MapNode"} placeholder).</p>
+<p>finish_run call: compute sink outputs dict and pass as
+sink_outputs_json.</p>
+<p>All record_node_start calls: pass is_source=..., is_sink=...
+instead of node_type=....</p>
+<ol>
+<li>Update tests</li>
+</ol>
+<p>test_provenance_node_type → test_provenance_node_flags:
+assert is_source/is_sink in raw dict results.</p>
+<p>test_edge_traversals_recorded_during_dag_run: change
+node.node_type assertions to node.is_source / node.is_sink.</p>
+<p>test_sub_dags_loaded_on_composite_nodes: remove
+mapped_node.node_type == "composite".</p>
+<p>test_lyth_e2e.py: change node.node_type is not None to check
+boolean flags.</p>
+<p>Add test_io_lazy_loading: verify io is None by default,
+populated after load_io().</p>
+<p>Add test_sink_outputs_json_recorded: verify raw run dict has
+sink_outputs_json after completion.</p>
+<ol>
+<li>Raw dict APIs used by restart()/replay() in dag_runner.py</li>
+</ol>
+<p>These methods use get_run() (returns dict with source_inputs_json)
+and get_node_executions() (returns dicts with output_json). These
+raw dict APIs continue to return the JSON columns directly — they are
+unaffected by the IoPayload change since they don't use inspection models.</p>
+<p>Verification</p>
+<p>make lint
+make test</p>
+<hr />
+<p>[ ] Validated</p>
+<h2 id="get-runs-data">Get runs data<a class="headerlink" href="#get-runs-data" title="Permanent link">&para;</a></h2>
+<p>src/lythonic/compose/dag_provenance.py </p>
+<blockquote>
+<p>We need pydatic models matching dag_runs, node_executions, and edge_traversals tables. DagRun has list[NodeExecution], and  NodeExecution has -&gt; list[EdgeTraversal], that will allow you to skip repeating fields: run_id in NodeExecution and upstream_label in EdgeTraversal. Express all times in <code>datetime</code> timezone aware in utc. Heve Json blob fields optional even if they NOT NULL in db</p>
+</blockquote>
+<p>Have couple functionds defined on DagRun: 
+* <code>latest_update()-&gt;datetime</code> = basically max of all datetime's on all nodes and traversals.
+* `nodes_changed_since(dt:datetime)-&gt;list[NodeExecution]</p>
+<p>Let's refactor def get_recent_runs(..) to return list[DagRun]
+* that inspect DAGs that are in process of execution or were executed recently.
+* watch what trigger executed</p>
+<blockquote>
+<p>About get_child_runs() can we make it recursive we can use CTE syntax to do that efficiently</p>
+</blockquote>
+<p>[x] Validated</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
