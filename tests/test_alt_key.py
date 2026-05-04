@@ -91,3 +91,29 @@ def test_ddl_no_ak():
     """Table without AK has no UNIQUE constraint."""
     ddl = Stat.create_ddl()
     assert "UNIQUE" not in ddl
+
+
+from lythonic.state.alt_key import AltKey, AltKeyField
+
+
+def test_altkey_from_model_local_only():
+    """AltKey built from a model with only local (non-FK) AK fields."""
+    ak = AltKey.from_model(Region)
+    assert ak is not None
+    assert ak.fields == [AltKeyField(name="code", foreign_key=None)]
+
+
+def test_altkey_from_model_with_fk():
+    """AltKey built from a model with FK + local AK fields."""
+    ak = AltKey.from_model(Team)
+    assert ak is not None
+    assert ak.fields == [
+        AltKeyField(name="region_id", foreign_key=("Region", "id")),
+        AltKeyField(name="name", foreign_key=None),
+    ]
+
+
+def test_altkey_from_model_none():
+    """Model without AK fields returns None."""
+    ak = AltKey.from_model(Stat)
+    assert ak is None
