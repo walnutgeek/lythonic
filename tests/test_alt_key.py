@@ -60,3 +60,34 @@ def test_fieldinfo_nullable_ak_rejected():
 
     with pytest.raises(AssertionError, match="nullable"):
         Bad.get_field_map()
+
+
+def test_ddl_single_ak():
+    """Single AK field generates UNIQUE constraint."""
+    ddl = Region.create_ddl()
+    assert ddl == (
+        "CREATE TABLE Region ("
+        "id INTEGER PRIMARY KEY, "
+        "code TEXT NOT NULL, "
+        "name TEXT NOT NULL, "
+        "UNIQUE (code))"
+    )
+
+
+def test_ddl_composite_ak():
+    """Composite AK fields generate multi-column UNIQUE constraint."""
+    ddl = Team.create_ddl()
+    assert ddl == (
+        "CREATE TABLE Team ("
+        "id INTEGER PRIMARY KEY, "
+        "region_id INTEGER NOT NULL REFERENCES Region(id), "
+        "name TEXT NOT NULL, "
+        "founded INTEGER, "
+        "UNIQUE (region_id, name))"
+    )
+
+
+def test_ddl_no_ak():
+    """Table without AK has no UNIQUE constraint."""
+    ddl = Stat.create_ddl()
+    assert "UNIQUE" not in ddl

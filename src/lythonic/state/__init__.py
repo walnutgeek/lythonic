@@ -426,6 +426,7 @@ class DbModel(BaseModel, Generic[T]):
     @classmethod
     def create_ddl(cls) -> str:
         fields: list[str] = []
+        ak_fields: list[str] = []
         for fi in cls.get_field_infos():
             type_name = (
                 f"{fi.ktype.db_type_info.name}{'' if fi.primary_key or fi.nullable else ' NOT NULL'}"
@@ -438,7 +439,10 @@ class DbModel(BaseModel, Generic[T]):
                 + fi.check_constraint_ddl()
             )
             fields.append(f"{fi.name} {type_name}")
-
+            if fi.alt_key:
+                ak_fields.append(fi.name)
+        if ak_fields:
+            fields.append(f"UNIQUE ({', '.join(ak_fields)})")
         return f"CREATE TABLE {cls.get_table_name()} (" + ", ".join(fields) + ")"
 
     def insert(self, conn: sqlite3.Connection, auto_increment: bool = False):
