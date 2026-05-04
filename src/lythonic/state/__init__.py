@@ -213,6 +213,42 @@ tasks = Task.select(conn, user_ctx=user_ctx)
 task = Task.load_by_id_with_ctx(conn, user_ctx, task_id=42)
 ```
 
+## Alternative Keys
+
+Mark fields as part of the alternative key with `(AK)`:
+
+```python
+class Region(DbModel["Region"]):
+    id: int = Field(default=-1, description="(PK)")
+    code: str = Field(description="(AK) Region code")
+    name: str
+
+class Team(DbModel["Team"]):
+    id: int = Field(default=-1, description="(PK)")
+    region_id: int = Field(description="(FK:Region.id)(AK)")
+    name: str = Field(description="(AK) Team name")
+```
+
+AK fields generate a `UNIQUE` constraint. FK fields marked `(AK)` cascade through
+to the referenced table's AK for external resolution:
+
+```python
+SCHEMA = Schema([Region, Team])  # Validates and builds cascade chains
+
+with open_sqlite_db("db.sqlite") as conn:
+    # Resolve external AK values to integer PK
+    pk = Team.resolve_ak(conn, code="us-west", name="Eagles")
+
+    # Load by AK in one call
+    team = Team.load_by_ak(conn, code="us-west", name="Eagles")
+
+    # Serialize integer FK back to external AK values
+    ak_dict = team.to_ak_dict(conn)  # {"region_id": "us-west", "name": "Eagles"}
+```
+
+See `lythonic.state.alt_key` for the `AltKey` class that handles cascade
+chain computation, JOIN-based resolution, and serialization.
+
 ## Schema Management
 
 ```python
@@ -242,6 +278,7 @@ with db.open() as conn:
 - `execute_sql`: Execute SQL with logging
 - `from_multi_model_row`: Parse multi-model query results
 - `to_sql_datetime`: Convert datetime to SQL string
+- `AltKey`: Alternative key metadata and resolution (from `lythonic.state.alt_key`)
 """
 
 from __future__ import annotations
