@@ -244,20 +244,37 @@ with db.open() as conn:
 - `to_sql_datetime`: Convert datetime to SQL string
 """
 
+from __future__ import annotations
+
 import logging
 import sqlite3
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, Generic, Literal, NamedTuple, Self, TypeVar, cast, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    Literal,
+    NamedTuple,
+    Self,
+    TypeVar,
+    cast,
+    get_args,
+    get_origin,
+)
 
 from pydantic import BaseModel
 from typing_extensions import override
 
 from lythonic.types import KnownType
+
+if TYPE_CHECKING:
+    from lythonic.state.alt_key import AltKey
 
 logger = logging.getLogger("lythonic.state")
 
@@ -285,7 +302,7 @@ class FilterOp(NamedTuple):
     name: str
 
     @classmethod
-    def parse(cls, filter_key: str) -> "FilterOp":
+    def parse(cls, filter_key: str) -> FilterOp:
         if "__" in filter_key:
             operator, name = filter_key.split("__", 1)
         else:
@@ -314,7 +331,7 @@ class FieldInfo(NamedTuple):
     alt_key: bool
 
     @classmethod
-    def build(cls, name: str, field_info: Any) -> "FieldInfo":
+    def build(cls, name: str, field_info: Any) -> FieldInfo:
         assert field_info.annotation is not None, f"Field {name} has no annotation"
         ann = field_info.annotation
         type_: type[Any]
@@ -386,14 +403,14 @@ class FieldInfo(NamedTuple):
             return f" CHECK ({self.name} IN ({', '.join([repr(self.ktype.db.map_to(c)) for c in self.fixed_choices])}))"
         return ""
 
-    def to_sql_value(self, o: "DbModel[T]") -> Any:
+    def to_sql_value(self, o: DbModel[T]) -> Any:
         v = getattr(o, self.name)
         return self.ktype.db.map_to(v)
 
     def from_sql_value(self, v: Any) -> Any:
         return self.ktype.db.map_from(v)
 
-    def set_value(self, o: "DbModel[T]", v: Any):
+    def set_value(self, o: DbModel[T], v: Any):
         setattr(o, self.name, self.from_sql_value(v))
 
 
@@ -620,6 +637,50 @@ class DbModel(BaseModel, Generic[T]):
         assert len(rr) <= 1
         return rr[0] if rr else None
 
+    # Alternative key support
+
+    _alt_key_cache: ClassVar[AltKey | None] = None
+    _alt_key_initialized: ClassVar[bool] = False
+
+    @classmethod
+    def _get_alt_key(cls) -> AltKey | None:
+        if not cls._alt_key_initialized:
+            from lythonic.state.alt_key import AltKey
+
+            cls._alt_key_cache = AltKey.from_model(cls)
+            cls._alt_key_initialized = True
+        return cls._alt_key_cache
+
+    @classmethod
+    def _ensure_alt_key(cls) -> AltKey:
+        ak = cls._get_alt_key()
+        assert ak is not None, f"{cls.get_table_name()} has no alternative key defined"
+        return ak
+
+    @classmethod
+    def resolve_ak(cls, conn: sqlite3.Connection, **ak_values: Any) -> int | None:
+        """Resolve alternative key values to the integer PK."""
+        return cls._ensure_alt_key().resolve(conn, **ak_values)
+
+    @classmethod
+    def load_by_ak(cls: type[T], conn: sqlite3.Connection, **ak_values: Any) -> T | None:
+        """Resolve AK values and load the record."""
+        pk = cls.resolve_ak(conn, **ak_values)
+        if pk is None:
+            return None
+        return cls.load_by_id(conn, pk)
+
+    def to_ak_dict(self, conn: sqlite3.Connection) -> dict[str, Any]:
+        """Serialize this record's alternative key values."""
+        return self.__class__._ensure_alt_key().to_ak_dict(conn, self)
+
+    @classmethod
+    def to_ak_dicts(
+        cls, conn: sqlite3.Connection, records: Sequence[DbModel[Any]]
+    ) -> list[dict[str, Any]]:
+        """Batch serialize alternative key values for multiple records."""
+        return cls._ensure_alt_key().to_ak_dicts(conn, records)
+
 
 def from_multi_model_row(
     row: tuple[Any, ...], models: list[type[DbModel[Any]]]
@@ -687,6 +748,14 @@ class Schema:
                     f"{table_name}.{field.name}: FK references '{ref_table_name}' "
                     f"which has no alternative key"
                 )
+
+        # Build cascade chains now that validation passed
+        for table in self.tables:
+            ak = AltKey.from_model(table)
+            if ak is not None:
+                ak.build_chain(self.table_map)
+                table._alt_key_cache = ak  # pyright: ignore[reportPrivateUsage]
+                table._alt_key_initialized = True  # pyright: ignore[reportPrivateUsage]
 
     def check_all_tables_exist(self, conn: sqlite3.Connection):
         cursor = conn.cursor()

@@ -315,3 +315,48 @@ def test_to_ak_dicts_batch():
         assert len(results) == 2
         codes = {r["region_id"] for r in results}
         assert codes == {"us-west", "eu-north"}
+
+
+def test_dbmodel_resolve_ak():
+    """DbModel.resolve_ak delegates to AltKey.resolve."""
+    with open_sqlite_db(ak_db_path) as conn:
+        pk = Region.resolve_ak(conn, code="us-west")
+        assert pk is not None
+        region = Region.load_by_id(conn, pk)
+        assert region is not None
+        assert region.code == "us-west"
+
+
+def test_dbmodel_load_by_ak():
+    """DbModel.load_by_ak resolves AK and loads in one call."""
+    with open_sqlite_db(ak_db_path) as conn:
+        team = Team.load_by_ak(conn, code="us-west", name="Eagles")
+        assert team is not None
+        assert team.name == "Eagles"
+        assert team.founded == 2010
+
+        missing = Team.load_by_ak(conn, code="us-west", name="Nonexistent")
+        assert missing is None
+
+
+def test_dbmodel_to_ak_dict():
+    """DbModel instance.to_ak_dict() serializes AK values."""
+    with open_sqlite_db(ak_db_path) as conn:
+        team = Team.select(conn, name="Eagles")[0]
+        ak_dict = team.to_ak_dict(conn)
+        assert ak_dict == {"region_id": "us-west", "name": "Eagles"}
+
+
+def test_dbmodel_to_ak_dicts():
+    """DbModel.to_ak_dicts() batch serializes."""
+    with open_sqlite_db(ak_db_path) as conn:
+        teams = Team.select(conn)
+        ak_dicts = Team.to_ak_dicts(conn, teams)
+        assert len(ak_dicts) == 2
+
+
+def test_dbmodel_no_ak_raises():
+    """AK methods raise on models without AK."""
+    with open_sqlite_db(ak_db_path) as conn:
+        with pytest.raises(AssertionError, match="no alternative key"):
+            Stat.resolve_ak(conn, id=1)
