@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import time
+import unittest.mock
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -520,8 +521,9 @@ def test_pushback_recorded_on_exception():
             conn.commit()
 
         # Next call triggers refresh, method raises CacheRefreshPushback.
-        # Should get stale data back.
-        result = ns.get("api:rate_limited")(ticker="X")
+        # Should get stale data back. Patch random to guarantee refresh attempt.
+        with unittest.mock.patch("lythonic.compose.cached.random.random", return_value=0.0):
+            result = ns.get("api:rate_limited")(ticker="X")
         assert result == {"price": 50.0}
         assert this_module._rate_limited_count == 2  # pyright: ignore
 
