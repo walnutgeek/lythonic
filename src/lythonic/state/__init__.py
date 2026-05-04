@@ -629,7 +629,7 @@ class DbModel(BaseModel, Generic[T]):
         return sc.cursor.rowcount
 
     @classmethod
-    def select(cls, conn: sqlite3.Connection, **filters: Any) -> list[T]:
+    def select(cls: type[T], conn: sqlite3.Connection, **filters: Any) -> list[T]:
         """Select all rows from the table that match the filters.
 
         Filters are given as keyword arguments, the keys are the field names
@@ -670,9 +670,9 @@ class DbModel(BaseModel, Generic[T]):
 
     @classmethod
     def load_by_id(cls: type[T], conn: sqlite3.Connection, id: int) -> T | None:
-        rr: list[T] = cls.select(conn, **{cls._ensure_pk().name: id})
+        rr: list[T] = cls.select(conn, **{cls._ensure_pk().name: id})  # pyright: ignore[reportUnknownVariableType]
         assert len(rr) <= 1
-        return rr[0] if rr else None
+        return rr[0] if rr else None  # pyright: ignore[reportUnknownVariableType]
 
     # Alternative key support
 
@@ -705,7 +705,7 @@ class DbModel(BaseModel, Generic[T]):
         pk = cls.resolve_ak(conn, **ak_values)
         if pk is None:
             return None
-        return cls.load_by_id(conn, pk)
+        return cls.load_by_id(conn, pk)  # pyright: ignore[reportUnknownVariableType]
 
     def to_ak_dict(self, conn: sqlite3.Connection) -> dict[str, Any]:
         """Serialize this record's alternative key values."""
