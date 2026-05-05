@@ -66,4 +66,3 @@ or both in the same DAG. Sync nodes run in a thread executor automatically.
 
 Full documentation at [walnutgeek.github.io/lythonic](https://walnutgeek.github.io/lythonic/).
 
-![Star History](https://api.star-history.com/svg?repos=walnutgeek/lythonic&type=Date)   
