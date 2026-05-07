@@ -117,3 +117,39 @@ def test_register_require_cache_dag_factory_with_config_succeeds():
     cfg = NsCacheConfig(nsref="t:cached_dag__", min_ttl=1.0, max_ttl=5.0)
     node = ns.register(this_module._cached_dag_factory, nsref="t:cached_dag__", config=cfg)  # pyright: ignore[reportPrivateUsage]
     assert node.nsref == "t:cached_dag__"
+
+
+def test_ns_fragment_config_validates():
+    from lythonic import GlobalRef
+    from lythonic.compose.namespace import NsFragmentConfig
+
+    cfg = NsFragmentConfig(
+        gref=GlobalRef("tests.test_namespace_fragment:SampleFragment"),
+        nsref="downloads:",
+        init={"api_key": "abc123"},
+        configs={
+            "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+        },
+    )
+    assert cfg.type == "fragment"
+    assert cfg.init == {"api_key": "abc123"}
+    assert cfg.configs["fetch_prices"]["min_ttl"] == 0.5
+
+
+def test_ns_fragment_config_in_config_types():
+    from lythonic.compose.namespace import (
+        _CONFIG_TYPES,  # pyright: ignore[reportPrivateUsage]
+        NsFragmentConfig,
+    )
+
+    assert _CONFIG_TYPES["fragment"] is NsFragmentConfig  # pyright: ignore[reportPrivateUsage]
+
+
+def test_namespace_fragment_is_marker_class():
+    from lythonic.compose.namespace import NamespaceFragment
+
+    class MyFrag(NamespaceFragment):
+        pass
+
+    frag = MyFrag()
+    assert isinstance(frag, NamespaceFragment)

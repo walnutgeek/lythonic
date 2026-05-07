@@ -457,9 +457,23 @@ class NsCacheConfig(NsNodeConfig):
     max_ttl: float
 
 
+class NsFragmentConfig(NsNodeConfig):
+    """
+    Config for a fragment -- a class or module that groups related
+    callables under a shared nsref prefix. `init` provides constructor
+    kwargs for class fragments. `configs` maps method names to per-method
+    config (cache TTLs, triggers).
+    """
+
+    type: str = "fragment"  # pyright: ignore[reportIncompatibleVariableOverride]
+    init: dict[str, Any] = {}
+    configs: dict[str, dict[str, Any]] = {}
+
+
 _CONFIG_TYPES: dict[str, type[NsNodeConfig]] = {
     "auto": NsNodeConfig,
     "cache": NsCacheConfig,
+    "fragment": NsFragmentConfig,
 }
 
 
@@ -524,6 +538,12 @@ class NamespaceNode:
 
     def __repr__(self) -> str:  # pyright: ignore[reportImplicitOverride]
         return f"NamespaceNode(nsref={self.nsref!r})"
+
+
+class NamespaceFragment:
+    """Marker base class for namespace fragments."""
+
+    pass
 
 
 class Namespace:
