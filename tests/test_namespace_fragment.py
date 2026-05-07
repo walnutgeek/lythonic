@@ -284,3 +284,133 @@ def test_class_fragment_constructor_args():
 
     result = ns.get("x:fetch_prices")(ticker="MSFT")
     assert result == {"ticker": "MSFT", "key": "secret"}
+
+
+import logging
+
+import pytest
+
+
+def test_fragment_configs_nonexistent_method_warns(caplog: pytest.LogCaptureFixture):
+    """configs entry for a method that doesn't exist logs a warning."""
+    with caplog.at_level(logging.WARNING):
+        Namespace.from_dict(
+            [
+                {
+                    "type": "fragment",
+                    "gref": "tests.test_namespace_fragment:SampleFragment",
+                    "nsref": "w:",
+                    "init": {"api_key": "k"},
+                    "configs": {
+                        "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                        "nonexistent_method": {"min_ttl": 1.0, "max_ttl": 3.0},
+                    },
+                }
+            ]
+        )
+    assert any("nonexistent_method" in r.message for r in caplog.records)
+
+
+def test_fragment_with_triggers():
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "trig:",
+                "init": {"api_key": "k"},
+                "configs": {
+                    "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                    "pipeline": {
+                        "triggers": [
+                            {"name": "pipe_repeat", "type": "poll", "schedule": "*/30 * * * * *"}
+                        ]
+                    },
+                },
+            }
+        ]
+    )
+
+    pipeline_node = ns.get("trig:pipeline__")
+    assert len(pipeline_node.config.triggers) == 1
+    assert pipeline_node.config.triggers[0].name == "pipe_repeat"
+
+
+def test_fragment_nsref_must_end_with_colon():
+    try:
+        Namespace.from_dict(
+            [
+                {
+                    "type": "fragment",
+                    "gref": "tests.test_namespace_fragment:SampleFragment",
+                    "nsref": "bad_prefix",
+                    "init": {"api_key": "k"},
+                    "configs": {
+                        "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                    },
+                }
+            ]
+        )
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert ":" in str(e)
+
+
+def test_module_fragment_discovers_functions():
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.sample_module_fragment",
+                "nsref": "transforms:",
+                "configs": {
+                    "normalize": {"min_ttl": 1.0, "max_ttl": 5.0},
+                },
+            }
+        ]
+    )
+
+    norm = ns.get("transforms:normalize")
+    assert norm(data={"x": 1}) == {"normalized": True, "x": 1}
+    assert norm.tags == frozenset({"api"})
+    assert isinstance(norm.config, NsCacheConfig)
+
+    flat = ns.get("transforms:flatten")
+    assert flat(data=[[1, 2], [3]]) == [1, 2, 3]
+
+
+def test_module_fragment_with_init_raises():
+    try:
+        Namespace.from_dict(
+            [
+                {
+                    "type": "fragment",
+                    "gref": "tests.sample_module_fragment",
+                    "nsref": "t:",
+                    "init": {"key": "val"},
+                    "configs": {
+                        "normalize": {"min_ttl": 1.0, "max_ttl": 5.0},
+                    },
+                }
+            ]
+        )
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "module" in str(e).lower() and "init" in str(e).lower()
+
+
+def test_module_fragment_require_cache_missing_raises():
+    try:
+        Namespace.from_dict(
+            [
+                {
+                    "type": "fragment",
+                    "gref": "tests.sample_module_fragment",
+                    "nsref": "t:",
+                    "configs": {},
+                }
+            ]
+        )
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "normalize" in str(e) or "require_cache" in str(e).lower()
