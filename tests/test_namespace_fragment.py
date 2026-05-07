@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import tests.test_namespace_fragment as this_module
 from lythonic.compose.namespace import (
     Dag,
@@ -153,3 +155,132 @@ def test_namespace_fragment_is_marker_class():
 
     frag = MyFrag()
     assert isinstance(frag, NamespaceFragment)
+
+
+from lythonic.compose.namespace import NamespaceFragment
+
+
+def _pipeline_step1(data: str) -> str:
+    return data.upper()
+
+
+def _pipeline_step2(data: str) -> str:
+    return data + "!"
+
+
+class SampleFragment(NamespaceFragment):
+    api_key: str
+    base_url: str
+
+    def __init__(self, api_key: str, base_url: str = "https://api.example.com"):
+        self.api_key = api_key
+        self.base_url = base_url
+
+    @require_cache
+    @nsnode(tags=["api"])
+    def fetch_prices(self, ticker: str) -> dict[str, str]:
+        return {"ticker": ticker, "key": self.api_key}
+
+    @nsnode()
+    def transform(self, data: dict[str, Any]) -> dict[str, Any]:
+        return {"processed": data}
+
+    @dag_factory
+    def pipeline(self) -> Dag:
+        dag = Dag()
+        _ = dag.node(_pipeline_step1) >> dag.node(_pipeline_step2)
+        return dag
+
+    def _private_helper(self) -> None:
+        pass
+
+
+def test_class_fragment_registers_all_methods():
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "downloads:",
+                "init": {"api_key": "abc123"},
+                "configs": {
+                    "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                },
+            }
+        ]
+    )
+
+    fetch_node = ns.get("downloads:fetch_prices")
+    assert fetch_node(ticker="AAPL") == {"ticker": "AAPL", "key": "abc123"}
+    assert fetch_node.tags == frozenset({"api"})
+
+    transform_node = ns.get("downloads:transform")
+    assert transform_node(data={"x": 1}) == {"processed": {"x": 1}}
+
+    pipeline_node = ns.get("downloads:pipeline__")
+    assert pipeline_node.dag is not None
+
+    # Private helper not registered
+    try:
+        ns.get("downloads:_private_helper")
+        raise AssertionError("Should not find private helper")
+    except KeyError:
+        pass
+
+
+def test_class_fragment_cache_config_applied():
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "dl:",
+                "init": {"api_key": "key1"},
+                "configs": {
+                    "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                },
+            }
+        ]
+    )
+
+    fetch_node = ns.get("dl:fetch_prices")
+    assert isinstance(fetch_node.config, NsCacheConfig)
+    assert fetch_node.config.min_ttl == 0.5
+    assert fetch_node.config.max_ttl == 2.0
+
+
+def test_class_fragment_require_cache_missing_raises():
+    try:
+        Namespace.from_dict(
+            [
+                {
+                    "type": "fragment",
+                    "gref": "tests.test_namespace_fragment:SampleFragment",
+                    "nsref": "dl:",
+                    "init": {"api_key": "key1"},
+                    "configs": {},
+                }
+            ]
+        )
+        raise AssertionError("Expected ValueError")
+    except ValueError as e:
+        assert "fetch_prices" in str(e) or "require_cache" in str(e).lower()
+
+
+def test_class_fragment_constructor_args():
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "x:",
+                "init": {"api_key": "secret", "base_url": "https://custom.api"},
+                "configs": {
+                    "fetch_prices": {"min_ttl": 1.0, "max_ttl": 5.0},
+                },
+            }
+        ]
+    )
+
+    result = ns.get("x:fetch_prices")(ticker="MSFT")
+    assert result == {"ticker": "MSFT", "key": "secret"}

@@ -546,6 +546,43 @@ class NamespaceFragment:
     pass
 
 
+def _discover_fragment_methods(
+    target: Any,
+) -> list[tuple[str, Any, bool, list[str], bool]]:
+    """
+    Scan a fragment instance or module for decorated methods/functions.
+    Returns list of (name, callable, is_dag_factory, tags, requires_cache).
+    """
+    results: list[tuple[str, Any, bool, list[str], bool]] = []
+    for attr_name in dir(target):
+        if attr_name.startswith("_"):
+            # Private attrs: only include if explicitly decorated
+            try:
+                attr = getattr(target, attr_name)
+            except Exception:
+                continue
+            if not (getattr(attr, "_is_nsnode", False) or getattr(attr, "_is_dag_factory", False)):
+                continue
+        else:
+            try:
+                attr = getattr(target, attr_name)
+            except Exception:
+                continue
+
+        if not callable(attr):
+            continue
+
+        is_nsnode = getattr(attr, "_is_nsnode", False)
+        is_factory = getattr(attr, "_is_dag_factory", False)
+        if not is_nsnode and not is_factory:
+            continue
+
+        tags: list[str] = getattr(attr, "_nsnode_tags", [])
+        needs_cache: bool = getattr(attr, "_require_cache", False)
+        results.append((attr_name, attr, is_factory, tags, needs_cache))
+    return results
+
+
 class Namespace:
     """
     Flat registry of callables wrapped in `NamespaceNode`.
@@ -783,7 +820,11 @@ class Namespace:
         """Build a Namespace from a list of serialized node configs."""
         ns = cls()
         for entry in entries:
-            config_cls = _CONFIG_TYPES.get(entry.get("type", "auto"), NsNodeConfig)
+            entry_type = entry.get("type", "auto")
+            if entry_type == "fragment":
+                ns._register_fragment(entry)
+                continue
+            config_cls = _CONFIG_TYPES.get(entry_type, NsNodeConfig)
             config = config_cls.model_validate(entry)
             if config.gref is not None:
                 gref = GlobalRef(config.gref)
@@ -792,6 +833,104 @@ class Namespace:
             else:
                 ns.register(lambda: None, nsref=config.nsref, config=config)
         return ns
+
+    def _register_fragment(self, entry: dict[str, Any]) -> None:
+        """Register all discovered methods from a fragment config entry."""
+        config = NsFragmentConfig.model_validate(entry)
+        if config.gref is None:
+            raise ValueError("Fragment config must have a gref")
+
+        gref = GlobalRef(config.gref)
+        prefix = str(config.nsref) if config.nsref else ""
+        if not prefix.endswith(":"):
+            raise ValueError(f"Fragment nsref must end with ':', got {prefix!r}")
+
+        # Resolve to module or class instance
+        if gref.is_module():
+            if config.init:
+                raise ValueError(
+                    f"Module fragment '{gref}' cannot have 'init' (modules are not instantiated)"
+                )
+            target = gref.get_module()
+        else:
+            resolved = gref.get_instance()
+            if isinstance(resolved, type) and issubclass(resolved, NamespaceFragment):
+                target = resolved(**config.init)
+            elif isinstance(resolved, type):
+                raise TypeError(f"Class '{gref}' must be a NamespaceFragment subclass")
+            else:
+                raise TypeError(
+                    f"Fragment gref must resolve to a module or NamespaceFragment "
+                    f"subclass, got {type(resolved).__name__}"
+                )
+
+        methods = _discover_fragment_methods(target)
+
+        # Warn about configs entries that don\'t match any discovered method
+        method_names = {name for name, *_ in methods}
+        for cfg_name in config.configs:
+            if cfg_name not in method_names:
+                logging.getLogger(__name__).warning(
+                    "Fragment '%s' configs entry '%s' does not match any discovered method",
+                    gref,
+                    cfg_name,
+                )
+
+        for name, method_callable, is_factory, tags, needs_cache in methods:
+            method_config_dict = config.configs.get(name, {})
+
+            has_ttl = "min_ttl" in method_config_dict and "max_ttl" in method_config_dict
+
+            if is_factory:
+                method_nsref = f"{prefix}{name}__"
+            else:
+                method_nsref = f"{prefix}{name}"
+
+            if has_ttl:
+                node_config: NsNodeConfig = NsCacheConfig(
+                    nsref=method_nsref,
+                    min_ttl=method_config_dict["min_ttl"],
+                    max_ttl=method_config_dict["max_ttl"],
+                )
+            else:
+                node_config = NsNodeConfig(nsref=method_nsref)
+
+            # Apply tags to the config
+            if tags:
+                node_config.tags = tags
+
+            if "triggers" in method_config_dict:
+                triggers = [TriggerConfig.model_validate(t) for t in method_config_dict["triggers"]]
+                node_config.triggers = triggers
+
+            # Enforce @require_cache
+            if needs_cache and not isinstance(node_config, NsCacheConfig):
+                raise ValueError(
+                    f"Fragment method '{name}' is decorated with @require_cache "
+                    f"but no min_ttl/max_ttl found in configs['{name}']"
+                )
+
+            if is_factory:
+                dag_result = method_callable()
+                if not isinstance(dag_result, Dag):
+                    raise TypeError(
+                        f"@dag_factory '{name}' must return a Dag, got {type(dag_result).__name__}"
+                    )
+                self._register_dag(dag_result, method_nsref, tags=tags, config=node_config)
+            else:
+                # Bypass self.register() to avoid GlobalRef(bound_method) failure
+                method_obj = Method(GlobalRef(f"__fragment__:{name}"))
+                method_obj._o = method_callable  # pyright: ignore[reportPrivateUsage]
+                key = method_nsref
+                if key in self._nodes:
+                    raise ValueError(f"'{key}' already exists in namespace")
+                node = NamespaceNode(
+                    method=method_obj,
+                    nsref=method_nsref,
+                    namespace=self,
+                    config=node_config,
+                )
+                self._nodes[key] = node
 
 
 class DagEdge(BaseModel):
