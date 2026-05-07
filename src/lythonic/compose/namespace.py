@@ -153,6 +153,36 @@ def my_pipeline() -> Dag:
 
 ns.register(my_pipeline)  # registers DAG under "module:my_pipeline__"
 ```
+
+## Namespace Fragments
+
+A `NamespaceFragment` groups related methods under a shared nsref prefix.
+Subclass it and decorate methods with `@nsnode(tags=[...])` for discovery.
+Use `@require_cache` to enforce cache configuration at registration time.
+
+```yaml
+namespace:
+  - type: fragment
+    gref: "myapp.downloads:DownloadFragment"
+    nsref: "downloads:"
+    init:
+      api_key: "abc123"
+    configs:
+      fetch_prices:
+        min_ttl: 0.5
+        max_ttl: 2.0
+```
+
+Modules can also serve as fragments — decorate module-level functions with
+`@nsnode` or `@dag_factory`, and reference the module path without a `:`
+separator:
+
+```yaml
+  - type: fragment
+    gref: "myapp.transforms"
+    nsref: "transforms:"
+```
+
 """
 
 from __future__ import annotations
