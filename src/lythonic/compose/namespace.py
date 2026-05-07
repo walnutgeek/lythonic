@@ -199,6 +199,23 @@ def mount_required(fn: _F) -> _F:
     return fn
 
 
+def nsnode(tags: list[str] | None = None) -> Callable[[_F], _F]:
+    """Mark a function for namespace discovery in fragments."""
+
+    def decorator(fn: _F) -> _F:
+        fn._is_nsnode = True  # pyright: ignore[reportFunctionMemberAccess]
+        fn._nsnode_tags = tags or []  # pyright: ignore[reportFunctionMemberAccess]
+        return fn
+
+    return decorator
+
+
+def require_cache(fn: _F) -> _F:
+    """Mark a callable as requiring cache configuration."""
+    fn._require_cache = True  # pyright: ignore[reportFunctionMemberAccess]
+    return fn
+
+
 class DagPath:
     """
     DAG execution path: a base NsRef plus an optional label path for sub-DAG
