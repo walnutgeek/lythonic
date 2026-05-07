@@ -605,6 +605,14 @@ class Namespace:
         if isinstance(c, Dag):
             return self._register_dag(c, nsref, tags=tags, config=config)
 
+        # Enforce @require_cache: callable must have a NsCacheConfig.
+        if callable(c) and getattr(c, "_require_cache", False):
+            if not isinstance(config, NsCacheConfig):
+                name = getattr(c, "__name__", str(c))
+                raise ValueError(
+                    f"'{name}' is decorated with @require_cache but no NsCacheConfig was provided"
+                )
+
         # Handle @dag_factory decorated callables
         if callable(c) and getattr(c, "_is_dag_factory", False):
             gref = GlobalRef(c)
