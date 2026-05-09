@@ -5,10 +5,9 @@ Engine: Runtime configuration for the compose execution environment.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
-
-from lythonic.compose.namespace import NsNodeConfig
 
 
 class LogConfig(BaseModel):
@@ -88,4 +87,4 @@ class EngineConfig(BaseModel):
     """
 
     storage: StorageConfig = StorageConfig()
-    namespace: list[NsNodeConfig] = []
+    namespace: list[dict[str, Any]] = []

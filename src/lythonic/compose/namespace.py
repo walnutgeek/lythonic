@@ -196,7 +196,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 if TYPE_CHECKING:
     from lythonic.compose.dag_runner import DagRunResult  # pyright: ignore[reportImportCycles]
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import Field as PydanticField
 
 from lythonic import GlobalRef, NsRef
 from lythonic.compose import Method
@@ -311,11 +312,47 @@ class DagContext(BaseModel):
     """
     Base context injected into DAG-participating callables.
     Subclass to add domain-specific fields.
+
+    The `namespace` field provides access to the mounted `Namespace`,
+    allowing callables to look up and invoke other registered nodes
+    (including cached ones). Excluded from serialization.
     """
+
+    model_config: typing.ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)  # pyright: ignore[reportIncompatibleVariableOverride]
 
     dag_nsref: DagPath
     node_label: str
     run_id: str
+    namespace: Any = PydanticField(default=None, exclude=True)
+
+    def _resolve_node(self, nsref: str) -> NamespaceNode:
+        if self.namespace is None:
+            raise RuntimeError("DagContext has no namespace (not mounted)")
+        return self.namespace.get(nsref)
+
+    def ns_call(self, nsref: str, *args: Any, **kwargs: Any) -> Any:
+        """Call a sync registered node by nsref. Raises on async targets."""
+        node = self._resolve_node(nsref)
+        if node.method.gref.is_async():
+            raise TypeError(
+                f"'{nsref}' is async — use await ctx.ns_acall(\"{nsref}\", ...) instead"
+            )
+        return node(*args, **kwargs)
+
+    async def ns_acall(self, nsref: str, *args: Any, **kwargs: Any) -> Any:
+        """Call a registered node by nsref from an async context. Handles both
+        async and sync callables (sync dispatched to executor unless @inline)."""
+        import asyncio
+        import functools
+
+        node = self._resolve_node(nsref)
+        fn = node._decorated or node.method.o  # pyright: ignore[reportPrivateUsage]
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(*args, **kwargs)
+        if getattr(fn, "_lythonic_inline", False):
+            return fn(*args, **kwargs)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
 
 
 def _resolve_first_param_type(func: Callable[..., Any]) -> type | None:
@@ -442,13 +479,24 @@ class TriggerConfig(BaseModel):
     """
     Trigger configuration attached to a namespace node. Each node can
     have zero or many triggers.
+
+    Accepts a bare cron string as shorthand for a poll trigger:
+    `"*/13 * * * * *"` expands to `{type: "poll", schedule: "*/13 * * * * *"}`.
+    The `name` is auto-filled from the node's nsref during registration.
     """
 
-    name: str
-    type: str  # "poll" or "push"
+    name: str | None = None
+    type: str = "poll"
     schedule: str | None = None
     poll_fn: GlobalRef | None = None
     payload: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _expand_shorthand(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"type": "poll", "schedule": data}
+        return data
 
 
 class NsNodeConfig(BaseModel):
@@ -505,6 +553,16 @@ _CONFIG_TYPES: dict[str, type[NsNodeConfig]] = {
     "cache": NsCacheConfig,
     "fragment": NsFragmentConfig,
 }
+
+
+def _auto_fill_trigger_names(config: NsNodeConfig) -> None:
+    """Fill in missing trigger names from the node's nsref."""
+    nsref = config.nsref
+    leaf = nsref.name if isinstance(nsref, NsRef) else str(nsref).rsplit(":", 1)[-1]
+    for i, tc in enumerate(config.triggers):
+        if tc.name is None:
+            suffix = f"_{i}" if len(config.triggers) > 1 else ""
+            tc.name = f"{leaf}_{tc.type}{suffix}"
 
 
 class NamespaceNode:
@@ -810,6 +868,7 @@ class Namespace:
         # Wrap plain callable in a single-node DAG
         dag = Dag()
         dag.node(node)
+        dag.parent_namespace = self
         return dag
 
     def register_all(
@@ -856,6 +915,7 @@ class Namespace:
                 continue
             config_cls = _CONFIG_TYPES.get(entry_type, NsNodeConfig)
             config = config_cls.model_validate(entry)
+            _auto_fill_trigger_names(config)
             if config.gref is not None:
                 gref = GlobalRef(config.gref)
                 instance = gref.get_instance()
@@ -932,6 +992,7 @@ class Namespace:
             if "triggers" in method_config_dict:
                 triggers = [TriggerConfig.model_validate(t) for t in method_config_dict["triggers"]]
                 node_config.triggers = triggers
+                _auto_fill_trigger_names(node_config)
 
             # Enforce @require_cache
             if needs_cache and not isinstance(node_config, NsCacheConfig):

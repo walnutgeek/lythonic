@@ -32,7 +32,7 @@ def test_method():
     assert z.args[0].arg_help(0) == "<config> - Config: "
 
     main = Method(Main)
-    assert len(main.args) == 1
+    assert len(main.args) == 2
     assert main.args[0].name == "help"
     assert main.args[0].annotation is bool
     assert main.args[0].default is False
@@ -150,6 +150,7 @@ def test_cli():
         "Usage: ",
         "  wgl ",
         "    [--help] - bool: Show help. Default: False",
+        "    [--verbose] - bool: Show full tracebacks on error. Default: False",
         "    Actions:",
         "      server - Managing the server",
         f"          [--data=value] - Path: directory to store all server data. Default: {path_type}('data')",
@@ -181,7 +182,7 @@ def test_cli():
             "Error: Action need to be specified, expected one of start, stop, config",
             "Usage: ",
             "  wgl server",
-            *full_help[5:],
+            *full_help[6:],
         ],
     )
     assert run("wgl server start", True, ["Starting server with data directory: data"])
@@ -193,7 +194,7 @@ def test_cli():
             "Error: Action need to be specified, expected one of set, get",
             "Usage: ",
             "  wgl server config",
-            *full_help[10:],
+            *full_help[11:],
         ],
     )
     assert run(

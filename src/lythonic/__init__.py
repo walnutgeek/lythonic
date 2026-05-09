@@ -57,7 +57,7 @@ if result.is_ok():
 import logging
 import sys
 from datetime import UTC, datetime
-from inspect import isclass, iscoroutinefunction, isfunction, ismodule
+from inspect import isclass, iscoroutinefunction, isfunction, ismethod, ismodule
 from types import ModuleType
 from typing import Any, Generic, TypeVar, final
 
@@ -219,7 +219,7 @@ class GlobalRef(NsRef):
         elif ismodule(s):
             self.scope = s.__name__.split(".")
             self.name = ""
-        elif isclass(s) or isfunction(s):
+        elif isclass(s) or isfunction(s) or ismethod(s):
             self.scope = s.__module__.split(".")
             self.name = s.__name__
         else:

@@ -62,6 +62,7 @@ Usage: `mycli server start` or `mycli server --port=9000 start`
 from __future__ import annotations
 
 import sys
+import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -187,6 +188,8 @@ class ActionTree(Method):
                 )
         except Exception:
             error = str(sys.exc_info()[1])
+            if ctx.is_verbose():
+                error = traceback.format_exc()
         if error or ctx.is_print_help_selected():
             ctx.print_help(error, ctx.path, self)
         else:
@@ -196,9 +199,10 @@ class ActionTree(Method):
 
 
 class Main(BaseModel):
-    """Default root action model. Provides the `--help` flag."""
+    """Default root action model. Provides `--help` and `--verbose` flags."""
 
     help: bool = Field(default=False, description="Show help")
+    verbose: bool = Field(default=False, description="Show full tracebacks on error")
 
 
 class PathValue:
@@ -301,6 +305,12 @@ class RunContext:
         v = self.path.get("/")
         if isinstance(v, Main):
             return v.help
+        return False
+
+    def is_verbose(self) -> bool:
+        v = self.path.get("/")
+        if isinstance(v, Main):
+            return v.verbose
         return False
 
     def print(self, msg: str):

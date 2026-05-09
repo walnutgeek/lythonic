@@ -32,6 +32,8 @@ import asyncio
 import contextvars
 import functools
 import json
+import logging
+import traceback
 import uuid
 from typing import Any, cast
 
@@ -51,6 +53,8 @@ from lythonic.compose.namespace import (
     MapSwitchNode,
     SwitchNode,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def _extract_switch(node_label: str, upstream: Any) -> tuple[LabelSwitch, Any]:  # pyright: ignore[reportUnknownParameterType]
@@ -204,12 +208,19 @@ class DagRunner:
                         edges,
                     )
                 except Exception as e:
+                    tb = traceback.format_exc()
+                    _log.error(
+                        "Node '%s' failed in run %s:\n%s",
+                        dag_node.label,
+                        run_id,
+                        tb,
+                    )
                     await loop.run_in_executor(
                         None,
                         self.provenance.fail_node_and_finish_run,
                         run_id,
                         dag_node.label,
-                        str(e),
+                        tb,
                     )
                     return DagRunResult(
                         run_id=run_id,
@@ -266,12 +277,19 @@ class DagRunner:
                     outputs={lb: node_outputs[lb] for lb in sink_labels if lb in node_outputs},
                 )
             except Exception as e:
+                tb = traceback.format_exc()
+                _log.error(
+                    "Node '%s' failed in run %s:\n%s",
+                    dag_node.label,
+                    run_id,
+                    tb,
+                )
                 await loop.run_in_executor(
                     None,
                     self.provenance.fail_node_and_finish_run,
                     run_id,
                     dag_node.label,
-                    str(e),
+                    tb,
                 )
                 return DagRunResult(
                     run_id=run_id,
@@ -502,6 +520,7 @@ class DagRunner:
                     dag_nsref=DagPath(dag_nsref),
                     node_label=dag_node.label,
                     run_id=run_id,
+                    namespace=self.dag.parent_namespace,
                 )
                 if asyncio.iscoroutinefunction(fn):
                     return await fn(ctx, **kwargs)

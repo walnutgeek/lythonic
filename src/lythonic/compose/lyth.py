@@ -54,7 +54,7 @@ def _build_namespace(engine_config: EngineConfig) -> Any:
     """Build a live Namespace from EngineConfig: load declaratively, then mount."""
     from lythonic.compose.namespace import Namespace
 
-    ns = Namespace.from_dict([e.model_dump(exclude_none=True) for e in engine_config.namespace])
+    ns = Namespace.from_dict(engine_config.namespace)
     ns.mount(engine_config.storage)
     return ns
 

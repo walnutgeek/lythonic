@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+import pytest
+
 import tests.test_namespace as this_module
-from lythonic.compose.namespace import DagContext, DagPath
+from lythonic.compose._inline import inline
+from lythonic.compose.namespace import DagContext, DagPath, Namespace
 
 
 def test_dag_context_fields():
@@ -1181,3 +1185,76 @@ def test_query_and_short_circuit():
     # without parser errors from unconsumed tokens.
     result = ns.query("nonexistent & market")
     assert result == []
+
+
+# -- ns_call / ns_acall tests --
+
+
+def _sync_add(a: int, b: int) -> int:
+    return a + b
+
+
+@inline
+def _inline_mul(a: int, b: int) -> int:
+    return a * b
+
+
+async def _async_double(x: int) -> int:
+    await asyncio.sleep(0)
+    return x * 2
+
+
+def _build_ns_with_callables() -> Namespace:
+    ns = Namespace()
+    ns.register(this_module._sync_add, nsref="math:add")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._inline_mul, nsref="math:mul")  # pyright: ignore[reportPrivateUsage]
+    ns.register(this_module._async_double, nsref="math:double")  # pyright: ignore[reportPrivateUsage]
+    return ns
+
+
+def test_ns_call_sync():
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    assert ctx.ns_call("math:add", a=3, b=4) == 7
+
+
+def test_ns_call_inline():
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    assert ctx.ns_call("math:mul", a=3, b=4) == 12
+
+
+def test_ns_call_rejects_async():
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    with pytest.raises(TypeError, match="ns_acall"):
+        ctx.ns_call("math:double", x=5)
+
+
+def test_ns_call_no_namespace_raises():
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1")
+    with pytest.raises(RuntimeError, match="not mounted"):
+        ctx.ns_call("math:add", a=1, b=2)
+
+
+@pytest.mark.asyncio
+async def test_ns_acall_async():
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    assert await ctx.ns_acall("math:double", x=5) == 10
+
+
+@pytest.mark.asyncio
+async def test_ns_acall_sync_via_executor():
+    """ns_acall dispatches sync (non-inline) functions to an executor."""
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    assert await ctx.ns_acall("math:add", a=10, b=20) == 30
+
+
+@pytest.mark.asyncio
+async def test_ns_acall_inline():
+    """ns_acall calls @inline functions directly without executor."""
+    ns = _build_ns_with_callables()
+    ctx = DagContext(dag_nsref=DagPath("test:run"), node_label="n", run_id="r1", namespace=ns)
+    assert await ctx.ns_acall("math:mul", a=5, b=6) == 30

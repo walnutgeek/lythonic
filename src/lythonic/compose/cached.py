@@ -179,8 +179,9 @@ def generate_cache_table_ddl(table_name: str, method: Method) -> str:
     columns.append("    value_json TEXT NOT NULL")
     columns.append("    fetched_at REAL NOT NULL")
 
-    pk = ", ".join(param_names)
-    columns.append(f"    PRIMARY KEY ({pk})")
+    if param_names:
+        pk = ", ".join(param_names)
+        columns.append(f"    PRIMARY KEY ({pk})")
 
     cols_str = ",\n".join(columns)
     return f"CREATE TABLE IF NOT EXISTS {table_name} (\n{cols_str}\n)"
@@ -201,8 +202,9 @@ def _cache_lookup(
         where_parts.append(f"{arg.name} = ?")
         values.append(kt.db.map_to(kwargs[arg.name]))
 
-    where_clause = " AND ".join(where_parts)
-    sql = f"SELECT value_json, fetched_at FROM {table_name} WHERE {where_clause}"
+    sql = f"SELECT value_json, fetched_at FROM {table_name}"
+    if where_parts:
+        sql += " WHERE " + " AND ".join(where_parts)
     cursor = conn.cursor()
     execute_sql(cursor, sql, tuple(values))
     row = cursor.fetchone()
@@ -231,10 +233,15 @@ def _cache_upsert(
     col_names.extend(["value_json", "fetched_at"])
     values.extend([value_json, fetched_at])
 
+    cursor = conn.cursor()
+    # Without a PRIMARY KEY (zero-arg functions), REPLACE has no key to match on.
+    # Delete existing rows first so the table holds at most one entry.
+    if not method.args:
+        execute_sql(cursor, f"DELETE FROM {table_name}")
+
     placeholders = ", ".join(["?"] * len(values))
     cols = ", ".join(col_names)
     sql = f"INSERT OR REPLACE INTO {table_name} ({cols}) VALUES ({placeholders})"
-    cursor = conn.cursor()
     execute_sql(cursor, sql, tuple(values))
     conn.commit()
 
