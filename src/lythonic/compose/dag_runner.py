@@ -24,6 +24,11 @@ Handles `CompositeDagNode` subtypes:
   extracted from the upstream output.
 - `MapSwitchNode` combines map and switch: maps over a collection, routing
   each element through the appropriate branch DAG. Flatmap applies here too.
+
+When a node raises an exception, the full traceback is captured via
+`traceback.format_exc()`, logged at ERROR level, and stored in the
+`node_executions.error` column. `DagRunResult.error` keeps the short
+`str(e)` for console output.
 """
 
 from __future__ import annotations

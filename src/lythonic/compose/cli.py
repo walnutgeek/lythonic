@@ -45,7 +45,9 @@ Usage: `mycli server start` or `mycli server --port=9000 start`
 ## Key Concepts
 
 - **ActionTree**: A node in the command tree. Can have child actions and arguments.
-- **Main**: Default root model with `--help` flag. Use as the root ActionTree argument.
+- **Main**: Default root model with `--help` and `--verbose` flags. Use as the root
+  ActionTree argument. When `--verbose` is set, unhandled exceptions print the full
+  traceback instead of just the error message.
 - **RunContext**: Passed to actions that need it (declare `ctx: RunContext` as first param).
   Provides access to parent values via `ctx.path.get('/path')`.
 - **Arguments**: Required params become positional args; optional params become `--flags`.

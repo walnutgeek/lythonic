@@ -106,10 +106,46 @@ dag.node(split_items) >> dag.map(
 ) >> dag.node(merge)
 ```
 
+## DagContext Namespace Access
+
+`DagContext` provides access to the mounted `Namespace` so callables can
+invoke other registered nodes (including cached ones) at runtime:
+
+```python
+async def my_task(ctx: DagContext) -> dict:
+    # Sync call (sync targets only, raises TypeError on async)
+    price = ctx.ns_call("market:get_price", ticker="AAPL")
+
+    # Async call (handles async, sync, and @inline callables)
+    volume = await ctx.ns_acall("market:get_volume", ticker="AAPL")
+
+    return {"price": price, "volume": volume}
+```
+
+`ns_call` is for sync contexts — it raises `TypeError` if the target is
+async, directing the caller to use `ns_acall`. `ns_acall` handles all
+callable types: async targets are awaited, `@inline` sync targets run
+directly, and blocking sync targets are dispatched to a thread executor.
+
+## Trigger Shorthand
+
+`TriggerConfig` accepts a bare cron string as shorthand for a poll trigger.
+Trigger names are auto-generated from the node's nsref leaf when omitted:
+
+```yaml
+namespace:
+  - gref: "myapp:task1"
+    triggers:
+      - "*/30 * * * * *"          # expands to {type: poll, schedule: ...}
+      - name: "custom_name"       # explicit name
+        schedule: "0 0 * * *"
+```
+
 ## Singleton DAG
 
 `Namespace.get_as_dag(nsref)` returns the underlying DAG for DAG nodes or
-wraps plain callables in a single-node DAG, providing uniform execution.
+wraps plain callables in a single-node DAG (with `parent_namespace` set),
+providing uniform execution.
 
 ## Composable DAGs
 
