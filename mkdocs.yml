@@ -92,7 +92,7 @@ nav:
       - lythonic.types: reference/types.md
       - lythonic.misc: reference/misc.md
   - Releases:
+      - v0.0.18: release_notes/v0.0.18.md
       - v0.0.17: release_notes/v0.0.17.md
       - v0.0.16: release_notes/v0.0.16.md
-      - v0.0.15: release_notes/v0.0.15.md
       - "...": release_notes/index.md
