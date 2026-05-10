@@ -369,7 +369,7 @@ class DagContext(BaseModel):
     def ns_call(self, nsref: str, *args: Any, **kwargs: Any) -> Any:
         """Call a sync registered node by nsref. Raises on async targets."""
         node = self._resolve_node(nsref)
-        if node.method.gref.is_async():
+        if node.method.gref is not None and node.method.gref.is_async():
             raise TypeError(
                 f"'{nsref}' is async — use await ctx.ns_acall(\"{nsref}\", ...) instead"
             )
@@ -1045,9 +1045,7 @@ class Namespace:
                     )
                 self._register_dag(dag_result, method_nsref, tags=tags, config=node_config)
             else:
-                # Bypass self.register() to avoid GlobalRef(bound_method) failure
-                method_obj = Method(GlobalRef(f"__fragment__:{name}"))
-                method_obj._o = method_callable  # pyright: ignore[reportPrivateUsage]
+                method_obj = Method(method_callable, name=name)
                 key = method_nsref
                 if key in self._nodes:
                     raise ValueError(f"'{key}' already exists in namespace")

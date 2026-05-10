@@ -441,6 +441,7 @@ def mount_cached_node(node: NamespaceNode, db_path: Path) -> None:
     namespace_path = nsref.replace(":", ".")
 
     gref = node.method.gref
+    assert gref is not None, f"cached node {nsref} requires a resolvable GlobalRef"
     if gref.is_async():
         wrapper = _build_async_wrapper(
             method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path

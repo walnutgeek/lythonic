@@ -618,11 +618,22 @@ class DagRunner:
 
     @staticmethod
     def _extract_list_element_type(annotation: Any) -> str | None:
-        """If annotation is 'list[X]', return 'X'. Otherwise None."""
+        """If annotation is `list[X]`, return the string form of X. Otherwise None.
+
+        Handles both string annotations (from `from __future__ import annotations`)
+        and resolved generic types.
+        """
         if isinstance(annotation, str):
             s = annotation.strip()
             if s.startswith("list[") and s.endswith("]"):
                 return s[5:-1]
+        # Handle resolved generic types like list[str]
+        origin = getattr(annotation, "__origin__", None)
+        if origin is list:
+            type_args = getattr(annotation, "__args__", None)
+            if type_args and len(type_args) == 1:
+                arg = type_args[0]
+                return getattr(arg, "__name__", str(arg))
         return None
 
     def _wire_inputs(
@@ -660,6 +671,7 @@ class DagRunner:
             list_elem_type = self._extract_list_element_type(arg.annotation)
 
             matching_values: list[Any] = []
+            had_direct_match = False
             for edge in upstream_edges:
                 if edge.upstream in node_outputs:
                     upstream_node = self.dag.nodes[edge.upstream]
@@ -669,12 +681,18 @@ class DagRunner:
                     # Direct type match or list element type match for fan-in
                     if upstream_return == arg.annotation:
                         matching_values.append(node_outputs[edge.upstream])
-                    elif list_elem_type and str(upstream_return) == list_elem_type:
+                        had_direct_match = True
+                    elif (
+                        list_elem_type
+                        and getattr(upstream_return, "__name__", str(upstream_return))
+                        == list_elem_type
+                    ):
                         matching_values.append(node_outputs[edge.upstream])
 
             if len(matching_values) == 1:
-                # For list-typed params, always wrap in a list
-                kwargs[arg.name] = [matching_values[0]] if list_elem_type else matching_values[0]
+                # Wrap in a list only for fan-in (not direct type matches)
+                needs_wrap = list_elem_type and not had_direct_match
+                kwargs[arg.name] = [matching_values[0]] if needs_wrap else matching_values[0]
             elif len(matching_values) > 1:
                 kwargs[arg.name] = matching_values
 

@@ -73,7 +73,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import override
 
 from lythonic import GlobalRef
-from lythonic.compose import ArgInfo, Method, MethodDict
+from lythonic.compose import Method, MethodDict, ParamInfo
 
 
 class RunResult:
@@ -116,7 +116,7 @@ class ActionTree(Method):
         cli_args = argv[1:]
         return self._run_args(cli_args, RunContext(self, cli_name, print_func))
 
-    def _split_ctx_args_opts(self) -> tuple[bool, list[ArgInfo], list[ArgInfo]]:
+    def _split_ctx_args_opts(self) -> tuple[bool, list[ParamInfo], list[ParamInfo]]:
         has_ctx: bool = (
             len(self.args) > 0
             and self.args[0].name == "ctx"

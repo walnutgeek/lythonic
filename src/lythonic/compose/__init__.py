@@ -86,6 +86,27 @@ class ParamInfo(BaseModel):
             description=description,
         )
 
+    # -- Temporary CLI helpers (will move to cli.py in a future task) --
+
+    def to_value(self, v: str) -> Any:
+        if self.annotation is None:
+            return v
+        if self.annotation is bool:
+            return v.lower() in ("true", "1", "yes", "y")
+        if isinstance(self.annotation, type) and issubclass(self.annotation, BaseModel):
+            return self.annotation.model_validate_json(v)
+        return self.annotation(v)  # pyright: ignore[reportUnknownMemberType]
+
+    def is_turn_on_option(self) -> bool:
+        return self.annotation is bool and self.default is False
+
+    def arg_help(self, indent: int) -> str:
+        return f"{' ' * indent}<{self.name}> - {self.type_str}: {self.description}"
+
+    def opt_help(self, indent: int) -> str:
+        flag = f"--{self.name}{'=value' if not self.is_turn_on_option() else ''}"
+        return f"{' ' * indent}[{flag}] - {self.type_str}: {self.description}. Default: {self.default!r}"
+
 
 class MethodInterface(BaseModel):
     """Pure-data description of a callable's inputs and outputs."""
@@ -203,72 +224,61 @@ class Method:
     """
     Wrapper around a callable that provides introspection of its arguments.
 
-    Lazily loads the callable via GlobalRef and extracts argument metadata
-    from the function signature. Supports both regular functions and Pydantic
-    BaseModel classes (using their `__init__` signature).
+    Eagerly builds a `MethodInterface` from the callable's signature.
+    `gref` is optional: closures and lambdas that cannot be resolved to a
+    global reference will have `gref=None`.
     """
 
-    gref: GlobalRef
-    _o: Callable[..., Any] | None
-    _args: list[ArgInfo] | None
-    _args_by_name: dict[str, ArgInfo] | None
-    _return_annotation: Any | None
+    interface: MethodInterface
+    name: str
+    gref: GlobalRef | None
+    _callable: Callable[..., Any] | None
 
-    def __init__(self, o: Callable[..., Any] | GlobalRef):
+    def __init__(self, o: Callable[..., Any] | GlobalRef, *, name: str | None = None):
         if isinstance(o, GlobalRef):
             self.gref = o
-            self._o = None
+            self._callable = None
+            self.name = name or o.name
         else:
-            self.gref = GlobalRef(o)
-            assert isinstance(o, Callable), "method instance must be a callable"
-            self._o = o
-        self._args = None
-        self._args_by_name = None
-        self._return_annotation = None
-
-    def _update_from_signature(self):
-        o = self.o
-        sig = inspect.signature(o)
-        self._args = [ArgInfo.from_param(param, origin=o) for param in sig.parameters.values()]
-        self._args_by_name = {arg.name: arg for arg in self._args}
-        self._return_annotation = sig.return_annotation
+            # Closures / nested functions have '<locals>' in __qualname__ and
+            # cannot be resolved by GlobalRef, so skip even trying.
+            qualname = getattr(o, "__qualname__", "")
+            if "<locals>" in qualname:
+                self.gref = None
+            else:
+                try:
+                    self.gref = GlobalRef(o)
+                except (ValueError, TypeError):
+                    self.gref = None
+            self._callable = o
+            self.name = name or getattr(o, "__name__", str(o))
+        self.interface = MethodInterface.from_callable(self.o)
 
     @property
     def o(self) -> Callable[..., Any]:
-        if self._o is None:
-            self._o = self.gref.get_instance()
-        assert self._o is not None
-        return self._o
+        if self._callable is None:
+            assert self.gref is not None
+            self._callable = self.gref.get_instance()
+        assert self._callable is not None
+        return self._callable
 
     @property
-    def args(self) -> list[ArgInfo]:
-        if self._args is None:
-            self._update_from_signature()
-        assert self._args is not None
-        return self._args
+    def args(self) -> list[ParamInfo]:
+        return self.interface.params
 
     @property
-    def args_by_name(self) -> dict[str, ArgInfo]:
-        if self._args_by_name is None:
-            self._update_from_signature()
-        assert self._args_by_name is not None
-        return self._args_by_name
+    def args_by_name(self) -> dict[str, ParamInfo]:
+        return {p.name: p for p in self.interface.params}
 
     @property
     def return_annotation(self) -> Any | None:
-        if self._args is None:
-            self._update_from_signature()
-        return self._return_annotation
+        return self.interface.return_annotation
 
     @property
-    def name(self):
-        return self.gref.name
+    def doc(self) -> str | None:
+        return self.interface.doc
 
-    @property
-    def doc(self):
-        return self.o.__doc__
-
-    def __call__(self, *args: Any, **kwargs: Any):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.o(*args, **kwargs)
 
     def validate_simple_type_args(self) -> None:
@@ -276,24 +286,7 @@ class Method:
         Validate that all parameters have type annotations whose `KnownType`
         has `simple_type=True`. Raises `ValueError` if any parameter fails.
         """
-        for arg in self.args:
-            if arg.annotation is None:
-                raise ValueError(
-                    f"Parameter `{arg.name}` on `{self.gref}` has no type annotation, "
-                    f"required for simple_type validation"
-                )
-            try:
-                kt = KNOWN_TYPES.resolve_type(arg.annotation)
-            except (ValueError, TypeError) as e:
-                raise ValueError(
-                    f"Parameter `{arg.name}` on `{self.gref}` has type `{getattr(arg.annotation, '__name__', str(arg.annotation))}` "
-                    f"which is not a registered KnownType"
-                ) from e
-            if not kt.simple_type:
-                raise ValueError(
-                    f"Parameter `{arg.name}` on `{self.gref}` has type `{getattr(arg.annotation, '__name__', str(arg.annotation))}` "
-                    f"which is not a simple_type (required for cache key)"
-                )
+        self.interface.validate_simple_type_args(self.name)
 
 
 T = TypeVar("T", bound=Method)
@@ -444,3 +437,20 @@ def test_validate_simple_type_args_on_interface():
     except ValueError as e:
         assert "data" in str(e)
         assert "simple_type" in str(e)
+
+
+def test_method_with_closure():
+    def make_adder(n: int):
+        def adder(x: int) -> int:
+            return x + n
+
+        return adder
+
+    add5 = make_adder(5)
+    m = Method(add5)
+    assert m.gref is None
+    assert m.name == "adder"
+    assert len(m.args) == 1
+    assert m.args[0].name == "x"
+    assert m.args[0].annotation is int
+    assert m(3) == 8
