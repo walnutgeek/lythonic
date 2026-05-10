@@ -86,27 +86,6 @@ class ParamInfo(BaseModel):
             description=description,
         )
 
-    # -- Temporary CLI helpers (will move to cli.py in a future task) --
-
-    def to_value(self, v: str) -> Any:
-        if self.annotation is None:
-            return v
-        if self.annotation is bool:
-            return v.lower() in ("true", "1", "yes", "y")
-        if isinstance(self.annotation, type) and issubclass(self.annotation, BaseModel):
-            return self.annotation.model_validate_json(v)
-        return self.annotation(v)  # pyright: ignore[reportUnknownMemberType]
-
-    def is_turn_on_option(self) -> bool:
-        return self.annotation is bool and self.default is False
-
-    def arg_help(self, indent: int) -> str:
-        return f"{' ' * indent}<{self.name}> - {self.type_str}: {self.description}"
-
-    def opt_help(self, indent: int) -> str:
-        flag = f"--{self.name}{'=value' if not self.is_turn_on_option() else ''}"
-        return f"{' ' * indent}[{flag}] - {self.type_str}: {self.description}. Default: {self.default!r}"
-
 
 class MethodInterface(BaseModel):
     """Pure-data description of a callable's inputs and outputs."""

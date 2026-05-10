@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from lythonic.compose import Method
-from lythonic.compose.cli import ActionTree, Main, RunContext
+from lythonic.compose.cli import ActionTree, Main, RunContext, param_arg_help, param_opt_help
 
 
 def my_func(x, y: bool, z=None, a: int | float = 42, b: str = "foo"):  # pyright: ignore
@@ -29,7 +29,7 @@ def test_method():
     assert z.args[0].default is None
     assert z.args[0].is_optional is False
     assert z.args[0].description == ""
-    assert z.args[0].arg_help(0) == "<config> - Config: "
+    assert param_arg_help(z.args[0], 0) == "<config> - Config: "
 
     main = Method(Main)
     assert len(main.args) == 2
@@ -38,7 +38,7 @@ def test_method():
     assert main.args[0].default is False
     assert main.args[0].is_optional is True
     assert main.args[0].description == "Show help"
-    assert main.args[0].opt_help(0) == "[--help] - bool: Show help. Default: False"
+    assert param_opt_help(main.args[0], 0) == "[--help] - bool: Show help. Default: False"
 
     m = Method(my_func)  # pyright: ignore
     assert len(m.args) == 5

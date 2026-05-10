@@ -76,6 +76,33 @@ from lythonic import GlobalRef
 from lythonic.compose import Method, MethodDict, ParamInfo
 
 
+def param_to_value(param: ParamInfo, v: str) -> Any:
+    """Parse a CLI string value using the param's live annotation."""
+    if param.annotation is None:
+        return v
+    if param.annotation is bool:
+        return v.lower() in ("true", "1", "yes", "y")
+    if isinstance(param.annotation, type) and issubclass(param.annotation, BaseModel):
+        return param.annotation.model_validate_json(v)
+    return param.annotation(v)  # pyright: ignore[reportUnknownMemberType]
+
+
+def is_turn_on_flag(param: ParamInfo) -> bool:
+    """True if bool param with default=False (becomes --flag with no value)."""
+    return param.annotation is bool and param.default is False
+
+
+def param_arg_help(param: ParamInfo, indent: int) -> str:
+    """Format as positional argument help line."""
+    return f"{' ' * indent}<{param.name}> - {param.type_str}: {param.description}"
+
+
+def param_opt_help(param: ParamInfo, indent: int) -> str:
+    """Format as option help line."""
+    flag = f"--{param.name}{'=value' if not is_turn_on_flag(param) else ''}"
+    return f"{' ' * indent}[{flag}] - {param.type_str}: {param.description}. Default: {param.default!r}"
+
+
 class RunResult:
     """Result of running a CLI command, with success status and collected messages."""
 
@@ -146,7 +173,7 @@ class ActionTree(Method):
                             f"Argument {arg.name} is required, but getting option {arg_str}"
                         )
                     current_arg_index += 1
-                    arg_values[arg.name] = arg.to_value(arg_str)
+                    arg_values[arg.name] = param_to_value(arg, arg_str)
                     required_args.pop(0)
                     continue
                 if arg_str.startswith("--"):
@@ -164,14 +191,14 @@ class ActionTree(Method):
                         )
                     arg = self.args_by_name[k]
                     if v is None:
-                        if arg.is_turn_on_option():
+                        if is_turn_on_flag(arg):
                             v = "y"
                         else:
                             current_arg_index += 1
                             if current_arg_index >= len(cli_args):
                                 raise ValueError(f"Value is not provided for --{k}")
                             v = cli_args[current_arg_index]
-                    arg_values[k] = arg.to_value(v)
+                    arg_values[k] = param_to_value(arg, v)
                     current_arg_index += 1
                     continue
                 elif arg_str in self.actions:
@@ -323,9 +350,9 @@ class RunContext:
         _, arguments, options = print_at._split_ctx_args_opts()  # pyright: ignore[reportPrivateUsage]
 
         for arg in arguments:
-            self.print(arg.arg_help(indent))
+            self.print(param_arg_help(arg, indent))
         for opt in options:
-            self.print(opt.opt_help(indent))
+            self.print(param_opt_help(opt, indent))
         if print_at.actions:
             self.print(f"{' ' * indent}Actions:")
             indent += 2
