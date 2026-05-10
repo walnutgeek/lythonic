@@ -9,7 +9,9 @@ callables.
 
 - `Method`: Wrapper around a callable with signature introspection
 - `MethodDict`: Dictionary of methods indexed by name
-- `ArgInfo`: Metadata about function arguments
+- `ParamInfo`: Pydantic model describing a single function parameter.
+- `MethodInterface`: Pydantic model describing a callable's full signature
+  (parameters, return type, docstring). Serializable and comparable.
 
 ## CLI Support
 
@@ -25,7 +27,7 @@ from __future__ import annotations
 import inspect
 import typing
 from collections.abc import Callable
-from typing import Any, ClassVar, Generic, NamedTuple, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
@@ -136,67 +138,6 @@ class MethodInterface(BaseModel):
                     f"`{getattr(param.annotation, '__name__', str(param.annotation))}` "
                     f"which is not a simple_type (required for cache key)"
                 )
-
-
-class ArgInfo(NamedTuple):
-    """
-    Metadata about a function argument, extracted from signature and Pydantic fields.
-
-    Used to generate CLI argument/option parsing and help text.
-    """
-
-    name: str
-    annotation: Any | None
-    default: Any | None
-    is_optional: bool
-    description: str
-
-    @classmethod
-    def from_param(cls, param: inspect.Parameter, origin: Any):
-        description = ""
-        is_optional = param.default != inspect.Parameter.empty
-        default = param.default if is_optional else None
-        if isinstance(origin, type) and issubclass(origin, BaseModel):
-            if param.name in origin.model_fields:
-                field = origin.model_fields[param.name]
-                if field.description is not None:
-                    description = field.description
-                is_optional = not field.is_required()
-                default = field.default
-        return cls(
-            name=param.name,
-            annotation=param.annotation if param.annotation != inspect.Parameter.empty else None,
-            default=default,
-            is_optional=is_optional,
-            description=description,
-        )
-
-    def to_value(self, v: str):
-        if self.annotation is None:
-            return v
-        if self.annotation is bool:
-            return v.lower() in ("true", "1", "yes", "y")
-        if issubclass(self.annotation, BaseModel):
-            return self.annotation.model_validate_json(v)
-        return self.annotation(v)
-
-    def is_turn_on_option(self) -> bool:
-        return self.annotation is bool and self.default is False
-
-    @property
-    def type(self) -> str:
-        if self.annotation is not None:
-            if isinstance(self.annotation, str):
-                return self.annotation
-            else:
-                return self.annotation.__name__
-        return "str"
-
-    def arg_help(self, indent: int):
-        return f"{' ' * indent}<{self.name}> - {self.type}: {self.description}"
-
-    def opt_help(self, indent: int):
-        return f"{' ' * indent}[--{self.name}{'=value' if not self.is_turn_on_option() else ''}] - {self.type}: {self.description}. Default: {self.default!r}"
 
 
 class Method:

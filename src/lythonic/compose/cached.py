@@ -440,9 +440,9 @@ def mount_cached_node(node: NamespaceNode, db_path: Path) -> None:
     max_ttl_s = config.max_ttl * DAYS_TO_SECONDS
     namespace_path = nsref.replace(":", ".")
 
-    gref = node.method.gref
-    assert gref is not None, f"cached node {nsref} requires a resolvable GlobalRef"
-    if gref.is_async():
+    import asyncio as _asyncio
+
+    if _asyncio.iscoroutinefunction(node.method.o):
         wrapper = _build_async_wrapper(
             method, tbl_name, db_path, min_ttl_s, max_ttl_s, namespace_path
         )

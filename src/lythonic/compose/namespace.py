@@ -369,7 +369,9 @@ class DagContext(BaseModel):
     def ns_call(self, nsref: str, *args: Any, **kwargs: Any) -> Any:
         """Call a sync registered node by nsref. Raises on async targets."""
         node = self._resolve_node(nsref)
-        if node.method.gref is not None and node.method.gref.is_async():
+        import asyncio as _asyncio
+
+        if _asyncio.iscoroutinefunction(node.method.o):
             raise TypeError(
                 f"'{nsref}' is async — use await ctx.ns_acall(\"{nsref}\", ...) instead"
             )
