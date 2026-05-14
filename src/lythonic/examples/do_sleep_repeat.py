@@ -72,7 +72,6 @@ import time
 
 from pydantic import BaseModel
 
-from lythonic.compose._inline import inline
 from lythonic.compose.log_context import get_node_run_context
 from lythonic.compose.namespace import (
     Dag,
@@ -80,6 +79,7 @@ from lythonic.compose.namespace import (
     LabelSwitch,
     NamespaceFragment,
     dag_factory,
+    inline,
     nsnode,
     require_cache,
 )

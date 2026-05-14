@@ -237,9 +237,18 @@ from pydantic import Field as PydanticField
 
 from lythonic import GlobalRef, NsRef
 from lythonic.compose import Method
-from lythonic.compose._inline import inline as inline
 
 _F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def inline(fn: _F) -> _F:
+    """
+    Mark a sync callable  DAG node to run on the event loop instead of in a thread
+    executor. Use for lightweight pure-computation functions that won't
+    block the loop.
+    """
+    fn._lythonic_inline = True  # pyright: ignore[reportFunctionMemberAccess]
+    return fn
 
 
 def dag_factory(fn: _F) -> _F:
@@ -682,13 +691,7 @@ def _discover_fragment_methods(
     results: list[tuple[str, Any, bool, list[str], bool]] = []
     for attr_name in dir(target):
         if attr_name.startswith("_"):
-            # Private attrs: only include if explicitly decorated
-            try:
-                attr = getattr(target, attr_name)
-            except Exception:
-                continue
-            if not (getattr(attr, "_is_nsnode", False) or getattr(attr, "_is_dag_factory", False)):
-                continue
+            continue
         else:
             try:
                 attr = getattr(target, attr_name)

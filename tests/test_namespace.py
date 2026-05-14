@@ -6,8 +6,7 @@ from typing import Any
 import pytest
 
 import tests.test_namespace as this_module
-from lythonic.compose._inline import inline
-from lythonic.compose.namespace import DagContext, DagPath, Namespace
+from lythonic.compose.namespace import DagContext, DagPath, Namespace, inline
 
 
 def test_dag_context_fields():

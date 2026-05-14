@@ -11,7 +11,7 @@ for SQLite-backed run history.
 
 Sync node functions are dispatched to a thread executor by default so they
 don't block the async event loop. Use the `@inline` decorator
-(`lythonic.compose._inline.inline`) to opt out for lightweight pure-computation
+(`lythonic.compose.namespace.inline`) to opt out for lightweight pure-computation
 functions.
 
 Handles `CompositeDagNode` subtypes:

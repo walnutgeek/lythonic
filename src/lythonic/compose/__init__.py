@@ -33,7 +33,6 @@ from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
 
 from lythonic import GlobalRef
-from lythonic.compose._inline import inline as inline
 from lythonic.types import KNOWN_TYPES
 
 
