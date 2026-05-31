@@ -372,4 +372,9 @@ Full documentation strategy is in `documenting.md`. Key rules:
   variable aliases or comments about backward compatibility) UNLESS the user has
   confirmed that it is necessary.
 
- 
+# Releases
+
+When the user asks to do a release (e.g., "release", "do a release", "release v0.0.X"),
+always invoke the `/do_release` skill with the version number as the argument.
+Example: `/do_release 0.0.21`
+
