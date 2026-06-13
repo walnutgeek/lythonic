@@ -587,12 +587,16 @@ class NsFragmentConfig(NsNodeConfig):
     Config for a fragment -- a class or module that groups related
     callables under a shared nsref prefix. `init` provides constructor
     kwargs for class fragments. `configs` maps method names to per-method
-    config (cache TTLs, triggers).
+    config (cache TTLs, triggers). `defaults` provides fallback config
+    applied to methods that lack explicit per-method entries (e.g.
+    `defaults.cache` supplies `min_ttl`/`max_ttl` for all `@require_cache`
+    methods without explicit cache config).
     """
 
     type: str = "fragment"  # pyright: ignore[reportIncompatibleVariableOverride]
     init: dict[str, Any] = {}
     configs: dict[str, dict[str, Any]] = {}
+    defaults: dict[str, dict[str, Any]] = {}
 
 
 _CONFIG_TYPES: dict[str, type[NsNodeConfig]] = {
@@ -1009,6 +1013,12 @@ class Namespace:
 
         for name, method_callable, is_factory, tags, needs_cache in methods:
             method_config_dict = config.configs.get(name, {})
+
+            # Apply cache defaults to @require_cache methods without explicit cache config
+            if needs_cache and "min_ttl" not in method_config_dict:
+                cache_defaults = config.defaults.get("cache", {})
+                if cache_defaults:
+                    method_config_dict = {**cache_defaults, **method_config_dict}
 
             has_ttl = "min_ttl" in method_config_dict and "max_ttl" in method_config_dict
 
