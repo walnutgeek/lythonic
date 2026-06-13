@@ -399,6 +399,68 @@ def test_module_fragment_with_init_raises():
         assert "module" in str(e).lower() and "init" in str(e).lower()
 
 
+def test_class_fragment_defaults_cache_applies():
+    """defaults.cache supplies min_ttl/max_ttl for @require_cache methods without explicit config."""
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "dfl:",
+                "init": {"api_key": "k"},
+                "defaults": {"cache": {"min_ttl": 10.0, "max_ttl": 60.0}},
+            }
+        ]
+    )
+
+    fetch_node = ns.get("dfl:fetch_prices")
+    assert isinstance(fetch_node.config, NsCacheConfig)
+    assert fetch_node.config.min_ttl == 10.0
+    assert fetch_node.config.max_ttl == 60.0
+
+
+def test_class_fragment_explicit_config_overrides_defaults():
+    """Explicit per-method config takes precedence over defaults."""
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.test_namespace_fragment:SampleFragment",
+                "nsref": "ovr:",
+                "init": {"api_key": "k"},
+                "defaults": {"cache": {"min_ttl": 10.0, "max_ttl": 60.0}},
+                "configs": {
+                    "fetch_prices": {"min_ttl": 0.5, "max_ttl": 2.0},
+                },
+            }
+        ]
+    )
+
+    fetch_node = ns.get("ovr:fetch_prices")
+    assert isinstance(fetch_node.config, NsCacheConfig)
+    assert fetch_node.config.min_ttl == 0.5
+    assert fetch_node.config.max_ttl == 2.0
+
+
+def test_module_fragment_defaults_cache_applies():
+    """defaults.cache works for module fragments too."""
+    ns = Namespace.from_dict(
+        [
+            {
+                "type": "fragment",
+                "gref": "tests.sample_module_fragment",
+                "nsref": "moddfl:",
+                "defaults": {"cache": {"min_ttl": 5.0, "max_ttl": 30.0}},
+            }
+        ]
+    )
+
+    norm = ns.get("moddfl:normalize")
+    assert isinstance(norm.config, NsCacheConfig)
+    assert norm.config.min_ttl == 5.0
+    assert norm.config.max_ttl == 30.0
+
+
 def test_module_fragment_require_cache_missing_raises():
     try:
         Namespace.from_dict(
