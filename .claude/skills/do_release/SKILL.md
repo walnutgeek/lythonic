@@ -1,7 +1,7 @@
 ---
 name: do_release
 description: Prepare release notes and clean up superpowers docs for the next version
-disable-model-invocation: true
+disable-model-invocation: false
 argument-hint: <next_version>
 ---
 
