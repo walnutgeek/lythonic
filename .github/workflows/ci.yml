@@ -61,3 +61,33 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  test-optional-deps:
+    # Test each optional dependency extra individually on a single OS/Python
+    strategy:
+      matrix:
+        extra: ["pandas", "polars", "pyarrow"]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.13"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install with ${{ matrix.extra }} extra
+        run: uv sync --extra ${{ matrix.extra }}
+
+      - name: Run tests
+        run: uv run pytest tests/test_frame.py -v

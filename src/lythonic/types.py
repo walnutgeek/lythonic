@@ -660,6 +660,6 @@ KNOWN_TYPES.register(
         map_from_json=JsonBase.from_json,
         map_to_json=base_model_to_json,
     ),
-    # TODO: when appropriate packages are available entries below should be initialized
-    # KnownType("dataframe", pd.DataFrame, json_type=dict),
+    # For library-agnostic tabular data, use lythonic.frame.FrameData (a BaseModel
+    # subclass, so already handled by the abstract BaseModel KnownType above).
 )
