@@ -54,7 +54,7 @@ class FrameData(BaseModel):
         """Convert a pandas DataFrame to FrameData."""
         import pandas  # pyright: ignore[reportMissingImports]  # noqa: F811
 
-        if not isinstance(df, pandas.DataFrame):
+        if not isinstance(df, pandas.DataFrame):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"Expected pandas.DataFrame, got {type(df).__name__}")
         t: dict[str, Any] = df.to_dict(orient="tight", index=False)  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
         return FrameData(columns=t["columns"], data=t["data"])
@@ -80,7 +80,7 @@ class FrameData(BaseModel):
         """Convert a polars DataFrame to FrameData."""
         import polars  # pyright: ignore[reportMissingImports]  # noqa: F811
 
-        if not isinstance(df, polars.DataFrame):
+        if not isinstance(df, polars.DataFrame):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"Expected polars.DataFrame, got {type(df).__name__}")
         return FrameData(columns=df.columns, data=df.rows())  # pyright: ignore[reportArgumentType]
 
