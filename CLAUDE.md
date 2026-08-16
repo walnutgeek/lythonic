@@ -378,3 +378,19 @@ When the user asks to do a release (e.g., "release", "do a release", "release v0
 always invoke the `/do_release` skill with the version number as the argument.
 Example: `/do_release 0.0.21`
 
+# Agent Skills
+
+## Issue tracker
+
+Issues live in GitHub Issues for `walnutgeek/lythonic`, managed with the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+## Triage labels
+
+The five canonical triage labels are used as-is: `needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+## Domain docs
+
+Single-context layout: `CONTEXT.md` and `docs/adr/` at the repo root (created lazily
+when needed). See `docs/agents/domain.md`.
