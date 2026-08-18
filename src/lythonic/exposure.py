@@ -23,7 +23,8 @@ KeyError: "'EUR' not in universe"
 
 from __future__ import annotations
 
-from math import isfinite
+from bisect import bisect_left
+from math import inf, isfinite
 from typing import TYPE_CHECKING, ClassVar, overload
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -95,13 +96,23 @@ class MatrixNpOut:
             out[si, ti] = value
         return out
 
+    def _vector(self, size: int, stored: dict[str, float], keys: Universe) -> NDArray[np.float64]:
+        import numpy
+
+        out = numpy.full(size, self._m.cell_fill, dtype=numpy.float64)
+        for key, value in stored.items():
+            out[keys.index(key)] = value
+        return out
+
     def row(self, subject: str) -> NDArray[np.float64]:
         """One subject's exposures, aligned to the target universe."""
-        return self.matrix()[self._m.subjects.index(subject)]
+        m = self._m
+        return self._vector(len(m.targets), m.exposures_of(subject), m.targets)
 
     def col(self, target: str) -> NDArray[np.float64]:
         """One target's exposures, aligned to the subject universe."""
-        return self.matrix()[:, self._m.targets.index(target)]
+        m = self._m
+        return self._vector(len(m.subjects), m.exposures_to(target), m.subjects)
 
 
 class MatrixNpAccess:
@@ -137,6 +148,13 @@ class BuilderNpAccess:
     def __init__(self, owner: ExposureMatrixBuilder) -> None:
         self._b = owner
 
+    @staticmethod
+    def _reject_nan(arr: NDArray[np.float64]) -> None:
+        import numpy
+
+        if bool(numpy.isnan(arr).any()):
+            raise ValueError("array contains NaN")
+
     def set_exposures(self, subject: str, values: NDArray[np.float64]) -> None:
         """Replace a subject's row from an array aligned to the target universe."""
         b = self._b
@@ -145,6 +163,7 @@ class BuilderNpAccess:
         targets = b.targets
         if values.shape != (len(targets),):
             raise ValueError(f"array shape {values.shape} does not match {len(targets)} targets")
+        self._reject_nan(values)
         b.set_exposures(subject, {targets[i]: float(v) for i, v in enumerate(values)})
 
     def set_matrix(self, arr: NDArray[np.float64]) -> None:
@@ -213,15 +232,25 @@ class ExposureMatrix(BaseModel):
     def exposure(self, subject: str, target: str) -> float:
         """Value at one cell, or `cell_fill` when no record exists for it."""
         si, ti = self.subjects.index(subject), self.targets.index(target)
-        for rsi, rti, value in self.records:
-            if rsi == si and rti == ti:
+        # Records are sorted by (subject, target) - ADR 0002 - so the run for one
+        # subject is contiguous and binary search finds the cell directly.
+        position = bisect_left(self.records, (si, ti, -inf))
+        if position < len(self.records):
+            rsi, rti, value = self.records[position]
+            if (rsi, rti) == (si, ti):
                 return value
         return self.cell_fill
 
     def exposures_of(self, subject: str) -> dict[str, float]:
         """Stored exposures of one subject, keyed by target."""
         si = self.subjects.index(subject)
-        return {self.targets[ti]: v for rsi, ti, v in self.records if rsi == si}
+        start = bisect_left(self.records, (si, 0, -inf))
+        out: dict[str, float] = {}
+        for rsi, ti, v in self.records[start:]:
+            if rsi != si:
+                break
+            out[self.targets[ti]] = v
+        return out
 
     def exposures_to(self, target: str) -> dict[str, float]:
         """Stored exposures to one target, keyed by subject."""
@@ -291,6 +320,8 @@ class ExposureMatrixBuilder:
 
     _subjects: list[str]
     _targets: list[str]
+    _subject_positions: dict[str, int]
+    _target_positions: dict[str, int]
     _subjects_frozen: bool
     _targets_frozen: bool
     _cell_fill: float
@@ -306,15 +337,22 @@ class ExposureMatrixBuilder:
     ) -> None:
         self._subjects = list(subjects) if subjects is not None else []
         self._targets = list(targets) if targets is not None else []
+        self._subject_positions = {k: i for i, k in enumerate(self._subjects)}
+        self._target_positions = {k: i for i, k in enumerate(self._targets)}
         self._subjects_frozen = subjects is not None
         self._targets_frozen = targets is not None
         self._cell_fill = cell_fill
         self._cells = {}
+        if not isfinite(cell_fill):
+            raise ValueError(f"cell_fill must be finite, got {cell_fill}")
         self._default_row = default_row
-        if default_row is not None:
-            # Fail on the call that configures a bad default, not on the one that uses it.
+        if default_row is not None and self._targets_frozen:
+            # Fail on the call that configures a bad default, not on the one that
+            # uses it. Only a frozen axis can be violated; an open one would just
+            # append, which would let the default row pre-seed the ordering.
             for target in default_row:
-                self._target_index(target)
+                if target not in self._targets:
+                    raise KeyError(f"{target!r} not in frozen target universe")
 
     @property
     def np(self) -> BuilderNpAccess:
@@ -357,20 +395,29 @@ class ExposureMatrixBuilder:
         """Accept new targets again, appending them after the existing ones."""
         self._targets_frozen = False
 
-    def _index(self, key: str, keys: list[str], frozen: bool, axis: str) -> int:
-        try:
-            return keys.index(key)
-        except ValueError:
-            if frozen:
-                raise KeyError(f"{key!r} not in frozen {axis} universe") from None
-            keys.append(key)
-            return len(keys) - 1
+    def _index(
+        self, key: str, keys: list[str], positions: dict[str, int], frozen: bool, axis: str
+    ) -> int:
+        # A position map, not list.index: ADR 0001 rejects an alternative design
+        # for making ingest O(n^2), so ingest here must stay linear.
+        position = positions.get(key)
+        if position is not None:
+            return position
+        if frozen:
+            raise KeyError(f"{key!r} not in frozen {axis} universe")
+        keys.append(key)
+        positions[key] = len(keys) - 1
+        return positions[key]
 
     def _subject_index(self, subject: str) -> int:
-        return self._index(subject, self._subjects, self._subjects_frozen, "subject")
+        return self._index(
+            subject, self._subjects, self._subject_positions, self._subjects_frozen, "subject"
+        )
 
     def _target_index(self, target: str) -> int:
-        return self._index(target, self._targets, self._targets_frozen, "target")
+        return self._index(
+            target, self._targets, self._target_positions, self._targets_frozen, "target"
+        )
 
     def set_exposure(self, subject: str, target: str, value: float) -> None:
         """
@@ -401,14 +448,20 @@ class ExposureMatrixBuilder:
         for target, value in targets.items():
             self.set_exposure(subject, target, value)
 
+    def _known(self, key: str, positions: dict[str, int]) -> int:
+        if key not in positions:
+            raise KeyError(f"{key!r} not in universe")
+        return positions[key]
+
     def exposure(self, subject: str, target: str) -> float:
         """Value at one cell so far, or `cell_fill` when no record exists for it."""
-        si, ti = self.subjects.index(subject), self.targets.index(target)
+        si = self._known(subject, self._subject_positions)
+        ti = self._known(target, self._target_positions)
         return self._cells.get((si, ti), self._cell_fill)
 
     def exposures_of(self, subject: str) -> dict[str, float]:
         """Stored exposures of one subject so far, keyed by target."""
-        si = self.subjects.index(subject)
+        si = self._known(subject, self._subject_positions)
         return {self._targets[ti]: v for (rsi, ti), v in self._cells.items() if rsi == si}
 
     def build(self) -> ExposureMatrix:

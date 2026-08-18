@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-import pytest
-from pydantic import ValidationError
+from typing import TYPE_CHECKING
 
-from lythonic.exposure import ExposureMatrix, ExposureMatrixBuilder
+import pytest
+
+if TYPE_CHECKING:
+    from lythonic.exposure import ExposureMatrix
+from pydantic import ValidationError
 
 
 def test_universes_grow_in_first_mention_order():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct2", "EUR", 0.5)
     b.set_exposure("acct1", "USD", 0.4)
@@ -18,6 +23,8 @@ def test_universes_grow_in_first_mention_order():
 
 
 def test_known_key_with_no_record_returns_cell_fill():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     b.set_exposure("acct2", "EUR", 0.5)
@@ -25,12 +32,16 @@ def test_known_key_with_no_record_returns_cell_fill():
 
 
 def test_unknown_key_raises():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     m = ExposureMatrixBuilder().build()
     with pytest.raises(KeyError, match="acct1"):
         m.exposure("acct1", "USD")
 
 
 def test_row_and_column_reads_return_stored_entries_only():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     b.set_exposure("acct1", "EUR", 0.6)
@@ -42,12 +53,16 @@ def test_row_and_column_reads_return_stored_entries_only():
 
 
 def test_matrix_is_immutable():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     m = ExposureMatrixBuilder().build()
     with pytest.raises(ValidationError):
         m.cell_fill = 1.0
 
 
 def test_declared_axis_is_frozen_and_rejects_unknown_keys():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(targets=["USD", "EUR"])
     b.set_exposure("acct1", "USD", 0.4)
     with pytest.raises(KeyError, match="USDD"):
@@ -56,6 +71,8 @@ def test_declared_axis_is_frozen_and_rejects_unknown_keys():
 
 
 def test_undeclared_axis_stays_open():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(targets=["USD"])
     b.set_exposure("acct1", "USD", 0.4)
     b.set_exposure("acct2", "USD", 0.5)
@@ -63,6 +80,8 @@ def test_undeclared_axis_stays_open():
 
 
 def test_thaw_reopens_an_axis_without_reordering_it():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(targets=["USD", "EUR"])
     b.thaw_targets()
     b.set_exposure("acct1", "JPY", 0.1)
@@ -70,6 +89,8 @@ def test_thaw_reopens_an_axis_without_reordering_it():
 
 
 def test_freeze_closes_an_axis_after_ingest():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     b.freeze_subjects()
@@ -79,12 +100,16 @@ def test_freeze_closes_an_axis_after_ingest():
 
 
 def test_declared_universe_positions_are_preserved_not_first_mention():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(targets=["USD", "EUR", "JPY"])
     b.set_exposure("acct1", "JPY", 0.1)
     assert list(b.build().targets) == ["USD", "EUR", "JPY"]
 
 
 def test_setting_a_row_replaces_it():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposures("acct1", {"USD": 0.4, "EUR": 0.6})
     b.set_exposures("acct1", {"JPY": 1.0})
@@ -92,6 +117,8 @@ def test_setting_a_row_replaces_it():
 
 
 def test_empty_row_registers_the_subject_without_records():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposures("acct1", {})
     m = b.build()
@@ -100,23 +127,49 @@ def test_empty_row_registers_the_subject_without_records():
 
 
 def test_none_applies_the_configured_default_row():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(default_row={"USD": 1.0})
     b.set_exposures("acct1", None)
     assert b.build().exposures_of("acct1") == {"USD": 1.0}
 
 
 def test_none_without_a_default_row_raises():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     with pytest.raises(ValueError, match="no default row"):
         b.set_exposures("acct1", None)
 
 
 def test_default_row_validated_against_a_frozen_target_axis_when_set():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     with pytest.raises(KeyError, match="GBP"):
         ExposureMatrixBuilder(targets=["USD"], default_row={"GBP": 1.0})
 
 
+def test_default_row_does_not_pre_seed_an_open_target_axis():
+    from lythonic.exposure import ExposureMatrixBuilder
+
+    b = ExposureMatrixBuilder(default_row={"EUR": 0.5})
+    assert list(b.targets) == []
+    b.set_exposure("acct1", "USD", 1.0)
+    assert list(b.targets) == ["USD"]
+    b.set_exposures("acct2", None)
+    assert list(b.targets) == ["USD", "EUR"]
+
+
+def test_builder_rejects_a_non_finite_cell_fill_on_construction():
+    from lythonic.exposure import ExposureMatrixBuilder
+
+    with pytest.raises(ValueError, match="finite"):
+        ExposureMatrixBuilder(cell_fill=float("nan"))
+
+
 def test_fill_valued_writes_leave_no_record():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     b.set_exposure("acct1", "USD", 0.0)
@@ -127,6 +180,8 @@ def test_fill_valued_writes_leave_no_record():
 
 
 def test_fill_normalization_follows_a_non_zero_cell_fill():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(cell_fill=1.0)
     b.set_exposure("acct1", "USD", 1.0)
     b.set_exposure("acct1", "EUR", 0.0)
@@ -136,6 +191,8 @@ def test_fill_normalization_follows_a_non_zero_cell_fill():
 
 
 def test_builder_reads_expose_work_in_progress():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposures("acct1", {"USD": 0.4})
     assert b.exposure("acct1", "USD") == 0.4
@@ -145,6 +202,8 @@ def test_builder_reads_expose_work_in_progress():
 
 
 def test_build_snapshots_and_the_builder_stays_usable():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     first = b.build()
@@ -158,6 +217,8 @@ def test_build_snapshots_and_the_builder_stays_usable():
 
 
 def test_built_matrix_does_not_alias_builder_state():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     m = b.build()
@@ -170,6 +231,8 @@ def test_built_matrix_does_not_alias_builder_state():
 
 
 def test_to_builder_round_trips_and_freezes_both_axes():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     m = b.build()
@@ -184,12 +247,16 @@ def test_to_builder_round_trips_and_freezes_both_axes():
 
 
 def test_to_builder_preserves_cell_fill_and_accepts_a_default_row():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     m = ExposureMatrixBuilder(cell_fill=1.0).build()
     b = m.to_builder(default_row={})
     assert b.build().cell_fill == 1.0
 
 
 def test_builder_read_supports_merging_a_row_by_hand():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposures("acct1", {"USD": 0.4})
     b.set_exposures("acct1", {**b.exposures_of("acct1"), "EUR": 0.6})
@@ -197,6 +264,8 @@ def test_builder_read_supports_merging_a_row_by_hand():
 
 
 def test_serializes_to_universes_and_index_triples():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposure("acct1", "USD", 0.4)
     b.set_exposure("acct2", "EUR", 0.9)
@@ -209,6 +278,8 @@ def test_serializes_to_universes_and_index_triples():
 
 
 def test_json_round_trip():
+    from lythonic.exposure import ExposureMatrix, ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(cell_fill=1.5)
     b.set_exposure("acct1", "USD", 0.4)
     m = b.build()
@@ -218,6 +289,8 @@ def test_json_round_trip():
 
 
 def test_same_exposures_serialize_identically_regardless_of_write_order():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     forward = ExposureMatrixBuilder(subjects=["acct1", "acct2"], targets=["USD", "EUR"])
     forward.set_exposure("acct1", "USD", 0.4)
     forward.set_exposure("acct2", "EUR", 0.9)
@@ -231,12 +304,16 @@ def test_same_exposures_serialize_identically_regardless_of_write_order():
 
 
 def test_equality_includes_cell_fill():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     a = ExposureMatrixBuilder(subjects=["acct1"], targets=["USD"], cell_fill=0.0).build()
     b = ExposureMatrixBuilder(subjects=["acct1"], targets=["USD"], cell_fill=1.0).build()
     assert a != b
 
 
 def test_deserialization_canonicalizes_unsorted_and_fill_valued_records():
+    from lythonic.exposure import ExposureMatrix
+
     m = ExposureMatrix.model_validate(
         {
             "subjects": ["acct1", "acct2"],
@@ -249,6 +326,8 @@ def test_deserialization_canonicalizes_unsorted_and_fill_valued_records():
 
 
 def test_deserialization_rejects_out_of_range_indexes():
+    from lythonic.exposure import ExposureMatrix
+
     with pytest.raises(ValidationError, match="out of range"):
         ExposureMatrix.model_validate(
             {"subjects": ["acct1"], "targets": ["USD"], "records": [(0, 3, 0.4)]}
@@ -256,6 +335,8 @@ def test_deserialization_rejects_out_of_range_indexes():
 
 
 def test_deserialization_rejects_duplicate_cells():
+    from lythonic.exposure import ExposureMatrix
+
     with pytest.raises(ValidationError, match="duplicate"):
         ExposureMatrix.model_validate(
             {
@@ -267,6 +348,8 @@ def test_deserialization_rejects_duplicate_cells():
 
 
 def _sample() -> ExposureMatrix:
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder()
     b.set_exposures("acct1", {"USD": 0.4, "EUR": 0.6})
     b.set_exposures("acct2", {"USD": 0.9})
@@ -306,6 +389,8 @@ def test_cast_gives_new_subjects_cell_fill_when_no_default_row():
 
 
 def test_cast_preserves_cell_fill():
+    from lythonic.exposure import ExposureMatrixBuilder
+
     b = ExposureMatrixBuilder(cell_fill=1.0)
     b.set_exposure("acct1", "USD", 0.4)
     assert b.build().cast(subjects=["acct1"]).cell_fill == 1.0
@@ -323,6 +408,8 @@ def test_cast_has_no_default_column():
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_non_finite_cell_fill_rejected(bad: float):
+    from lythonic.exposure import ExposureMatrix
+
     with pytest.raises(ValidationError, match="finite"):
         ExposureMatrix.model_validate(
             {"subjects": [], "targets": [], "cell_fill": bad, "records": []}
