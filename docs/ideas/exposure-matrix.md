@@ -273,10 +273,10 @@ build-time defensive copy needs an explicit test - mutate the builder after
   reuses an existing matrix's universes would avoid the hazard for the common
   case of bringing a product home.
 
-- **`FrameData` facade retrofit.** The same `pd`/`pl`/`pa` facade pattern could
-  replace `to_pandas` / `from_pandas` and friends. Deliberately out of scope
-  here. Note that it would break the six public methods shipped in v0.0.22
-  (`src/lythonic/frame.py`).
+- ~~**`FrameData` facade retrofit.**~~ Resolved in v0.0.23: `FrameData` gained
+  `pd`/`pl`/`pa` facades, the binding descriptor moved to `lythonic.facade`
+  where both modules use it, and the six methods shipped in v0.0.22 were
+  removed.
 
 ## Non-goals
 

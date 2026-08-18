@@ -66,7 +66,17 @@ jobs:
     # Test each optional dependency extra individually on a single OS/Python
     strategy:
       matrix:
-        extra: ["pandas", "polars", "pyarrow"]
+        # Each extra runs the tests that actually exercise it, so installing an
+        # extra proves its conversion path needs nothing the extra omits.
+        include:
+          - extra: "pandas"
+            tests: "tests/test_frame.py"
+          - extra: "polars"
+            tests: "tests/test_frame.py"
+          - extra: "pyarrow"
+            tests: "tests/test_frame.py"
+          - extra: "numpy"
+            tests: "tests/test_exposure_numpy.py"
 
     runs-on: ubuntu-latest
 
@@ -90,4 +100,4 @@ jobs:
         run: uv sync --extra ${{ matrix.extra }}
 
       - name: Run tests
-        run: uv run pytest tests/test_frame.py -v
+        run: uv run pytest ${{ matrix.tests }} -v

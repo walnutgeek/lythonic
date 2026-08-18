@@ -46,3 +46,12 @@ _Avoid_: reindex, project, conform
 Tabular data in a library-agnostic form, independent of pandas, polars, or
 pyarrow.
 _Avoid_: dataframe, table
+
+## Conversions
+
+**Facade**:
+The surface one optional library gets on a type, reached through a single
+attribute named for that library's conventional import alias (`np`, `pd`, `pl`,
+`pa`). Class access gives inbound constructors, instance access outbound
+conversions.
+_Avoid_: adapter, bridge, accessor, namespace

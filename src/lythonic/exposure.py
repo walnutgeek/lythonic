@@ -25,10 +25,12 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from math import inf, isfinite
-from typing import TYPE_CHECKING, ClassVar, overload
+from types import ModuleType
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from lythonic.facade import LibAccess, require
 from lythonic.universe import Universe
 
 if TYPE_CHECKING:
@@ -43,9 +45,11 @@ class MatrixNpIn:
     """Class-access numpy facade: constructors that take dense arrays."""
 
     _owner: type[ExposureMatrix]
+    _numpy: ModuleType
 
     def __init__(self, owner: type[ExposureMatrix]) -> None:
         self._owner = owner
+        self._numpy = require("numpy")
 
     def from_matrix(
         self,
@@ -60,14 +64,12 @@ class MatrixNpIn:
         This is how a numpy result comes home. NaN raises rather than being
         stored, since a NaN in the data is almost always upstream breakage.
         """
-        import numpy
-
         subjects, targets = Universe(subjects), Universe(targets)
         if arr.shape != (len(subjects), len(targets)):
             raise ValueError(
                 f"array shape {arr.shape} does not match {len(subjects)}x{len(targets)} universes"
             )
-        if bool(numpy.isnan(arr).any()):
+        if bool(self._numpy.isnan(arr).any()):
             raise ValueError("array contains NaN")
         records = [
             (si, ti, float(v))
@@ -82,14 +84,15 @@ class MatrixNpOut:
     """Instance-access numpy facade: dense views of a matrix."""
 
     _m: ExposureMatrix
+    _numpy: ModuleType
 
     def __init__(self, owner: ExposureMatrix) -> None:
         self._m = owner
+        self._numpy = require("numpy")
 
     def matrix(self) -> NDArray[np.float64]:
         """Dense `subjects` x `targets` array, absent cells set to `cell_fill`."""
-        import numpy
-
+        numpy = self._numpy
         m = self._m
         out = numpy.full((len(m.subjects), len(m.targets)), m.cell_fill, dtype=numpy.float64)
         for si, ti, value in m.records:
@@ -97,8 +100,7 @@ class MatrixNpOut:
         return out
 
     def _vector(self, size: int, stored: dict[str, float], keys: Universe) -> NDArray[np.float64]:
-        import numpy
-
+        numpy = self._numpy
         out = numpy.full(size, self._m.cell_fill, dtype=numpy.float64)
         for key, value in stored.items():
             out[keys.index(key)] = value
@@ -115,44 +117,18 @@ class MatrixNpOut:
         return self._vector(len(m.subjects), m.exposures_to(target), m.subjects)
 
 
-class MatrixNpAccess:
-    """
-    Binds `MatrixNpIn` on class access and `MatrixNpOut` on instance access.
-
-    One attribute serves both directions, so `ExposureMatrix.np.from_matrix(...)`
-    and `m.np.matrix()` are spelled consistently.
-    """
-
-    @overload
-    def __get__(self, obj: None, objtype: type[ExposureMatrix]) -> MatrixNpIn: ...
-    @overload
-    def __get__(
-        self, obj: ExposureMatrix, objtype: type[ExposureMatrix] | None = None
-    ) -> MatrixNpOut: ...
-
-    def __get__(
-        self, obj: ExposureMatrix | None, objtype: type[ExposureMatrix] | None = None
-    ) -> MatrixNpIn | MatrixNpOut:
-        if obj is None:
-            if objtype is None:
-                raise TypeError("no owning class")
-            return MatrixNpIn(objtype)
-        return MatrixNpOut(obj)
-
-
 class BuilderNpAccess:
     """Array-shaped writers, valid only against frozen axes."""
 
     _b: ExposureMatrixBuilder
+    _numpy: ModuleType
 
     def __init__(self, owner: ExposureMatrixBuilder) -> None:
         self._b = owner
+        self._numpy = require("numpy")
 
-    @staticmethod
-    def _reject_nan(arr: NDArray[np.float64]) -> None:
-        import numpy
-
-        if bool(numpy.isnan(arr).any()):
+    def _reject_nan(self, arr: NDArray[np.float64]) -> None:
+        if bool(self._numpy.isnan(arr).any()):
             raise ValueError("array contains NaN")
 
     def set_exposures(self, subject: str, values: NDArray[np.float64]) -> None:
@@ -196,7 +172,9 @@ class ExposureMatrix(BaseModel):
     cell_fill: float = 0.0
     records: list[Record] = []
 
-    np: ClassVar[MatrixNpAccess] = MatrixNpAccess()
+    np: ClassVar[LibAccess[ExposureMatrix, MatrixNpIn, MatrixNpOut]] = LibAccess(
+        MatrixNpIn, MatrixNpOut
+    )
     """Numpy facade. Class access gives constructors, instance access conversions."""
 
     @model_validator(mode="after")

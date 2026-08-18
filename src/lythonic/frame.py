@@ -10,9 +10,24 @@ Library-agnostic tabular data model.
 row-oriented format (`columns` + `data`). It serializes to/from JSON
 without any DataFrame library dependency.
 
-Conversion methods for pandas, polars, and pyarrow are available but
-lazily import their respective libraries. If a library isn't installed,
-calling its conversion method raises `ImportError`.
+Conversions live behind one facade per library, named for the library's
+conventional import alias. Class access gives the inbound constructors and
+instance access the outbound conversions:
+
+```python
+fd = FrameData.pd.from_frame(df)    # pandas DataFrame in
+df = fd.pd.frame()                  # pandas DataFrame out
+
+fd = FrameData.pl.from_frame(df)    # polars DataFrame in
+df = fd.pl.frame()                  # polars DataFrame out
+
+fd = FrameData.pa.from_table(tbl)   # pyarrow Table in
+tbl = fd.pa.table()                 # pyarrow Table out
+```
+
+Each facade lazily imports its library on first access, so importing this
+module costs nothing when no optional dependency is installed. Reaching for a
+library that is not installed raises `ImportError` naming the package.
 
 >>> fd = FrameData(columns=["a", "b"], data=[[1, 2], [3, 4]])
 >>> fd.columns
@@ -23,9 +38,12 @@ calling its conversion method raises `ImportError`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
+
+from lythonic.facade import LibAccess, require
 
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingImports]
@@ -33,81 +51,137 @@ if TYPE_CHECKING:
     import pyarrow as pa  # pyright: ignore[reportMissingImports]
 
 
-class FrameData(BaseModel):
-    """
-    Serializable tabular data container. Library-agnostic wire format
-    for passing table data between components.
+class PdIn:
+    """Class-access pandas facade: constructors that take a pandas DataFrame."""
 
-    Use `from_pandas`/`to_pandas`, `from_polars`/`to_polars`, or
-    `from_arrow`/`to_arrow` to convert to/from DataFrame libraries.
-    Each method lazily imports its library and raises `ImportError`
-    if it's not installed.
-    """
+    _owner: type[FrameData]
+    _pandas: ModuleType
 
-    columns: list[str]
-    data: list[list[Any]]
+    def __init__(self, owner: type[FrameData]) -> None:
+        self._owner = owner
+        self._pandas = require("pandas")
 
-    # -- pandas --
-
-    @staticmethod
-    def from_pandas(df: pd.DataFrame) -> FrameData:
-        """Convert a pandas DataFrame to FrameData."""
-        import pandas  # pyright: ignore[reportMissingImports]  # noqa: F811
-
-        if not isinstance(df, pandas.DataFrame):  # pyright: ignore[reportUnnecessaryIsInstance]
+    def from_frame(self, df: pd.DataFrame) -> FrameData:
+        """Build `FrameData` from a pandas DataFrame."""
+        if not isinstance(df, self._pandas.DataFrame):
             raise TypeError(f"Expected pandas.DataFrame, got {type(df).__name__}")
-        t: dict[str, Any] = df.to_dict(orient="tight", index=False)  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-        return FrameData(columns=t["columns"], data=t["data"])
+        t: dict[str, Any] = df.to_dict(orient="tight", index=False)
+        return self._owner(columns=t["columns"], data=t["data"])
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Convert FrameData to a pandas DataFrame."""
-        import pandas  # pyright: ignore[reportMissingImports]  # noqa: F811
 
-        return pandas.DataFrame.from_dict(
+class PdOut:
+    """Instance-access pandas facade: pandas views of the data."""
+
+    _fd: FrameData
+    _pandas: ModuleType
+
+    def __init__(self, owner: FrameData) -> None:
+        self._fd = owner
+        self._pandas = require("pandas")
+
+    def frame(self) -> pd.DataFrame:
+        """The data as a pandas DataFrame."""
+        fd = self._fd
+        return self._pandas.DataFrame.from_dict(
             {
-                **self.model_dump(mode="json"),
-                "index": list(range(len(self.data))),
+                **fd.model_dump(mode="json"),
+                "index": list(range(len(fd.data))),
                 "index_names": [""],
                 "column_names": [None],
             },
             orient="tight",
         )
 
-    # -- polars --
 
-    @staticmethod
-    def from_polars(df: pl.DataFrame) -> FrameData:
-        """Convert a polars DataFrame to FrameData."""
-        import polars  # pyright: ignore[reportMissingImports]  # noqa: F811
+class PlIn:
+    """Class-access polars facade: constructors that take a polars DataFrame."""
 
-        if not isinstance(df, polars.DataFrame):  # pyright: ignore[reportUnnecessaryIsInstance]
+    _owner: type[FrameData]
+    _polars: ModuleType
+
+    def __init__(self, owner: type[FrameData]) -> None:
+        self._owner = owner
+        self._polars = require("polars")
+
+    def from_frame(self, df: pl.DataFrame) -> FrameData:
+        """Build `FrameData` from a polars DataFrame."""
+        if not isinstance(df, self._polars.DataFrame):
             raise TypeError(f"Expected polars.DataFrame, got {type(df).__name__}")
-        return FrameData(columns=df.columns, data=df.rows())  # pyright: ignore[reportArgumentType]
+        return self._owner(columns=df.columns, data=[list(row) for row in df.rows()])
 
-    def to_polars(self) -> pl.DataFrame:
-        """Convert FrameData to a polars DataFrame."""
-        import polars  # pyright: ignore[reportMissingImports]  # noqa: F811
 
-        return polars.DataFrame(self.data, schema=self.columns, orient="row")
+class PlOut:
+    """Instance-access polars facade: polars views of the data."""
 
-    # -- pyarrow --
+    _fd: FrameData
+    _polars: ModuleType
 
-    @staticmethod
-    def from_arrow(table: pa.Table) -> FrameData:
-        """Convert a pyarrow Table to FrameData."""
-        import pyarrow  # pyright: ignore[reportMissingImports]  # noqa: F811
+    def __init__(self, owner: FrameData) -> None:
+        self._fd = owner
+        self._polars = require("polars")
 
-        if not isinstance(table, pyarrow.Table):
+    def frame(self) -> pl.DataFrame:
+        """The data as a polars DataFrame."""
+        fd = self._fd
+        return self._polars.DataFrame(fd.data, schema=fd.columns, orient="row")
+
+
+class PaIn:
+    """Class-access pyarrow facade: constructors that take a pyarrow Table."""
+
+    _owner: type[FrameData]
+    _pyarrow: ModuleType
+
+    def __init__(self, owner: type[FrameData]) -> None:
+        self._owner = owner
+        self._pyarrow = require("pyarrow")
+
+    def from_table(self, table: pa.Table) -> FrameData:
+        """Build `FrameData` from a pyarrow Table."""
+        if not isinstance(table, self._pyarrow.Table):
             raise TypeError(f"Expected pyarrow.Table, got {type(table).__name__}")
         col_dict = table.to_pydict()
         columns = table.column_names
-        n_rows = table.num_rows
-        data = [[col_dict[c][i] for c in columns] for i in range(n_rows)]
-        return FrameData(columns=columns, data=data)
+        data = [[col_dict[c][i] for c in columns] for i in range(table.num_rows)]
+        return self._owner(columns=columns, data=data)
 
-    def to_arrow(self) -> pa.Table:
-        """Convert FrameData to a pyarrow Table."""
-        import pyarrow  # pyright: ignore[reportMissingImports]  # noqa: F811
 
-        col_dict = {c: [row[i] for row in self.data] for i, c in enumerate(self.columns)}
-        return pyarrow.table(col_dict)
+class PaOut:
+    """Instance-access pyarrow facade: Arrow views of the data."""
+
+    _fd: FrameData
+    _pyarrow: ModuleType
+
+    def __init__(self, owner: FrameData) -> None:
+        self._fd = owner
+        self._pyarrow = require("pyarrow")
+
+    def table(self) -> pa.Table:
+        """The data as a pyarrow Table."""
+        fd = self._fd
+        col_dict = {c: [row[i] for row in fd.data] for i, c in enumerate(fd.columns)}
+        return self._pyarrow.table(col_dict)
+
+
+class FrameData(BaseModel):
+    """
+    Serializable tabular data container. Library-agnostic wire format
+    for passing table data between components.
+
+    One facade per DataFrame library: `pd`, `pl`, `pa`. Class access gives
+    the inbound constructors (`FrameData.pd.from_frame(df)`), instance access
+    the outbound conversions (`fd.pd.frame()`). Each facade lazily imports its
+    library and raises `ImportError` if it is not installed.
+    """
+
+    columns: list[str]
+    data: list[list[Any]]
+
+    pd: ClassVar[LibAccess[FrameData, PdIn, PdOut]] = LibAccess(PdIn, PdOut)
+    """Pandas facade. Class access gives constructors, instance access conversions."""
+
+    pl: ClassVar[LibAccess[FrameData, PlIn, PlOut]] = LibAccess(PlIn, PlOut)
+    """Polars facade. Class access gives constructors, instance access conversions."""
+
+    pa: ClassVar[LibAccess[FrameData, PaIn, PaOut]] = LibAccess(PaIn, PaOut)
+    """Pyarrow facade. Class access gives constructors, instance access conversions."""
