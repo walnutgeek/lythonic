@@ -20,6 +20,22 @@ git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline
 
 Note that tag and substitute everywhere you see {LAST_RELEASE_TAG}.
 
+### Collect ADRs and closed tickets
+
+Find the ADRs added or amended during this cycle:
+```bash
+git diff --name-status {LAST_RELEASE_TAG}..HEAD -- docs/adr 'src/*/docs/adr'
+```
+
+Find the tickets closed during this cycle. Commit messages carry the
+authoritative link (`Closes #N`, `Fixes #N`); the tracker fills in the titles:
+```bash
+git log {LAST_RELEASE_TAG}..HEAD --grep='#[0-9]' -i --pretty=%s%n%b | grep -oiE '(closes|fixes|resolves) #[0-9]+'
+gh issue view {N}  # per ticket, for the title
+```
+
+Keep both lists — they go in the release notes and in the release message.
+
 Write a release notes file to `docs/release_notes/v$ARGUMENTS.md` following
 the style of the previous release notes (see `docs/release_notes/` for
 examples). The release notes should:
@@ -30,6 +46,10 @@ examples). The release notes should:
 - Collapse multiple commits for the same feature into one bullet
 - Reference module paths (e.g., `lythonic.compose.namespace`) where relevant
 - Do NOT list every commit — summarize the intent of related changes
+- End with a **Decisions and tickets** section (omit if both lists are empty):
+  the ADRs from this cycle, each as a link to its file with its title and one
+  line on what it decided, and the closed tickets, each as `#N` plus its title.
+  New and amended ADRs are distinguished; an amended one says what changed.
 
 ### Update release index
 
@@ -74,6 +94,24 @@ https://github.com/walnutgeek/lythonic/tree/v$ARGUMENTS/{DESIGN_DOC_PATH}
 ---
 Replace {DESIGN_DOCS_SNIPPET} in the message below.
 
+From the ADR and ticket lists collected in Step 1, craft two more snippets,
+each kept empty if its list is empty:
+
+---
+**ADRs**:
+<foreach adr>
+- [{ADR_TITLE}](https://github.com/walnutgeek/lythonic/blob/v$ARGUMENTS/{ADR_PATH}){AMENDED_NOTE}
+</foreach>
+
+---
+**Closed**:
+<foreach ticket>
+- #{N} {TICKET_TITLE}
+</foreach>
+
+---
+Replace {ADRS_SNIPPET} and {TICKETS_SNIPPET} in the message below.
+
 
 Come up with a title for this release, 80 characters or less. Try to catch the
 common theme among all changes, yet you can cut it short with "..." if there
@@ -91,6 +129,10 @@ Title: v$ARGUMENTS: {RELEASE_TITLE}
 **Full Changelog**: https://github.com/walnutgeek/lythonic/compare/{LAST_RELEASE_TAG}...v$ARGUMENTS
 
 [Release notes](https://github.com/walnutgeek/lythonic/blob/main/docs/release_notes/v$ARGUMENTS.md)
+
+{ADRS_SNIPPET}
+
+{TICKETS_SNIPPET}
 
 {DESIGN_DOCS_SNIPPET}
 
