@@ -343,6 +343,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+numpy = [
+    { name = "numpy" },
+]
 pandas = [
     { name = "pandas" },
 ]
@@ -376,13 +379,14 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "croniter", specifier = ">=6.2.2" },
+    { name = "numpy", marker = "extra == 'numpy'" },
     { name = "pandas", marker = "extra == 'pandas'" },
     { name = "polars", marker = "extra == 'polars'" },
     { name = "pyarrow", marker = "extra == 'pyarrow'" },
     { name = "pydantic" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
-provides-extras = ["pandas", "polars", "pyarrow"]
+provides-extras = ["numpy", "pandas", "polars", "pyarrow"]
 
 [package.metadata.requires-dev]
 dev = [

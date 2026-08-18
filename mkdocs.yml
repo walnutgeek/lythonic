@@ -90,6 +90,8 @@ nav:
           - lythonic.state: reference/state.md
           - "...user": reference/user.md
       - lythonic.types: reference/types.md
+      - lythonic.universe: reference/universe.md
+      - lythonic.exposure: reference/exposure.md
       - lythonic.misc: reference/misc.md
   - Releases:
       - v0.0.22: release_notes/v0.0.22.md

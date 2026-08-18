@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+numpy = ["numpy"]
 pandas = ["pandas"]
 polars = ["polars"]
 pyarrow = ["pyarrow"]

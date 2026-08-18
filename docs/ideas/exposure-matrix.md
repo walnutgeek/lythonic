@@ -240,8 +240,9 @@ semantically targets, which the type has no way to express.
 ## Spike results
 
 `devtools/proto_np_facade.py` measured the descriptor's cost under the project's
-basedpyright settings. Verdict: no friction worth avoiding. Delete the spike
-when the real implementation lands.
+basedpyright settings before the implementation existed. Verdict: no friction
+worth avoiding. The spike has been deleted now that `lythonic.exposure` carries
+the same shape; its findings are kept here.
 
 - Types are exact, not `Any`. `ExposureMatrix.np` reveals as `NpIn`, `m.np` as
   `NpOut`, `m.np.matrix()` as `ndarray[tuple[Any, ...], dtype[float64]]`.
