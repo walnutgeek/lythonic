@@ -20,7 +20,9 @@ they deserve their own type.
 
 ## Types
 
-Module: `src/lythonic/exposure.py`, matching `frame.py`.
+Two modules: `src/lythonic/universe.py` and `src/lythonic/exposure.py`, matching
+`frame.py` in naming. `Universe` gets its own module because it is a reusable
+type with its own test seam and may outlive `ExposureMatrix`.
 
 ### `Universe`
 
