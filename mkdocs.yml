@@ -73,6 +73,9 @@ nav:
       - Cashflow Tracking Example: tutorials/cashflow-example.md
       - Scheduled Triggers: tutorials/scheduled-triggers.md
   - How-To Guides:
+      - Choose a Keyed Data Type: how-to/choose-a-keyed-type.md
+      - Convert To and From Libraries: how-to/library-conversions.md
+      - Compose Keyed Types: how-to/compose-keyed-types.md
       - Define a Schema: how-to/define-schema.md
       - Multi-Tenant Apps: how-to/multi-tenant.md
       - Composable DAGs: how-to/composable-dags.md
