@@ -286,3 +286,26 @@ Let's refactor def get_recent_runs(..) to return list[DagRun]
 
 [x] Validated
 
+
+
+## `from_matrix` mis-association on square arrays
+
+Moved here from `docs/ideas/exposure-matrix.md`, which has been deleted now that
+`lythonic.exposure` carries the design. Still unresolved, and it now applies to
+two types.
+
+`ExposureMatrix.np.from_matrix(arr, subjects, targets)` checks the array's shape
+against the two universes, which catches a length mismatch but not a transposed
+square array - the subjects and targets get silently swapped. A
+`with_values(arr)` variant that reuses an existing matrix's universes would
+avoid the hazard for the common case of bringing a numpy result home.
+
+The planned `SymmetricMatrix.np.from_matrix(arr, universe)` has the same problem
+and cannot dodge it by shape, because every input is square. It reads the lower
+triangle and ignores the upper, so an upper-triangular array produces a silently
+wrong matrix rather than an error. Rejecting an array whose upper triangle is
+non-zero and disagrees with its lower would catch it, at the cost of introducing
+a comparison tolerance that the triangle layout was specifically chosen to
+avoid.
+
+[ ] Validated

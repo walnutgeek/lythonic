@@ -14,7 +14,8 @@ The thing a subject is exposed to. The second axis of an exposure matrix.
 _Avoid_: column, column key, y, factor
 
 **Universe**:
-An ordered, duplicate-free sequence of keys naming one axis.
+An ordered, duplicate-free sequence of keys naming one axis. A matrix may name
+both of its axes with the same universe.
 _Avoid_: index, axis labels, keyspace
 
 **Exposure**:
@@ -39,6 +40,23 @@ _Avoid_: locked, closed, sealed
 **Cast**:
 Producing a new matrix over different universes, dropping keys outside them.
 _Avoid_: reindex, project, conform
+
+## Symmetric matrices
+
+**Symmetric matrix**:
+A square matrix whose two axes are the same universe and whose value depends on
+an unordered pair of keys. Carries no claim about definiteness.
+_Avoid_: correlation matrix, covariance matrix, gram matrix
+
+**Pair**:
+An unordered pair of keys from the universe, addressing one value. Naming the
+same key twice addresses the diagonal.
+_Avoid_: cell, edge, entry, tuple
+
+**Diagonal**:
+The values at self-pairs, one per key in the universe. Always present, never
+absent, and never inferred from the off-diagonal values.
+_Avoid_: variances, self-correlations, trace
 
 ## Tabular data
 
