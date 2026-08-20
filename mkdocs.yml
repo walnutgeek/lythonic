@@ -92,6 +92,8 @@ nav:
       - lythonic.types: reference/types.md
       - lythonic.universe: reference/universe.md
       - lythonic.exposure: reference/exposure.md
+      - lythonic.symmetric: reference/symmetric.md
+      - lythonic.vector: reference/vector.md
       - lythonic.frame: reference/frame.md
       - lythonic.facade: reference/facade.md
       - lythonic.misc: reference/misc.md
