@@ -58,6 +58,22 @@ The values at self-pairs, one per key in the universe. Always present, never
 absent, and never inferred from the off-diagonal values.
 _Avoid_: variances, self-correlations, trace
 
+## Keyed vectors
+
+**Keyed vector**:
+A value per key of a universe, in universe order. Every key has an entry;
+there is no absent entry.
+_Avoid_: series, array, mapping, weights
+
+**Entry**:
+One key-and-value position in a keyed vector.
+_Avoid_: element, item, cell, component
+
+**Aligned**:
+Sharing a universe, so positions correspond. A keyed vector is aligned to a
+matrix axis when the two universes are equal.
+_Avoid_: conformable, compatible, matching
+
 ## Tabular data
 
 **Frame data**:

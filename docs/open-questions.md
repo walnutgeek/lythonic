@@ -309,3 +309,25 @@ a comparison tolerance that the triangle layout was specifically chosen to
 avoid.
 
 [ ] Validated
+
+
+## Keyed returns from the matrix types
+
+`ExposureMatrix.exposures_of` / `exposures_to` return `dict[str, float]`, and
+`SymmetricMatrix.diagonal` / `values_of` are designed to do the same. A
+`KeyedVector` would be the more expressive return type - it keeps the universe,
+so alignment against a matrix axis is checkable - but `ExposureMatrix` shipped
+its dict returns in v0.0.23, so changing them is a breaking change.
+
+For now `KeyedVector` is additive and the dict returns stand. Bridging is
+lossless and one call, since both accessors return an entry per key in universe
+order: `KeyedVector.from_mapping(m.diagonal())`.
+
+The open question is whether keyed returns should replace the dict returns
+uniformly across both matrix types at a future major version. Doing it for
+`SymmetricMatrix` alone, while it is still unimplemented and therefore free,
+was rejected - it would leave two neighbouring matrix types answering the same
+question with different types, which is the inconsistency a user hits rather
+than one a maintainer reads about.
+
+[ ] Validated
