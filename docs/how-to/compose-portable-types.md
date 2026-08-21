@@ -1,4 +1,4 @@
-# How to Compose Keyed Types
+# How to Compose Portable Data Types
 
 Recipes for moving data between `FrameData`, `ExposureMatrix`,
 `SymmetricMatrix` and `KeyedVector`. Each type is deliberately narrow; the
@@ -182,5 +182,5 @@ underneath you.
 
 ## See also
 
-- [Choose a Keyed Data Type](choose-a-keyed-type.md)
+- [Choose a Portable Data Type](choose-a-portable-type.md)
 - [Convert To and From Libraries](library-conversions.md)

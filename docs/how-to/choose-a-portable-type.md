@@ -1,7 +1,9 @@
-# How to Choose a Keyed Data Type
+# How to Choose a Portable Data Type
 
-Lythonic has four types for data addressed by string keys. They look similar
-from the outside; the difference is the *shape* of what you are holding.
+Lythonic's *portable data types* hold data in a form that depends on no data
+library: they round-trip through JSON on their own, and convert into numpy,
+pandas, polars or pyarrow on demand. There are four, and they look similar from
+the outside - the difference is the *shape* of what you are holding.
 
 | You have | Use | Keyed by |
 |---|---|---|
@@ -139,7 +141,7 @@ Knowing the deliberate gaps saves reaching for the wrong thing:
 ## See also
 
 - [Convert To and From Libraries](library-conversions.md) - the facade pattern
-- [Compose Keyed Types](compose-keyed-types.md) - moving data between them
+- [Compose Portable Data Types](compose-portable-types.md) - moving data between them
 - Reference: [universe](../reference/universe.md), [frame](../reference/frame.md),
   [exposure](../reference/exposure.md), [symmetric](../reference/symmetric.md),
   [vector](../reference/vector.md)

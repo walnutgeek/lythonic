@@ -176,6 +176,6 @@ and shrinkage are estimation decisions that belong to you, and you have
 
 ## See also
 
-- [Choose a Keyed Data Type](choose-a-keyed-type.md)
-- [Compose Keyed Types](compose-keyed-types.md)
+- [Choose a Portable Data Type](choose-a-portable-type.md)
+- [Compose Portable Data Types](compose-portable-types.md)
 - Reference: [facade](../reference/facade.md)

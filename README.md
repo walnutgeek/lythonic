@@ -61,6 +61,7 @@ or both in the same DAG. Sync nodes run in a thread executor automatically.
 - **Caching** — per-callable SQLite cache with probabilistic TTL refresh
 - **`lyth` CLI** — `start`, `stop`, `run`, `fire`, `status` commands
 - **State** — Pydantic-based SQLite ORM with schema management and multi-tenant support
+- **Portable data types** — `FrameData`, `ExposureMatrix`, `SymmetricMatrix`, `KeyedVector`: JSON in, numpy/pandas/polars/pyarrow out, no library required
 
 ## Documentation
 

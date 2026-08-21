@@ -3,6 +3,14 @@
 Glossary for the terms this project commits to. Definitions only, no
 implementation detail.
 
+## Portable data types
+
+**Portable data type**:
+A value that holds data in a form depending on no data library: it serializes
+on its own and converts into a library only on demand. The family covers frame
+data, exposure matrices, symmetric matrices, and keyed vectors.
+_Avoid_: container, data structure, model, dataframe wrapper
+
 ## Exposure matrices
 
 **Subject**:
