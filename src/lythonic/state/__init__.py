@@ -132,7 +132,17 @@ recent = MyModel.select(conn, gt__year=2020)
 
 # IN clause (pass a list)
 specific = MyModel.select(conn, status=["active", "pending"])
+
+# None means NULL: IS NULL, IS NOT NULL, and IN (...) OR IS NULL
+unresolved = MyModel.select(conn, instrument=None)
+resolved = MyModel.select(conn, ne__instrument=None)
+either = MyModel.select(conn, instrument=[7, None])
 ```
+
+The operator is a prefix (`ne__instrument`, not `instrument__ne`). Ordering
+operators (`gt`, `lt`, `gte`, `lte`) raise `ValueError` when given `None`, since
+a comparison with NULL is never true. The same filter rules apply to `select`,
+`select_count`, `exists`, `update` and `delete`.
 
 ### Load by ID
 
@@ -345,12 +355,16 @@ class FilterOp(NamedTuple):
         else:
             operator = "eq"
             name = filter_key
+        if operator not in FILTER_OPERATOR_SQL and name in FILTER_OPERATOR_SQL:
+            raise ValueError(
+                f"Filter operator is a prefix: use {name}__{operator}, not {filter_key}"
+            )
         assert operator in FILTER_OPERATOR_SQL, f"Unknown filter operator: {operator}"
         return cls(operator=operator, name=name)
 
     @override
     def __str__(self) -> str:
-        return self.name if self.operator == "eq" else f"{self.name}__{self.operator}"
+        return self.name if self.operator == "eq" else f"{self.operator}__{self.name}"
 
     @override
     def __repr__(self) -> str:
@@ -600,12 +614,31 @@ class DbModel(BaseModel, Generic[T]):
             where_keys.add(f_op.name)
             if f_op.operator == "eq":
                 if isinstance(v, list):
-                    v_list: list[Any] = [fi.ktype.db.map_to(val) for val in cast(list[Any], v)]
-                    where_clauses.append(f"{f_op.name} IN ({', '.join('?' * len(v_list))})")
+                    values = cast(list[Any], v)
+                    # NULL inside an IN list never matches, so None becomes a separate IS NULL.
+                    v_list: list[Any] = [
+                        fi.ktype.db.map_to(val) for val in values if val is not None
+                    ]
+                    in_clause = f"{f_op.name} IN ({', '.join('?' * len(v_list))})"
+                    if len(v_list) == len(values):
+                        where_clauses.append(in_clause)
+                    elif v_list:
+                        where_clauses.append(f"({in_clause} OR {f_op.name} IS NULL)")
+                    else:
+                        where_clauses.append(f"{f_op.name} IS NULL")
                     args.extend(v_list)
+                elif v is None:
+                    where_clauses.append(f"{f_op.name} IS NULL")
                 else:
                     where_clauses.append(f"{f_op.name} = ?")
                     args.append(fi.ktype.db.map_to(v))
+            elif f_op.operator == "ne" and v is None:
+                where_clauses.append(f"{f_op.name} IS NOT NULL")
+            elif v is None:
+                # Ordering against NULL is never true in SQL, so it is always a caller mistake.
+                raise ValueError(
+                    f"Cannot filter {f_op.name!r} with operator {f_op.operator!r} against None"
+                )
             else:
                 op_resolved = FILTER_OPERATOR_SQL[f_op.operator]
                 where_clauses.append(f"{f_op.name} {op_resolved} ?")

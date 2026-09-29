@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from collections.abc import Generator
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,7 @@ import tests.rag_schema as rag
 from lythonic import utc_now
 from lythonic.misc import tabula_rasa_path
 from lythonic.state import (
+    DbModel,
     FieldInfo,
     Schema,
     open_sqlite_db,
@@ -453,3 +455,76 @@ def test_add_attempt():
         assert rag.ConvoSession.select_count(conn, session_id=sess.session_id) == 0
 
         conn.commit()
+
+
+class Member(DbModel["Member"]):
+    member_id: int = Field(default=-1, description="(PK)")
+    symbol: str = Field(description="Symbol")
+    instrument: int | None = Field(
+        default=None, description="Pinned instrument, null if unresolved"
+    )
+
+
+@pytest.fixture
+def member_conn() -> Generator[sqlite3.Connection, None, None]:
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute(Member.create_ddl())
+        for symbol, instrument in [("AAPL", 7), ("MSFT", 9), ("NOSUCH", None), ("XXX", None)]:
+            Member(symbol=symbol, instrument=instrument).save(conn)
+        yield conn
+
+
+def member_symbols(members: list[Member]) -> set[str]:
+    return {m.symbol for m in members}
+
+
+def test_none_filter_matches_null_rows(member_conn: sqlite3.Connection):
+    assert member_symbols(Member.select(member_conn, instrument=None)) == {"NOSUCH", "XXX"}
+
+
+def test_ne_none_filter_matches_non_null_rows(member_conn: sqlite3.Connection):
+    non_null = member_symbols(Member.select(member_conn, ne__instrument=None))
+    assert non_null == {"AAPL", "MSFT"}
+    null = member_symbols(Member.select(member_conn, instrument=None))
+    assert non_null.isdisjoint(null)
+    assert non_null | null == member_symbols(Member.select(member_conn))
+
+
+@pytest.mark.parametrize("op", ["gt", "lt", "gte", "lte"])
+def test_ordering_filter_with_none_raises(member_conn: sqlite3.Connection, op: str):
+    with pytest.raises(ValueError, match=f"instrument.*{op}"):
+        Member.select(member_conn, **{f"{op}__instrument": None})
+
+
+def test_in_list_with_none_matches_null_rows(member_conn: sqlite3.Connection):
+    assert member_symbols(Member.select(member_conn, instrument=[7, None])) == {
+        "AAPL",
+        "NOSUCH",
+        "XXX",
+    }
+    assert member_symbols(Member.select(member_conn, instrument=[None])) == {"NOSUCH", "XXX"}
+    assert member_symbols(Member.select(member_conn, instrument=[7, 9])) == {"AAPL", "MSFT"}
+
+
+def test_none_filter_applies_to_count_exists_update_delete(member_conn: sqlite3.Connection):
+    assert Member.select_count(member_conn, instrument=None) == 2
+    assert Member.select_count(member_conn, ne__instrument=None) == 2
+    assert Member.exists(member_conn, symbol="NOSUCH", instrument=None)
+    assert not Member.exists(member_conn, symbol="AAPL", instrument=None)
+    assert Member.exists(member_conn, symbol="AAPL", ne__instrument=None)
+    assert not Member.exists(member_conn, symbol="NOSUCH", ne__instrument=None)
+
+    (nosuch,) = Member.select(member_conn, symbol="NOSUCH")
+    nosuch.symbol = "RENAMED"
+    assert nosuch.update(member_conn, member_id=nosuch.member_id, instrument=None) == 1
+    (aapl,) = Member.select(member_conn, symbol="AAPL")
+    assert aapl.update(member_conn, member_id=aapl.member_id, instrument=None) == 0
+    assert member_symbols(Member.select(member_conn, instrument=None)) == {"RENAMED", "XXX"}
+
+    assert Member.delete(member_conn, instrument=None) == 2
+    assert member_symbols(Member.select(member_conn)) == {"AAPL", "MSFT"}
+
+
+def test_suffix_operator_error_suggests_prefix(member_conn: sqlite3.Connection):
+    with pytest.raises(ValueError, match="ne__instrument"):
+        Member.select(member_conn, instrument__ne=None)
