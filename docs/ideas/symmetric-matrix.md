@@ -3,7 +3,7 @@
 Status: design sketch, not implemented. Captures the decisions from a design
 session so they can be reviewed before any code is written.
 
-Terms used here are defined in `CONTEXT.md`. Two decisions have their own
+Terms used here are defined in `GLOSSARY.md`. Two decisions have their own
 records: `docs/adr/0003-symmetric-storage-canonical-union.md` and
 `docs/adr/0004-psd-is-a-query.md`.
 

@@ -392,5 +392,5 @@ The five canonical triage labels are used as-is: `needs-triage`, `needs-info`,
 
 ## Domain docs
 
-Single-context layout: `CONTEXT.md` and `docs/adr/` at the repo root (created lazily
+Single-context layout: `GLOSSARY.md` and `docs/adr/` at the repo root (created lazily
 when needed). See `docs/agents/domain.md`.
