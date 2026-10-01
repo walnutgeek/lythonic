@@ -5,6 +5,10 @@ Trigger: Event-driven execution of namespace nodes.
 Provides `TriggerStore` for activation state persistence and
 `TriggerManager` for runtime coordination. Trigger definitions
 live on `NsNodeConfig.triggers` as `TriggerConfig` instances.
+
+Scheduled fires missed while the process was down run once when polling
+resumes: re-activating an active trigger keeps its `last_run_at`. A run that
+overruns later scheduled fire times skips them and logs a warning.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -54,6 +59,37 @@ CREATE TABLE IF NOT EXISTS trigger_events (
 )"""
 
 
+_MAX_SKIPPED_COUNT = 1000
+
+
+def _croniter_for(schedule: str, base: float) -> croniter:
+    # 6-field cron has seconds as first field
+    return croniter(schedule, base, second_at_beginning=len(schedule.split()) == 6)
+
+
+def _warn_skipped_fires(name: str, schedule: str, started_at: float, finished_at: float) -> None:
+    """
+    Warn about scheduled fire times that passed while a run was in progress. `last_run_at`
+    is the completion time, so these are never fired.
+    """
+    it = _croniter_for(schedule, started_at)
+    first_skipped = it.get_next(float)
+    if first_skipped > finished_at:
+        return
+    # Counting runs on the event loop, so cap it for fine-grained schedules and long runs.
+    skipped = 1
+    while skipped < _MAX_SKIPPED_COUNT and it.get_next(float) <= finished_at:
+        skipped += 1
+    _log.warning(
+        "Trigger '%s' run took %.1fs and overran %s scheduled fire(s) starting at %s; "
+        "they will not run",
+        name,
+        finished_at - started_at,
+        f"{skipped}+" if skipped == _MAX_SKIPPED_COUNT else skipped,
+        datetime.fromtimestamp(first_skipped, tz=UTC).isoformat(timespec="seconds"),
+    )
+
+
 class TriggerStore:
     """SQLite-backed storage for trigger activations and events."""
 
@@ -69,7 +105,14 @@ class TriggerStore:
             conn.commit()
 
     def activate(self, trigger_config: TriggerConfig, dag_nsref: str) -> None:
-        """Create or update an activation record from a trigger config."""
+        """
+        Create or update an activation record from a trigger config.
+
+        Re-activating an active trigger (e.g. on every process start) keeps `last_run_at`,
+        `last_run_id` and `created_at`, even if the config changed, so a scheduled fire
+        missed while the process was down fires once when polling resumes. Activating a
+        disabled trigger resets `last_run_at` to now, so a deliberate pause is not caught up.
+        """
         config: dict[str, Any] = {}
         if trigger_config.schedule is not None:
             config["schedule"] = trigger_config.schedule
@@ -81,9 +124,16 @@ class TriggerStore:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
-                "INSERT OR REPLACE INTO trigger_activations "
+                "INSERT INTO trigger_activations "
                 "(name, dag_nsref, trigger_type, status, last_run_at, created_at, config_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "dag_nsref = excluded.dag_nsref, "
+                "trigger_type = excluded.trigger_type, "
+                "status = excluded.status, "
+                "config_json = excluded.config_json, "
+                "last_run_at = CASE WHEN trigger_activations.status = 'disabled' "
+                "THEN excluded.last_run_at ELSE trigger_activations.last_run_at END",
                 (
                     trigger_config.name,
                     dag_nsref,
@@ -290,11 +340,7 @@ class TriggerManager:
                         continue
 
                     last_run = activation.get("last_run_at") or activation.get("created_at") or 0
-                    # 6-field cron has seconds as first field
-                    is_6_field = len(schedule.split()) == 6
-                    next_fire = croniter(
-                        schedule, last_run, second_at_beginning=is_6_field
-                    ).get_next(float)
+                    next_fire = _croniter_for(schedule, last_run).get_next(float)
 
                     if now < next_fire:
                         continue
@@ -312,10 +358,13 @@ class TriggerManager:
                     else:
                         payload = None
 
+                    started_at = time.time()
                     try:
                         await self.fire(activation["name"], payload=payload)
                     except Exception:
                         _log.exception("Error firing poll trigger '%s'", activation["name"])
+                    else:
+                        _warn_skipped_fires(activation["name"], schedule, started_at, time.time())
 
                 await asyncio.sleep(1)
             except asyncio.CancelledError:

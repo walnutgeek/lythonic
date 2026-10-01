@@ -126,6 +126,19 @@ manager.deactivate("hourly_market")
 The trigger stays in the database with status `disabled`. Reactivate it
 later with `manager.activate("hourly_market")`.
 
+## Restarts and Missed Fires
+
+Call `activate()` on every process start. Re-activating a trigger that is
+already active keeps its `last_run_at`, even if its schedule changed, so if
+one or more scheduled fires fell due while the process was down, the trigger
+fires once (not once per missed fire) as soon as the poll loop starts.
+
+Reactivating a `disabled` trigger resets `last_run_at` to now, so the time it
+spent paused is not caught up.
+
+A run that takes longer than the gap to the next scheduled fire skips the
+fire times it overran and logs a warning naming the trigger.
+
 ## Without Provenance
 
 If you don't need DAG run tracking, skip the provenance parameter.
