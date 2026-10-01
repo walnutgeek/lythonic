@@ -101,7 +101,7 @@ nav:
       - lythonic.facade: reference/facade.md
       - lythonic.misc: reference/misc.md
   - Releases:
+      - v0.0.26: release_notes/v0.0.26.md
       - v0.0.25: release_notes/v0.0.25.md
       - v0.0.24: release_notes/v0.0.24.md
-      - v0.0.23: release_notes/v0.0.23.md
       - "...": release_notes/index.md
