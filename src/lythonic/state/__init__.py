@@ -776,7 +776,7 @@ def open_sqlite_db(db_name: str | Path):
     Yields:
         sqlite3.Connection: Database connection object
     """
-    logger.info(f"Opening database {db_name}")
+    logger.debug(f"Opening database {db_name}")
     conn = sqlite3.connect(db_name)
     try:
         yield conn
