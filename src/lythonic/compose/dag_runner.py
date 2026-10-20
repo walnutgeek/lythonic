@@ -44,7 +44,12 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
-from lythonic.compose.dag_provenance import DagProvenance, NullProvenance, json_default
+from lythonic.compose.dag_provenance import (
+    DagProvenance,
+    NullProvenance,
+    json_default,
+    run_initiator,
+)
 from lythonic.compose.log_context import reset_node_run_context, set_node_run_context
 from lythonic.compose.namespace import (
     CallNode,
@@ -134,8 +139,16 @@ class DagRunner:
         run_id = str(uuid.uuid4())
         nsref = dag_nsref or "unknown"
         loop = asyncio.get_running_loop()
+        # Read here: the executor thread does not see this task's context.
+        initiator = run_initiator.get()
         await loop.run_in_executor(
-            None, self.provenance.create_run, run_id, nsref, source_inputs or {}, parent_run_id
+            None,
+            self.provenance.create_run,
+            run_id,
+            nsref,
+            source_inputs or {},
+            parent_run_id,
+            initiator,
         )
         self._pause_requested = False
 
@@ -600,7 +613,9 @@ class DagRunner:
         source_inputs: dict[str, dict[str, Any]] = (
             json.loads(source_inputs_json) if source_inputs_json else {}
         )
-        self.provenance.create_run(new_run_id, old_run["dag_nsref"], source_inputs)
+        self.provenance.create_run(
+            new_run_id, old_run["dag_nsref"], source_inputs, initiator=run_initiator.get()
+        )
         self._pause_requested = False
 
         # Pre-populate outputs for nodes NOT being re-run

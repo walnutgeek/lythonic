@@ -9,6 +9,11 @@ live on `NsNodeConfig.triggers` as `TriggerConfig` instances.
 Scheduled fires missed while the process was down run once when polling
 resumes: re-activating an active trigger keeps its `last_run_at`. A run that
 overruns later scheduled fire times skips them and logs a warning.
+
+Runs fired by the schedule record `initiated_by = SCHEDULER`; runs fired with
+`TriggerManager.fire` record the caller's `run_initiator` (see
+`lythonic.compose.dag_provenance`). Activating or deactivating a trigger while
+`run_initiator` is set records it as `changed_by`, with `changed_at`.
 """
 
 from __future__ import annotations
@@ -31,7 +36,13 @@ if TYPE_CHECKING:
 
 from croniter import croniter
 
-from lythonic.compose.dag_provenance import safe_json_dumps
+from lythonic.compose.dag_provenance import (
+    SCHEDULER,
+    add_missing_column,
+    initiated_by,
+    run_initiator,
+    safe_json_dumps,
+)
 from lythonic.state import execute_sql, open_sqlite_db
 
 _TRIGGER_ACTIVATIONS_DDL = """\
@@ -44,8 +55,26 @@ CREATE TABLE IF NOT EXISTS trigger_activations (
     next_run_at REAL,
     last_run_id TEXT,
     created_at REAL NOT NULL,
-    config_json TEXT
+    config_json TEXT,
+    changed_by TEXT,
+    changed_at REAL
 )"""
+
+
+def _record_change(cursor: Any, name: str | None, now: float) -> None:
+    """
+    Record who activated or deactivated a trigger, when `run_initiator` names
+    someone. Re-activation at process start names no one and leaves the last
+    deliberate change in place.
+    """
+    initiator = run_initiator.get()
+    if initiator is not None:
+        execute_sql(
+            cursor,
+            "UPDATE trigger_activations SET changed_by = ?, changed_at = ? WHERE name = ?",
+            (initiator, now, name),
+        )
+
 
 _TRIGGER_EVENTS_DDL = """\
 CREATE TABLE IF NOT EXISTS trigger_events (
@@ -101,6 +130,8 @@ class TriggerStore:
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             execute_sql(cursor, _TRIGGER_ACTIVATIONS_DDL)
+            add_missing_column(cursor, "trigger_activations", "changed_by", "TEXT")
+            add_missing_column(cursor, "trigger_activations", "changed_at", "REAL")
             execute_sql(cursor, _TRIGGER_EVENTS_DDL)
             conn.commit()
 
@@ -144,6 +175,7 @@ class TriggerStore:
                     json.dumps(config),
                 ),
             )
+            _record_change(cursor, trigger_config.name, now)
             conn.commit()
 
     def deactivate(self, name: str) -> None:
@@ -155,6 +187,7 @@ class TriggerStore:
                 "UPDATE trigger_activations SET status = ? WHERE name = ?",
                 ("disabled", name),
             )
+            _record_change(cursor, name, time.time())
             conn.commit()
 
     def get_activation(self, name: str) -> dict[str, Any] | None:
@@ -360,7 +393,8 @@ class TriggerManager:
 
                     started_at = time.time()
                     try:
-                        await self.fire(activation["name"], payload=payload)
+                        with initiated_by(SCHEDULER):
+                            await self.fire(activation["name"], payload=payload)
                     except Exception:
                         _log.exception("Error firing poll trigger '%s'", activation["name"])
                     else:

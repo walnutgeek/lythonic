@@ -29,6 +29,19 @@ Sub-DAG runs link to their parent via `parent_run_id`. Use
 writes (node status + edge traversals, or node failure + run finish) into a
 single `open_sqlite_db` cycle to reduce lock contention.
 
+## Who Started a Run
+
+Each run records `initiated_by`: whatever `run_initiator` holds when
+`DagRunner.run` starts it, e.g. a user id set by the server handling the
+request. Child runs inherit it, since they start in the same context.
+`TriggerManager` sets `SCHEDULER` for runs its schedule fires. Set it with
+the `initiated_by` context manager:
+
+```
+with initiated_by("usr_1234"):
+    await runner.run(...)
+```
+
 ## Serialization Helpers
 
 `json_default()` and `safe_json_dumps()` handle Pydantic models and other
@@ -45,7 +58,9 @@ import json
 import logging
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +70,22 @@ from pydantic import BaseModel
 from lythonic.state import execute_sql, open_sqlite_db
 
 _log = logging.getLogger(__name__)
+
+SCHEDULER = "scheduler"
+"""`initiated_by` of runs fired by a trigger's schedule."""
+
+run_initiator: ContextVar[str | None] = ContextVar("run_initiator", default=None)
+"""Who is starting runs (and changing triggers) in the current context."""
+
+
+@contextmanager
+def initiated_by(initiator: str | None) -> Iterator[None]:
+    """Attribute runs started, and triggers changed, inside the block to `initiator`."""
+    token = run_initiator.set(initiator)
+    try:
+        yield
+    finally:
+        run_initiator.reset(token)
 
 
 def json_default(obj: Any) -> Any:
@@ -83,6 +114,7 @@ CREATE TABLE IF NOT EXISTS dag_runs (
     finished_at REAL,
     source_inputs_json TEXT,
     sink_outputs_json TEXT,
+    initiated_by TEXT,
     FOREIGN KEY (parent_run_id) REFERENCES dag_runs(run_id)
 )"""
 
@@ -158,6 +190,7 @@ class DagRun(BaseModel):
     status: str
     started_at: datetime
     finished_at: datetime | None = None
+    initiated_by: str | None = None
     nodes: dict[str, NodeExecution] = {}
     io: IoPayload | None = None
 
@@ -193,13 +226,29 @@ def _insert_run(
     dag_nsref: str,
     source_inputs: dict[str, Any],
     parent_run_id: str | None = None,
+    initiator: str | None = None,
 ) -> None:
     execute_sql(
         cursor,
-        "INSERT INTO dag_runs (run_id, dag_nsref, parent_run_id, status, started_at, source_inputs_json) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, dag_nsref, parent_run_id, "running", time.time(), safe_json_dumps(source_inputs)),
+        "INSERT INTO dag_runs (run_id, dag_nsref, parent_run_id, status, started_at, "
+        "source_inputs_json, initiated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            dag_nsref,
+            parent_run_id,
+            "running",
+            time.time(),
+            safe_json_dumps(source_inputs),
+            initiator,
+        ),
     )
+
+
+def add_missing_column(cursor: sqlite3.Cursor, table: str, column: str, decl: str) -> None:
+    """Add a column to a table created by an older version, if it lacks it."""
+    execute_sql(cursor, f"PRAGMA table_info({table})")
+    if column not in {row[1] for row in cursor.fetchall()}:
+        execute_sql(cursor, f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def _update_run_status(cursor: sqlite3.Cursor, run_id: str, status: str) -> None:
@@ -300,6 +349,7 @@ class DagProvenance:
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             execute_sql(cursor, _DAG_RUNS_DDL)
+            add_missing_column(cursor, "dag_runs", "initiated_by", "TEXT")
             execute_sql(cursor, _NODE_EXECUTIONS_DDL)
             execute_sql(cursor, _EDGE_TRAVERSALS_DDL)
             conn.commit()
@@ -310,10 +360,16 @@ class DagProvenance:
         dag_nsref: str,
         source_inputs: dict[str, Any],
         parent_run_id: str | None = None,
+        initiator: str | None = None,
     ) -> None:
-        """Create a new run record with status 'running'."""
+        """
+        Create a new run record with status 'running'. `initiator` defaults to
+        `run_initiator`; pass it explicitly when calling from another thread,
+        which does not see the caller's context.
+        """
+        initiator = initiator if initiator is not None else run_initiator.get()
         with open_sqlite_db(self.db_path) as conn:
-            _insert_run(conn.cursor(), run_id, dag_nsref, source_inputs, parent_run_id)
+            _insert_run(conn.cursor(), run_id, dag_nsref, source_inputs, parent_run_id, initiator)
             conn.commit()
 
     def update_run_status(self, run_id: str, status: str) -> None:
@@ -386,7 +442,7 @@ class DagProvenance:
             execute_sql(
                 cursor,
                 "SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at, "
-                "source_inputs_json, sink_outputs_json FROM dag_runs WHERE run_id = ?",
+                "source_inputs_json, sink_outputs_json, initiated_by FROM dag_runs WHERE run_id = ?",
                 (run_id,),
             )
             row = cursor.fetchone()
@@ -401,6 +457,7 @@ class DagProvenance:
                 "finished_at": row[5],
                 "source_inputs_json": row[6],
                 "sink_outputs_json": row[7],
+                "initiated_by": row[8],
             }
 
     def get_node_executions(self, run_id: str) -> list[dict[str, Any]]:
@@ -539,6 +596,7 @@ class DagProvenance:
                 status=r[3],
                 started_at=_ts(r[4]),  # pyright: ignore[reportArgumentType]
                 finished_at=_ts(r[5]),
+                initiated_by=r[6],
                 nodes=nodes_by_run.get(r[0], {}),
             )
             dag_runs.append(dag_run)
@@ -548,8 +606,8 @@ class DagProvenance:
         child_placeholders = ",".join("?" * len(run_ids))
         execute_sql(
             cursor,
-            f"SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
-            f"FROM dag_runs WHERE parent_run_id IN ({child_placeholders})",
+            f"SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at, "
+            f"initiated_by FROM dag_runs WHERE parent_run_id IN ({child_placeholders})",
             tuple(run_ids),
         )
         child_rows = cursor.fetchall()
@@ -584,7 +642,7 @@ class DagProvenance:
         execute_sql(
             cursor,
             f"SELECT run_id, dag_nsref, parent_run_id, status, started_at, "
-            f"finished_at FROM dag_runs {where}",
+            f"finished_at, initiated_by FROM dag_runs {where}",
             params,
         )
         return cursor.fetchall()
@@ -662,11 +720,12 @@ class DagProvenance:
             execute_sql(
                 cursor,
                 "WITH RECURSIVE descendants AS ( "
-                "  SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at "
+                "  SELECT run_id, dag_nsref, parent_run_id, status, started_at, finished_at, "
+                "    initiated_by "
                 "  FROM dag_runs WHERE parent_run_id = ? "
                 "  UNION ALL "
                 "  SELECT d.run_id, d.dag_nsref, d.parent_run_id, d.status, d.started_at, "
-                "    d.finished_at "
+                "    d.finished_at, d.initiated_by "
                 "  FROM dag_runs d JOIN descendants p ON d.parent_run_id = p.run_id "
                 ") SELECT * FROM descendants ORDER BY started_at",
                 (parent_run_id,),
@@ -687,6 +746,7 @@ class NullProvenance:
         dag_nsref: str,  # pyright: ignore[reportUnusedParameter]
         source_inputs: dict[str, Any],  # pyright: ignore[reportUnusedParameter]
         parent_run_id: str | None = None,  # pyright: ignore[reportUnusedParameter]
+        initiator: str | None = None,  # pyright: ignore[reportUnusedParameter]
     ) -> None:
         pass
 
