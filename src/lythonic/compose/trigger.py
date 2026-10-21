@@ -6,14 +6,22 @@ Provides `TriggerStore` for activation state persistence and
 `TriggerManager` for runtime coordination. Trigger definitions
 live on `NsNodeConfig.triggers` as `TriggerConfig` instances.
 
-Scheduled fires missed while the process was down run once when polling
-resumes: re-activating an active trigger keeps its `last_run_at`. A run that
-overruns later scheduled fire times skips them and logs a warning.
+Call `TriggerManager.activate_configured()` on every process start: it
+activates the triggers the node configs define, but leaves those stored as
+`disabled`, so a deliberate `deactivate()` survives restarts until an explicit
+`activate()`. Scheduled fires missed while the process was down run once when
+polling resumes: re-activating an active trigger keeps its `last_run_at`. A run
+that overruns later scheduled fire times skips them and logs a warning.
 
 Runs fired by the schedule record `initiated_by = SCHEDULER`; runs fired with
 `TriggerManager.fire` record the caller's `run_initiator` (see
-`lythonic.compose.dag_provenance`). Activating or deactivating a trigger while
-`run_initiator` is set records it as `changed_by`, with `changed_at`.
+`lythonic.compose.dag_provenance`).
+
+`activate` and `deactivate` record `run_initiator` as `changed_by`, with
+`changed_at`, when it is set or when the call changes the trigger's status. So
+`activate_configured()` at process start keeps the last deliberate change,
+while an explicit `activate()` of a disabled trigger with no initiator records
+`changed_by = NULL` rather than keeping the name of whoever disabled it.
 """
 
 from __future__ import annotations
@@ -21,8 +29,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -38,12 +48,11 @@ from croniter import croniter
 
 from lythonic.compose.dag_provenance import (
     SCHEDULER,
-    add_missing_column,
     initiated_by,
     run_initiator,
     safe_json_dumps,
 )
-from lythonic.state import execute_sql, open_sqlite_db
+from lythonic.state import add_missing_column, execute_sql, open_sqlite_db
 
 _TRIGGER_ACTIVATIONS_DDL = """\
 CREATE TABLE IF NOT EXISTS trigger_activations (
@@ -61,14 +70,24 @@ CREATE TABLE IF NOT EXISTS trigger_activations (
 )"""
 
 
-def _record_change(cursor: Any, name: str | None, now: float) -> None:
+def _status(cursor: sqlite3.Cursor, name: str | None) -> str | None:
+    execute_sql(cursor, "SELECT status FROM trigger_activations WHERE name = ?", (name,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _record_change(
+    cursor: sqlite3.Cursor, name: str | None, status_before: str | None, now: float
+) -> None:
     """
-    Record who activated or deactivated a trigger, when `run_initiator` names
-    someone. Re-activation at process start names no one and leaves the last
-    deliberate change in place.
+    Record `run_initiator` as `changed_by` when it names someone, or when the
+    status actually changed. Re-activating an active trigger at process start
+    names no one and leaves the last deliberate change in place; a status change
+    by no one records `changed_by = NULL`, so an old name is never left on a
+    state that person did not set.
     """
     initiator = run_initiator.get()
-    if initiator is not None:
+    if initiator is not None or _status(cursor, name) != status_before:
         execute_sql(
             cursor,
             "UPDATE trigger_activations SET changed_by = ?, changed_at = ? WHERE name = ?",
@@ -135,9 +154,13 @@ class TriggerStore:
             execute_sql(cursor, _TRIGGER_EVENTS_DDL)
             conn.commit()
 
-    def activate(self, trigger_config: TriggerConfig, dag_nsref: str) -> None:
+    def activate(
+        self, trigger_config: TriggerConfig, dag_nsref: str, *, keep_disabled: bool = False
+    ) -> bool:
         """
-        Create or update an activation record from a trigger config.
+        Create or update an activation record from a trigger config. Returns whether
+        the trigger is now active: with `keep_disabled`, a trigger stored as `disabled`
+        is left untouched, checked in the same transaction.
 
         Re-activating an active trigger (e.g. on every process start) keeps `last_run_at`,
         `last_run_id` and `created_at`, even if the config changed, so a scheduled fire
@@ -153,6 +176,9 @@ class TriggerStore:
         now = time.time()
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
+            status_before = _status(cursor, trigger_config.name)
+            if keep_disabled and status_before == "disabled":
+                return False
             execute_sql(
                 cursor,
                 "INSERT INTO trigger_activations "
@@ -175,19 +201,21 @@ class TriggerStore:
                     json.dumps(config),
                 ),
             )
-            _record_change(cursor, trigger_config.name, now)
+            _record_change(cursor, trigger_config.name, status_before, now)
             conn.commit()
+        return True
 
     def deactivate(self, name: str) -> None:
         """Set activation status to disabled."""
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
+            status_before = _status(cursor, name)
             execute_sql(
                 cursor,
                 "UPDATE trigger_activations SET status = ? WHERE name = ?",
                 ("disabled", name),
             )
-            _record_change(cursor, name, time.time())
+            _record_change(cursor, name, status_before, time.time())
             conn.commit()
 
     def get_activation(self, name: str) -> dict[str, Any] | None:
@@ -269,11 +297,20 @@ class TriggerStore:
             conn.commit()
 
 
+@dataclass(frozen=True)
+class TriggerActivationResult:
+    """Outcome of `TriggerManager.activate_configured`."""
+
+    activated: list[str]
+    left_disabled: list[str]
+
+
 class TriggerManager:
     """
     Runtime coordinator for triggers. Reads trigger definitions from
     node configs in the namespace. `activate()` creates DB records,
     `fire()` runs triggers, `start()`/`stop()` runs a background poll loop.
+    Call `activate_configured()` on every process start.
     """
 
     namespace: Namespace
@@ -295,9 +332,25 @@ class TriggerManager:
         self._shutdown: asyncio.Event = asyncio.Event()
 
     def activate(self, name: str) -> None:
-        """Activate a trigger by name (found in node configs)."""
+        """Activate a trigger by name (found in node configs), even if it is disabled."""
         node, tc = self.namespace.get_trigger(name)
         self.store.activate(tc, dag_nsref=str(node.nsref))
+
+    def activate_configured(self) -> TriggerActivationResult:
+        """
+        Activate every trigger defined in node configs, except those stored as
+        `disabled`: a deliberate `deactivate()` stays in force across restarts
+        until an explicit `activate()`.
+        """
+        activated: list[str] = []
+        left_disabled: list[str] = []
+        for node, tc in self.namespace.triggers():
+            assert tc.name is not None, "trigger name is set at registration"
+            if self.store.activate(tc, dag_nsref=str(node.nsref), keep_disabled=True):
+                activated.append(tc.name)
+            else:
+                left_disabled.append(tc.name)
+        return TriggerActivationResult(activated=activated, left_disabled=left_disabled)
 
     def deactivate(self, name: str) -> None:
         """Deactivate a trigger."""

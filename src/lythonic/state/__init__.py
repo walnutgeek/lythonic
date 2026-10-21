@@ -286,6 +286,7 @@ with db.open() as conn:
 - `FieldInfo`: Field metadata extraction
 - `open_sqlite_db`: Context manager for SQLite connections
 - `execute_sql`: Execute SQL with logging
+- `add_missing_column`: Add a column to a table created by an older version
 - `from_multi_model_row`: Parse multi-model query results
 - `to_sql_datetime`: Convert datetime to SQL string
 - `AltKey`: Alternative key metadata and resolution (from `lythonic.state.alt_key`)
@@ -329,6 +330,18 @@ logger = logging.getLogger("lythonic.state")
 def execute_sql(cursor: sqlite3.Cursor, sql: str, *args: Any):
     logger.debug(f"execute: {sql}" + (f" -- with args: {args}" if len(args) > 0 else ""))
     cursor.execute(sql, *args)
+
+
+def add_missing_column(cursor: sqlite3.Cursor, table: str, column: str, decl: str) -> None:
+    """
+    Add a column to a table created by an older version, if it lacks it. For
+    hand-written DDL (`CREATE TABLE IF NOT EXISTS`), which never alters an
+    existing table. `table`, `column` and `decl` are interpolated into SQL, so
+    they must be literals, never user input.
+    """
+    execute_sql(cursor, f"PRAGMA table_info({table})")
+    if column not in {row[1] for row in cursor.fetchall()}:
+        execute_sql(cursor, f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 T = TypeVar("T", bound="DbModel")  # pyright: ignore [reportMissingTypeArgument]

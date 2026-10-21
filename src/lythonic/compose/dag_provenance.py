@@ -33,14 +33,29 @@ single `open_sqlite_db` cycle to reduce lock contention.
 
 Each run records `initiated_by`: whatever `run_initiator` holds when
 `DagRunner.run` starts it, e.g. a user id set by the server handling the
-request. Child runs inherit it, since they start in the same context.
-`TriggerManager` sets `SCHEDULER` for runs its schedule fires. Set it with
-the `initiated_by` context manager:
+request. Set it with the `initiated_by` context manager:
 
 ```
 with initiated_by("usr_1234"):
     await runner.run(...)
 ```
+
+- Child runs inherit it: sub-DAG runs start in the same asyncio context, and
+  sync nodes run on executor threads with a copy of it. A thread a node starts
+  itself does not see it, so runs started there record `None` unless the node
+  wraps them in `initiated_by`.
+- `TriggerManager` fires scheduled runs inside `initiated_by(SCHEDULER)`.
+- `DagRunner.replay` creates a new run, attributed to the caller.
+  `DagRunner.restart` continues the same run, which keeps its original
+  `initiated_by`.
+- `initiated_by(None)` clears an outer initiator, e.g. for a server request
+  with no known caller.
+- Values are opaque strings. Lythonic only reserves `SCHEDULER`; the host
+  defines the rest (user ids, `cli:<user>`, ...).
+
+`create_run` falls back to `run_initiator` when no `initiator` is passed, which
+is only correct on the thread that set it; `DagRunner.run` reads it before
+moving to the executor thread.
 
 ## Serialization Helpers
 
@@ -67,7 +82,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from lythonic.state import execute_sql, open_sqlite_db
+from lythonic.state import add_missing_column, execute_sql, open_sqlite_db
 
 _log = logging.getLogger(__name__)
 
@@ -242,13 +257,6 @@ def _insert_run(
             initiator,
         ),
     )
-
-
-def add_missing_column(cursor: sqlite3.Cursor, table: str, column: str, decl: str) -> None:
-    """Add a column to a table created by an older version, if it lacks it."""
-    execute_sql(cursor, f"PRAGMA table_info({table})")
-    if column not in {row[1] for row in cursor.fetchall()}:
-        execute_sql(cursor, f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def _update_run_status(cursor: sqlite3.Cursor, run_id: str, status: str) -> None:

@@ -128,16 +128,46 @@ later with `manager.activate("hourly_market")`.
 
 ## Restarts and Missed Fires
 
-Call `activate()` on every process start. Re-activating a trigger that is
-already active keeps its `last_run_at`, even if its schedule changed, so if
-one or more scheduled fires fell due while the process was down, the trigger
-fires once (not once per missed fire) as soon as the poll loop starts.
+Call `activate_configured()` on every process start. It activates every
+trigger the node configs define, except those stored as `disabled`, so a
+deliberate `deactivate()` stays in force across restarts:
 
-Reactivating a `disabled` trigger resets `last_run_at` to now, so the time it
-spent paused is not caught up.
+```python
+result = manager.activate_configured()
+print(result.activated, result.left_disabled)
+```
+
+Re-activating a trigger that is already active keeps its `last_run_at`, even
+if its schedule changed, so if one or more scheduled fires fell due while the
+process was down, the trigger fires once (not once per missed fire) as soon as
+the poll loop starts.
+
+An explicit `activate()` re-enables a `disabled` trigger and resets its
+`last_run_at` to now, so the time it spent paused is not caught up.
 
 A run that takes longer than the gap to the next scheduled fire skips the
 fire times it overran and logs a warning naming the trigger.
+
+## Who Started a Run
+
+Every run records `initiated_by`. Runs the poll loop fires record
+`"scheduler"` (`SCHEDULER`). For runs you start yourself, set the initiator
+with `initiated_by`, e.g. to the user id of the request being served:
+
+```python
+from lythonic.compose.dag_provenance import initiated_by
+
+with initiated_by("usr_1234"):
+    result = await manager.fire("hourly_market")
+    manager.deactivate("hourly_market")
+
+provenance.get_run(result.run_id)["initiated_by"]  # "usr_1234"
+store.get_activation("hourly_market")["changed_by"]  # "usr_1234"
+```
+
+`activate()` and `deactivate()` record the initiator as `changed_by`, with
+`changed_at`. `activate_configured()` at start-up runs with no initiator, so
+it leaves the last deliberate change in place.
 
 ## Without Provenance
 

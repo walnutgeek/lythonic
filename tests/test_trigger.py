@@ -4,10 +4,15 @@ import asyncio
 import logging
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from typing_extensions import override
 
 import tests.test_trigger as this_module
+
+if TYPE_CHECKING:
+    from lythonic.compose.trigger import TriggerManager
 
 _poll_counter = 0
 
@@ -216,6 +221,65 @@ def test_trigger_store_reactivate_after_deactivate_resets_last_run():
 
 async def _async_echo(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
     return f"echo:{text}"
+
+
+def _two_trigger_manager(tmp: str) -> TriggerManager:
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[
+            TriggerConfig(name="hook", type="push"),
+            TriggerConfig(name="daily", type="poll", schedule="0 0 * * *"),
+        ],
+    )
+    ns.register(dag, nsref="pipelines:echo", config=config)
+    return TriggerManager(namespace=ns, store=TriggerStore(Path(tmp) / "triggers.db"))
+
+
+def test_activate_configured_activates_new_triggers():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        manager = _two_trigger_manager(tmp)
+        result = manager.activate_configured()
+        assert result.activated == ["hook", "daily"]
+        assert result.left_disabled == []
+        assert manager.store.get_activation("daily")["status"] == "active"  # pyright: ignore[reportOptionalSubscript]
+
+
+def test_activate_configured_keeps_deactivated_trigger_disabled_on_restart():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        manager = _two_trigger_manager(tmp)
+        with patch("time.time", return_value=1000.0):
+            manager.activate_configured()
+        manager.deactivate("daily")
+        before = manager.store.get_activation("daily")
+
+        with patch("time.time", return_value=2000.0):
+            result = manager.activate_configured()
+
+        assert result.activated == ["hook"]
+        assert result.left_disabled == ["daily"]
+        assert manager.store.get_activation("daily") == before
+
+        # An explicit activate still re-enables it.
+        manager.activate("daily")
+        assert manager.store.get_activation("daily")["status"] == "active"  # pyright: ignore[reportOptionalSubscript]
+        assert manager.activate_configured().left_disabled == []
+
+
+def test_activate_configured_keeps_active_trigger_last_run_at():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        manager = _two_trigger_manager(tmp)
+        with patch("time.time", return_value=1000.0):
+            manager.activate_configured()
+        with patch("time.time", return_value=2000.0):
+            manager.activate_configured()
+        assert manager.store.get_activation("daily")["last_run_at"] == 1000.0  # pyright: ignore[reportOptionalSubscript]
 
 
 async def test_trigger_manager_fire_push():

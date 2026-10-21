@@ -613,9 +613,7 @@ class DagRunner:
         source_inputs: dict[str, dict[str, Any]] = (
             json.loads(source_inputs_json) if source_inputs_json else {}
         )
-        self.provenance.create_run(
-            new_run_id, old_run["dag_nsref"], source_inputs, initiator=run_initiator.get()
-        )
+        self.provenance.create_run(new_run_id, old_run["dag_nsref"], source_inputs)
         self._pause_requested = False
 
         # Pre-populate outputs for nodes NOT being re-run

@@ -937,12 +937,15 @@ class Namespace:
         tokens = _parse_tag_expr(expr)
         return [node for node in self._all_leaves() if _eval_tag_expr(tokens, node.tags)]
 
+    def triggers(self) -> list[tuple[NamespaceNode, TriggerConfig]]:
+        """All triggers defined in node configs, as (node, trigger_config) pairs."""
+        return [(node, tc) for node in self._nodes.values() for tc in node.config.triggers]
+
     def get_trigger(self, name: str) -> tuple[NamespaceNode, TriggerConfig]:
         """Find a trigger by name across all nodes. Returns (node, trigger_config)."""
-        for node in self._nodes.values():
-            for tc in node.config.triggers:
-                if tc.name == name:
-                    return node, tc
+        for node, tc in self.triggers():
+            if tc.name == name:
+                return node, tc
         raise KeyError(f"Trigger '{name}' not found")
 
     def to_dict(self) -> list[dict[str, Any]]:

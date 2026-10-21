@@ -97,3 +97,11 @@ attribute named for that library's conventional import alias (`np`, `pd`, `pl`,
 `pa`). Class access gives inbound constructors, instance access outbound
 conversions.
 _Avoid_: adapter, bridge, accessor, namespace
+
+## Provenance
+
+**Initiator**:
+Who or what started a run or changed a trigger: a user, a CLI user, or the
+scheduler. An opaque string the host chooses; only the scheduler's value is
+fixed.
+_Avoid_: owner, author, actor, user (an initiator need not be a user)
