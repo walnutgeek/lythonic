@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 import tempfile
+import time
+from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -10,6 +13,7 @@ from unittest.mock import patch
 from typing_extensions import override
 
 import tests.test_trigger as this_module
+from lythonic.state import open_sqlite_db
 
 if TYPE_CHECKING:
     from lythonic.compose.trigger import TriggerManager
@@ -169,6 +173,70 @@ def test_trigger_store_update_last_run():
         assert activation is not None
         assert activation["last_run_id"] == "run-1"
         assert activation["last_run_at"] is not None
+
+
+def test_trigger_store_fire_after_empty_check_moves_check_time_too():
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        store.activate(TriggerConfig(name="t1", type="poll", schedule="0 0 * * *"), "p:d")
+        with patch("time.time", return_value=1000.0):
+            store.record_check("t1")
+        with patch("time.time", return_value=2000.0):
+            store.update_last_run("t1", run_id="run-1")
+        a = store.get_activation("t1")
+        assert a is not None
+        assert (a["last_run_at"], a["last_checked_at"], a["last_run_id"]) == (
+            2000.0,
+            2000.0,
+            "run-1",
+        )
+
+
+def test_trigger_store_check_time_survives_restart_but_not_a_pause():
+    from lythonic.compose.namespace import TriggerConfig
+    from lythonic.compose.trigger import TriggerStore
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        store = TriggerStore(Path(tmp) / "triggers.db")
+        tc = TriggerConfig(name="t1", type="poll", schedule="0 0 * * *")
+        store.activate(tc, "p:d")
+        with patch("time.time", return_value=1000.0):
+            store.record_check("t1")
+        with patch("time.time", return_value=2000.0):
+            store.activate(tc, "p:d")
+        assert store.get_activation("t1")["last_checked_at"] == 1000.0  # pyright: ignore[reportOptionalSubscript]
+
+        store.deactivate("t1")
+        with patch("time.time", return_value=3000.0):
+            store.activate(tc, "p:d")
+        assert store.get_activation("t1")["last_checked_at"] == 3000.0  # pyright: ignore[reportOptionalSubscript]
+
+
+def test_trigger_store_old_database_gains_check_time():
+    from lythonic.compose.trigger import TriggerStore
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        db = Path(tmp) / "triggers.db"
+        with closing(sqlite3.connect(db)) as conn:
+            conn.execute(
+                "CREATE TABLE trigger_activations (name TEXT PRIMARY KEY, "
+                "dag_nsref TEXT NOT NULL, trigger_type TEXT NOT NULL, status TEXT NOT NULL, "
+                "last_run_at REAL, next_run_at REAL, last_run_id TEXT, "
+                "created_at REAL NOT NULL, config_json TEXT, changed_by TEXT, changed_at REAL)"
+            )
+            conn.execute(
+                "INSERT INTO trigger_activations (name, dag_nsref, trigger_type, status, "
+                "created_at) VALUES ('t1', 'p:d', 'poll', 'active', 1.0)"
+            )
+            conn.commit()
+        store = TriggerStore(db)
+        assert store.get_activation("t1")["last_checked_at"] is None  # pyright: ignore[reportOptionalSubscript]
+        with patch("time.time", return_value=1000.0):
+            store.record_check("t1")
+        assert store.get_activation("t1")["last_checked_at"] == 1000.0  # pyright: ignore[reportOptionalSubscript]
 
 
 def test_trigger_store_reactivate_keeps_run_history():
@@ -580,6 +648,100 @@ async def test_trigger_manager_poll_custom_fn():
 
         events = store.get_events("poller")
         assert len(events) >= 1
+
+
+_empty_checks: list[float] = []
+_empty_checked: asyncio.Event | None = None
+
+
+def _nothing_new_poll_fn() -> None:  # pyright: ignore[reportUnusedFunction]
+    this_module._empty_checks.append(time.time())  # pyright: ignore[reportPrivateUsage]
+    if this_module._empty_checked is not None:  # pyright: ignore[reportPrivateUsage]
+        this_module._empty_checked.set()  # pyright: ignore[reportPrivateUsage]
+
+
+def _failing_poll_fn() -> None:  # pyright: ignore[reportUnusedFunction]
+    _nothing_new_poll_fn()
+    raise RuntimeError("source unavailable")
+
+
+def _empty_poll_manager(tmp: str, poll_fn: str = "_nothing_new_poll_fn") -> TriggerManager:
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig, TriggerConfig
+    from lythonic.compose.trigger import TriggerManager, TriggerStore
+
+    ns = Namespace()
+    ns.register(this_module._async_echo, nsref="t:echo")  # pyright: ignore[reportPrivateUsage]
+    dag = Dag()
+    dag.node(ns.get("t:echo"))
+    config = NsNodeConfig(
+        nsref="pipelines:echo",
+        triggers=[
+            TriggerConfig(
+                name="inbox",
+                type="poll",
+                poll_fn=f"tests.test_trigger:{poll_fn}",  # pyright: ignore[reportArgumentType]
+                schedule="0 0 0 * * *",  # daily at midnight, seconds first
+            )
+        ],
+    )
+    ns.register(dag, nsref="pipelines:echo", config=config)
+    return TriggerManager(namespace=ns, store=TriggerStore(Path(tmp) / "triggers.db"))
+
+
+def _make_check_due(manager: TriggerManager, name: str) -> None:
+    """Back-date the trigger so its scheduled check fell due two days ago."""
+    with open_sqlite_db(manager.store.db_path) as conn:
+        conn.execute(
+            "UPDATE trigger_activations SET last_run_at = ?, created_at = ? WHERE name = ?",
+            (time.time() - 2 * 86400, time.time() - 3 * 86400, name),
+        )
+        conn.commit()
+
+
+async def _poll_until_checked(manager: TriggerManager, ticks: float) -> None:
+    """Run the poll loop until the first check, then for `ticks` more loop ticks."""
+    this_module._empty_checks.clear()  # pyright: ignore[reportPrivateUsage]
+    this_module._empty_checked = asyncio.Event()  # pyright: ignore[reportPrivateUsage]
+    manager.start()
+    try:
+        await asyncio.wait_for(this_module._empty_checked.wait(), timeout=5)  # pyright: ignore[reportPrivateUsage]
+        # Absence of further checks can only be observed by letting the loop tick.
+        await asyncio.sleep(ticks)
+    finally:
+        manager.stop()
+        this_module._empty_checked = None  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_empty_poll_check_waits_for_next_scheduled_time():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        manager = _empty_poll_manager(tmp)
+        manager.activate("inbox")
+        _make_check_due(manager, "inbox")
+        before = manager.store.get_activation("inbox")
+
+        await _poll_until_checked(manager, ticks=2.2)
+
+        assert len(this_module._empty_checks) == 1  # pyright: ignore[reportPrivateUsage]
+        assert manager.store.get_events("inbox") == []
+        after = manager.store.get_activation("inbox")
+        assert after is not None and before is not None
+        assert (after["last_run_at"], after["last_run_id"]) == (
+            before["last_run_at"],
+            before["last_run_id"],
+        )
+        assert after["last_checked_at"] is not None
+
+
+async def test_failing_poll_check_waits_for_next_scheduled_time():
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        manager = _empty_poll_manager(tmp, poll_fn="_failing_poll_fn")
+        manager.activate("inbox")
+        _make_check_due(manager, "inbox")
+
+        await _poll_until_checked(manager, ticks=2.2)
+
+        assert len(this_module._empty_checks) == 1  # pyright: ignore[reportPrivateUsage]
+        assert manager.store.get_events("inbox") == []
 
 
 async def test_trigger_manager_start_stop():

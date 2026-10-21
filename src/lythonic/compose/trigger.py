@@ -13,6 +13,12 @@ activates the triggers the node configs define, but leaves those stored as
 polling resumes: re-activating an active trigger keeps its `last_run_at`. A run
 that overruns later scheduled fire times skips them and logs a warning.
 
+Every `poll_fn` call counts as the scheduled check, even when it returns `None`
+or raises: it sets `last_checked_at`, and the next check waits for the next
+scheduled time.
+The schedule counts from `last_checked_at`, falling back to `last_run_at` and
+then `created_at`; `last_run_at` moves only on a real fire, which sets both.
+
 Runs fired by the schedule record `initiated_by = SCHEDULER`; runs fired with
 `TriggerManager.fire` record the caller's `run_initiator` (see
 `lythonic.compose.dag_provenance`).
@@ -66,7 +72,8 @@ CREATE TABLE IF NOT EXISTS trigger_activations (
     created_at REAL NOT NULL,
     config_json TEXT,
     changed_by TEXT,
-    changed_at REAL
+    changed_at REAL,
+    last_checked_at REAL
 )"""
 
 
@@ -151,6 +158,7 @@ class TriggerStore:
             execute_sql(cursor, _TRIGGER_ACTIVATIONS_DDL)
             add_missing_column(cursor, "trigger_activations", "changed_by", "TEXT")
             add_missing_column(cursor, "trigger_activations", "changed_at", "REAL")
+            add_missing_column(cursor, "trigger_activations", "last_checked_at", "REAL")
             execute_sql(cursor, _TRIGGER_EVENTS_DDL)
             conn.commit()
 
@@ -165,7 +173,8 @@ class TriggerStore:
         Re-activating an active trigger (e.g. on every process start) keeps `last_run_at`,
         `last_run_id` and `created_at`, even if the config changed, so a scheduled fire
         missed while the process was down fires once when polling resumes. Activating a
-        disabled trigger resets `last_run_at` to now, so a deliberate pause is not caught up.
+        disabled trigger resets `last_run_at` and `last_checked_at` to now, so a deliberate
+        pause is not caught up.
         """
         config: dict[str, Any] = {}
         if trigger_config.schedule is not None:
@@ -190,7 +199,10 @@ class TriggerStore:
                 "status = excluded.status, "
                 "config_json = excluded.config_json, "
                 "last_run_at = CASE WHEN trigger_activations.status = 'disabled' "
-                "THEN excluded.last_run_at ELSE trigger_activations.last_run_at END",
+                "THEN excluded.last_run_at ELSE trigger_activations.last_run_at END, "
+                # excluded.last_run_at is now: re-enabling restarts the check schedule too.
+                "last_checked_at = CASE WHEN trigger_activations.status = 'disabled' "
+                "THEN excluded.last_run_at ELSE trigger_activations.last_checked_at END",
                 (
                     trigger_config.name,
                     dag_nsref,
@@ -285,14 +297,31 @@ class TriggerStore:
             cols = [d[0] for d in cursor.description]
             return [dict(zip(cols, row, strict=False)) for row in cursor.fetchall()]
 
-    def update_last_run(self, name: str, run_id: str) -> None:
-        """Update last run timestamp and run ID for an activation."""
+    def record_check(self, name: str) -> None:
+        """
+        Record a scheduled `poll_fn` check, so the next check waits for the next
+        scheduled time even if this one found nothing or failed. Leaves
+        `last_run_at` alone: it only moves on a real fire.
+        """
         with open_sqlite_db(self.db_path) as conn:
             cursor = conn.cursor()
             execute_sql(
                 cursor,
-                "UPDATE trigger_activations SET last_run_at = ?, last_run_id = ? WHERE name = ?",
-                (time.time(), run_id, name),
+                "UPDATE trigger_activations SET last_checked_at = ? WHERE name = ?",
+                (time.time(), name),
+            )
+            conn.commit()
+
+    def update_last_run(self, name: str, run_id: str) -> None:
+        """Update last run timestamp and run ID for an activation. A fire is also a check."""
+        now = time.time()
+        with open_sqlite_db(self.db_path) as conn:
+            cursor = conn.cursor()
+            execute_sql(
+                cursor,
+                "UPDATE trigger_activations SET last_run_at = ?, last_checked_at = ?, "
+                "last_run_id = ? WHERE name = ?",
+                (now, now, run_id, name),
             )
             conn.commit()
 
@@ -425,8 +454,13 @@ class TriggerManager:
                     if not schedule:
                         continue
 
-                    last_run = activation.get("last_run_at") or activation.get("created_at") or 0
-                    next_fire = _croniter_for(schedule, last_run).get_next(float)
+                    schedule_from = (
+                        activation.get("last_checked_at")
+                        or activation.get("last_run_at")
+                        or activation.get("created_at")
+                        or 0
+                    )
+                    next_fire = _croniter_for(schedule, schedule_from).get_next(float)
 
                     if now < next_fire:
                         continue
@@ -437,7 +471,12 @@ class TriggerManager:
                         from lythonic import GlobalRef
 
                         fn = GlobalRef(poll_fn_gref).get_instance()
-                        result: Any = fn()
+                        try:
+                            result: Any = fn()
+                        finally:
+                            # An empty or failed check, or a failed fire after it, still
+                            # waits for the next scheduled time instead of the next tick.
+                            self.store.record_check(activation["name"])
                         if result is None:
                             continue
                         payload = dict(result) if isinstance(result, dict) else {"data": result}  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]

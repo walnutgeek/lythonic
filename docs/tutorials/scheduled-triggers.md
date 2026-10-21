@@ -201,3 +201,7 @@ ns.register_trigger(
 
 When `poll_fn` returns data, it becomes the DAG's input payload — the
 dict keys are matched to the DAG's source node parameters by name.
+
+A check that returns `None` starts no run and records no event, and the next
+check waits for the next scheduled time, so a `poll_fn` that calls an external
+API is called once per schedule tick, not once per poll-loop second.
