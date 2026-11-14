@@ -54,16 +54,17 @@ characters.
 ## Requires
 
 A node can declare one requirement, an opaque string that the host enforces
-(e.g. a Grant a caller must hold before woodglue runs the node over JSON-RPC).
+(e.g. woodglue's Required Action: only a Caller whose Grant names that Action on
+the namespace may run the node over JSON-RPC).
 Lythonic only stores it and exposes it as `NamespaceNode.requires`; `None`
 means no requirement. It is unrelated to `@mount_required`
 (`NamespaceNode.requires_mount`).
 
 ```python
-ns.register(add_trade, nsref="portfolio:add_trade", requires="call portfolio.write")
+ns.register(add_trade, nsref="portfolio:add_trade", requires="write")
 
 class Portfolio(NamespaceFragment):
-    @nsnode(tags=["api"], requires="call portfolio.write")
+    @nsnode(tags=["api"], requires="write")
     def add_trade(self, trade: Trade) -> None: ...
 ```
 

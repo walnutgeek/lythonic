@@ -110,6 +110,6 @@ _Avoid_: owner, author, actor, user (an initiator need not be a user)
 
 **Requirement**:
 The one access condition a node declares (`requires`) and its host checks
-before running it, e.g. a Grant in woodglue. Lythonic stores it but never
-interprets it. Not the same as a node requiring a mount.
-_Avoid_: permission, grant (the host's term), guard
+before running it, e.g. an Action name such as `write` in woodglue. Lythonic
+stores it but never interprets it. Not the same as a node requiring a mount.
+_Avoid_: permission, action (the host's term), guard

@@ -181,7 +181,7 @@ class SampleFragment(NamespaceFragment):
     def fetch_prices(self, ticker: str) -> dict[str, str]:
         return {"ticker": ticker, "key": self.api_key}
 
-    @nsnode(requires="call downloads.write")
+    @nsnode(requires="write")
     def transform(self, data: dict[str, Any]) -> dict[str, Any]:
         return {"processed": data}
 
@@ -216,7 +216,7 @@ def test_class_fragment_registers_all_methods():
 
     transform_node = ns.get("downloads:transform")
     assert transform_node(data={"x": 1}) == {"processed": {"x": 1}}
-    assert transform_node.requires == "call downloads.write"
+    assert transform_node.requires == "write"
     assert fetch_node.requires is None
 
     pipeline_node = ns.get("downloads:pipeline__")
