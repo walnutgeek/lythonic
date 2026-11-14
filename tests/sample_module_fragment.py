@@ -13,7 +13,7 @@ def normalize(data: dict[str, Any]) -> dict[str, Any]:
     return {"normalized": True, **data}
 
 
-@nsnode()
+@nsnode(requires="write")
 def flatten(data: list[Any]) -> list[Any]:
     result: list[Any] = []
     for sublist in data:

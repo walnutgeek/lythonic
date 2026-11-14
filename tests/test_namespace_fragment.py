@@ -181,7 +181,7 @@ class SampleFragment(NamespaceFragment):
     def fetch_prices(self, ticker: str) -> dict[str, str]:
         return {"ticker": ticker, "key": self.api_key}
 
-    @nsnode()
+    @nsnode(requires="call downloads.write")
     def transform(self, data: dict[str, Any]) -> dict[str, Any]:
         return {"processed": data}
 
@@ -216,6 +216,8 @@ def test_class_fragment_registers_all_methods():
 
     transform_node = ns.get("downloads:transform")
     assert transform_node(data={"x": 1}) == {"processed": {"x": 1}}
+    assert transform_node.requires == "call downloads.write"
+    assert fetch_node.requires is None
 
     pipeline_node = ns.get("downloads:pipeline__")
     assert pipeline_node.dag is not None
@@ -377,6 +379,8 @@ def test_module_fragment_discovers_functions():
 
     flat = ns.get("transforms:flatten")
     assert flat(data=[[1, 2], [3]]) == [1, 2, 3]
+    assert flat.requires == "write"
+    assert norm.requires is None
 
 
 def test_module_fragment_with_init_raises():

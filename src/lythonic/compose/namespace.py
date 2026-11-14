@@ -51,6 +51,27 @@ Tag expressions support `&` (AND), `|` (OR), `~` (NOT) with standard
 precedence (`~` > `&` > `|`). Tags must not contain spaces or operator
 characters.
 
+## Requires
+
+A node can declare one requirement, an opaque string that the host enforces
+(e.g. a Grant a caller must hold before woodglue runs the node over JSON-RPC).
+Lythonic only stores it and exposes it as `NamespaceNode.requires`; `None`
+means no requirement. It is unrelated to `@mount_required`
+(`NamespaceNode.requires_mount`).
+
+```python
+ns.register(add_trade, nsref="portfolio:add_trade", requires="call portfolio.write")
+
+class Portfolio(NamespaceFragment):
+    @nsnode(tags=["api"], requires="call portfolio.write")
+    def add_trade(self, trade: Trade) -> None: ...
+```
+
+It can also be set as `requires:` on a YAML entry (`NsNodeConfig.requires`).
+When `register` gets both a `requires` argument and a `config` with
+`requires` set, they must agree or it raises `ValueError`; unlike `tags`, a
+passed `config` does not silently win, since the value guards access.
+
 ## Map
 
 `Dag.map(sub_dag, label)` creates a `MapNode` that runs a sub-DAG on each
@@ -193,7 +214,8 @@ ns.register(my_pipeline)  # registers DAG under "module:my_pipeline__"
 ## Namespace Fragments
 
 A `NamespaceFragment` groups related methods under a shared nsref prefix.
-Subclass it and decorate methods with `@nsnode(tags=[...])` for discovery.
+Subclass it and decorate methods with `@nsnode(tags=[...], requires=...)` for
+discovery.
 Use `@require_cache` to enforce cache configuration at registration time.
 
 ```yaml
@@ -275,12 +297,13 @@ def mount_required(fn: _F) -> _F:
     return fn
 
 
-def nsnode(tags: list[str] | None = None) -> Callable[[_F], _F]:
+def nsnode(tags: list[str] | None = None, requires: str | None = None) -> Callable[[_F], _F]:
     """Mark a function for namespace discovery in fragments."""
 
     def decorator(fn: _F) -> _F:
         fn._is_nsnode = True  # pyright: ignore[reportFunctionMemberAccess]
         fn._nsnode_tags = tags or []  # pyright: ignore[reportFunctionMemberAccess]
+        fn._nsnode_requires = requires  # pyright: ignore[reportFunctionMemberAccess]
         return fn
 
     return decorator
@@ -561,6 +584,7 @@ class NsNodeConfig(BaseModel):
     nsref: NsRef | str | None = None
     gref: GlobalRef | None = None
     tags: list[str] | None = None
+    requires: str | None = None
     triggers: list[TriggerConfig] = []
 
     @model_validator(mode="after")
@@ -636,6 +660,7 @@ class NamespaceNode:
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
         dag: Dag | None = None,
+        requires: str | None = None,
     ) -> None:
         self.method = method
         self.namespace = namespace
@@ -643,10 +668,21 @@ class NamespaceNode:
         self.dag: Dag | None = dag
         self.metadata: dict[str, Any] = {}
         validated_tags = _validate_tags(tags)
+        if config is not None and requires is not None:
+            if config.requires is None:
+                # Copy rather than mutate: the caller may reuse its config.
+                config = config.model_copy(update={"requires": requires})
+            elif config.requires != requires:
+                # Unlike tags, never silently drop one: it guards access to the node.
+                raise ValueError(
+                    f"'{config.nsref}' got requires={requires!r} but its config has "
+                    f"requires={config.requires!r}"
+                )
         self.config = config or NsNodeConfig(
             nsref=NsRef(nsref) if isinstance(nsref, str) else nsref,
             gref=method.gref if method.gref else None,
             tags=sorted(validated_tags) if validated_tags else None,
+            requires=requires,
         )
 
     @property
@@ -658,6 +694,11 @@ class NamespaceNode:
     @property
     def tags(self) -> frozenset[str]:
         return frozenset(self.config.tags) if self.config.tags else frozenset()
+
+    @property
+    def requires(self) -> str | None:
+        """The node's declared requirement; see "Requires" in the module docs."""
+        return self.config.requires
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         if self._decorated is not None:
@@ -783,6 +824,7 @@ class Namespace:
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
+        requires: str | None = None,
     ) -> NamespaceNode:
         """
         Register a callable. If `nsref` is `None`, derive from the callable's
@@ -793,7 +835,7 @@ class Namespace:
         on the node for querying via `query()`.
         """
         if isinstance(c, Dag):
-            return self._register_dag(c, nsref, tags=tags, config=config)
+            return self._register_dag(c, nsref, tags=tags, config=config, requires=requires)
 
         # Enforce @require_cache: callable must have a NsCacheConfig.
         if callable(c) and getattr(c, "_require_cache", False):
@@ -810,7 +852,9 @@ class Namespace:
             dag = c()
             if not isinstance(dag, Dag):
                 raise TypeError(f"@dag_factory {gref} must return a Dag, got {type(dag).__name__}")
-            return self._register_dag(dag, factory_nsref, tags=tags, config=config)
+            return self._register_dag(
+                dag, factory_nsref, tags=tags, config=config, requires=requires
+            )
 
         gref = GlobalRef(c)
 
@@ -834,6 +878,7 @@ class Namespace:
             decorated=decorated,
             tags=tags,
             config=config,
+            requires=requires,
         )
         self._nodes[key] = node
         return node
@@ -844,6 +889,7 @@ class Namespace:
         nsref: str | NsRef | None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
         config: NsNodeConfig | None = None,
+        requires: str | None = None,
     ) -> NamespaceNode:
         """
         Register a Dag as a callable NamespaceNode. Sets the DAG's
@@ -857,8 +903,6 @@ class Namespace:
 
         if dag.parent_namespace is self:
             raise ValueError(f"Dag '{key}' is already registered with this namespace")
-
-        dag.parent_namespace = self
 
         ns_ref = self
 
@@ -889,8 +933,16 @@ class Namespace:
             raise ValueError(f"'{key}' already exists in namespace")
 
         node = NamespaceNode(
-            method=method, nsref=nsref, namespace=self, tags=tags, config=config, dag=dag
+            method=method,
+            nsref=nsref,
+            namespace=self,
+            tags=tags,
+            config=config,
+            dag=dag,
+            requires=requires,
         )
+        # Claim the DAG only once the node is valid, so a rejected call can be retried.
+        dag.parent_namespace = self
         self._nodes[key] = node
         return node
 
@@ -921,9 +973,10 @@ class Namespace:
         *cc: Callable[..., Any],
         decorate: Callable[[Callable[..., Any]], Callable[..., Any]] | None = None,
         tags: frozenset[str] | set[str] | list[str] | None = None,
+        requires: str | None = None,
     ) -> list[NamespaceNode]:
         """Bulk register callables using derived paths."""
-        return [self.register(c, decorate=decorate, tags=tags) for c in cc]
+        return [self.register(c, decorate=decorate, tags=tags, requires=requires) for c in cc]
 
     def _all_leaves(self) -> list[NamespaceNode]:
         """Return all registered nodes."""
@@ -1042,6 +1095,7 @@ class Namespace:
             # Apply tags to the config
             if tags:
                 node_config.tags = tags
+            node_config.requires = getattr(method_callable, "_nsnode_requires", None)
 
             if "triggers" in method_config_dict:
                 triggers = [TriggerConfig.model_validate(t) for t in method_config_dict["triggers"]]

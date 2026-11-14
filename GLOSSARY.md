@@ -105,3 +105,11 @@ Who or what started a run or changed a trigger: a user, a CLI user, or the
 scheduler. An opaque string the host chooses; only the scheduler's value is
 fixed.
 _Avoid_: owner, author, actor, user (an initiator need not be a user)
+
+## Namespaces
+
+**Requirement**:
+The one access condition a node declares (`requires`) and its host checks
+before running it, e.g. a Grant in woodglue. Lythonic stores it but never
+interprets it. Not the same as a node requiring a mount.
+_Avoid_: permission, grant (the host's term), guard

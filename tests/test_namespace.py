@@ -552,6 +552,33 @@ def test_namespace_round_trip():
     assert node(ticker="X") == {"ticker": "X", "limit": 10}
 
 
+def test_requires_round_trips_through_yaml_and_to_dict():
+    from textwrap import dedent
+
+    import yaml
+
+    from lythonic.compose.namespace import Namespace
+
+    entries = yaml.safe_load(
+        dedent("""
+            - nsref: market:fetch
+              gref: tests.test_namespace:_sample_fn
+              requires: write
+            - nsref: market:process
+              gref: tests.test_namespace:_another_fn
+            """)
+    )
+    ns = Namespace.from_dict(entries)
+    assert ns.get("market:fetch").requires == "write"
+    assert ns.get("market:process").requires is None
+
+    dumped = yaml.safe_load(yaml.safe_dump(ns.to_dict()))
+    by_nsref = {e["nsref"]: e for e in dumped}
+    assert by_nsref["market:fetch"]["requires"] == "write"
+    assert "requires" not in by_nsref["market:process"]
+    assert Namespace.from_dict(dumped).get("market:fetch").requires == "write"
+
+
 # Dag-namespace registration
 
 
@@ -1053,6 +1080,79 @@ def test_register_all_with_tags():
         tags={"batch"},
     )
     assert all(n.tags == frozenset({"batch"}) for n in nodes)
+
+
+def test_register_with_requires():
+    from lythonic.compose.namespace import Namespace
+
+    ns = Namespace()
+    node = ns.register(
+        this_module._sample_fn,  # pyright: ignore[reportPrivateUsage]
+        nsref="test:fetch",
+        tags=["api"],
+        requires="write",
+    )
+    assert node.requires == "write"
+    assert ns.register(this_module._another_fn, nsref="test:other").requires is None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_register_requires_must_agree_with_config():
+    from lythonic.compose.namespace import Namespace, NsNodeConfig
+
+    fn = this_module._sample_fn  # pyright: ignore[reportPrivateUsage]
+    ns = Namespace()
+    try:
+        ns.register(
+            fn, nsref="t:a", requires="read", config=NsNodeConfig(nsref="t:a", requires="write")
+        )
+        raise AssertionError("Expected ValueError for conflicting requires")
+    except ValueError as e:
+        assert "t:a" in str(e) and "'read'" in str(e) and "'write'" in str(e)
+
+    same = NsNodeConfig(nsref="t:b", requires="write")
+    assert ns.register(fn, nsref="t:b", requires="write", config=same).requires == "write"
+    only_config = NsNodeConfig(nsref="t:c", requires="write")
+    assert ns.register(fn, nsref="t:c", config=only_config).requires == "write"
+    only_arg = NsNodeConfig(nsref="t:d")
+    assert ns.register(fn, nsref="t:d", requires="write", config=only_arg).requires == "write"
+
+
+def test_register_dag_and_register_all_with_requires():
+    from lythonic.compose.namespace import Dag, Namespace, dag_factory
+
+    @dag_factory
+    def pipeline() -> Dag:
+        dag = Dag()
+        dag.node(this_module._sample_fn, label="fetch")  # pyright: ignore[reportPrivateUsage]
+        return dag
+
+    ns = Namespace()
+    dag = Dag()
+    dag.node(this_module._sample_fn, label="fetch")  # pyright: ignore[reportPrivateUsage]
+    assert ns.register(dag, nsref="t:dag", requires="write").requires == "write"
+    assert ns.register(pipeline, nsref="t:factory__", requires="write").requires == "write"
+
+    nodes = ns.register_all(
+        this_module._sample_fn,  # pyright: ignore[reportPrivateUsage]
+        this_module._another_fn,  # pyright: ignore[reportPrivateUsage]
+        requires="write",
+    )
+    assert [n.requires for n in nodes] == ["write", "write"]
+
+
+def test_rejected_dag_registration_can_be_retried():
+    from lythonic.compose.namespace import Dag, Namespace, NsNodeConfig
+
+    ns = Namespace()
+    dag = Dag()
+    dag.node(this_module._sample_fn, label="fetch")  # pyright: ignore[reportPrivateUsage]
+    conflicting = NsNodeConfig(nsref="t:dag", requires="read")
+    try:
+        ns.register(dag, nsref="t:dag", requires="write", config=conflicting)
+        raise AssertionError("Expected ValueError for conflicting requires")
+    except ValueError:
+        pass
+    assert ns.register(dag, nsref="t:dag", requires="write").requires == "write"
 
 
 def test_register_tags_validation():
