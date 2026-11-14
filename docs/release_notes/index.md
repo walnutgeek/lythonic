@@ -1,5 +1,6 @@
 # All releases
 
+* [v0.0.29](v0.0.29.md) [github](https://github.com/walnutgeek/lythonic/releases/tag/v0.0.29)
 * [v0.0.28](v0.0.28.md) [github](https://github.com/walnutgeek/lythonic/releases/tag/v0.0.28)
 * [v0.0.27](v0.0.27.md) [github](https://github.com/walnutgeek/lythonic/releases/tag/v0.0.27)
 * [v0.0.26](v0.0.26.md) [github](https://github.com/walnutgeek/lythonic/releases/tag/v0.0.26)
